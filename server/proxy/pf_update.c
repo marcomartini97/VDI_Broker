@@ -129,6 +129,40 @@ static BOOL pf_client_bitmap_update(rdpContext* context, const BITMAP_UPDATE* bi
 	return ps->update->BitmapUpdate(ps, bitmap);
 }
 
+
+static BOOL pf_client_surface_bits(rdpContext* context, const SURFACE_BITS_COMMAND* cmd)
+{
+	pClientContext* pc = (pClientContext*)context;
+	proxyData* pdata = NULL;
+	rdpContext* ps = NULL;
+	WINPR_ASSERT(pc);
+	pdata = pc->pdata;
+	WINPR_ASSERT(pdata);
+	ps = (rdpContext*)pdata->ps;
+	WINPR_ASSERT(ps);
+	WINPR_ASSERT(ps->update);
+	WINPR_ASSERT(ps->update->SurfaceBits);
+	WLog_DBG(TAG, "called");
+	return ps->update->SurfaceBits(ps, cmd);
+}
+
+
+static BOOL pf_client_surface_frame_marker(rdpContext* context, const SURFACE_FRAME_MARKER* marker)
+{
+	pClientContext* pc = (pClientContext*)context;
+	proxyData* pdata = NULL;
+	rdpContext* ps = NULL;
+	WINPR_ASSERT(pc);
+	pdata = pc->pdata;
+	WINPR_ASSERT(pdata);
+	ps = (rdpContext*)pdata->ps;
+	WINPR_ASSERT(ps);
+	WINPR_ASSERT(ps->update);
+	WINPR_ASSERT(ps->update->SurfaceFrameMarker);
+	WLog_DBG(TAG, "called");
+	return ps->update->SurfaceFrameMarker(ps, marker);
+}
+
 static BOOL pf_client_desktop_resize(rdpContext* context)
 {
 	pClientContext* pc = (pClientContext*)context;
@@ -600,6 +634,8 @@ void pf_client_register_update_callbacks(rdpUpdate* update)
 	update->BeginPaint = pf_client_begin_paint;
 	update->EndPaint = pf_client_end_paint;
 	update->BitmapUpdate = pf_client_bitmap_update;
+	update->SurfaceBits = pf_client_surface_bits;
+	update->SurfaceFrameMarker = pf_client_surface_frame_marker;
 	update->DesktopResize = pf_client_desktop_resize;
 	update->RemoteMonitors = pf_client_remote_monitors;
 	update->SaveSessionInfo = pf_client_save_session_info;
