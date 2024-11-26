@@ -22,12 +22,194 @@
 #include "freerdp/server/proxy/proxy_context.h"
 
 #include <iostream>
+#include <string>
+#include <curl/curl.h>
+#include <unistd.h>
+#include <jsoncpp/json/json.h>
+
 
 #include <freerdp/api.h>
 #include <freerdp/scancode.h>
 #include <freerdp/server/proxy/proxy_modules_api.h>
+#include <sys/time.h>
 
-#define TAG MODULE_TAG("demo")
+#define TAG MODULE_TAG("vdi_broker")
+
+/* Container Management Part */
+
+
+// Path to the Podman UNIX socket
+const char* PODMAN_SOCKET = "/var/run/podman/podman.sock";
+
+// Callback function to capture CURL response data
+static size_t WriteCallback(void* contents, size_t size, size_t nmemb, void* userp) {
+    ((std::string*)userp)->append((char*)contents, size * nmemb);
+    return size * nmemb;
+}
+
+// Function to get container information via Podman RESTful API
+std::string get_container_info(const std::string& container_name) {
+    CURL* curl;
+    CURLcode res;
+    std::string response;
+
+    curl = curl_easy_init();
+    if (curl) {
+        std::string url = "http://d/v1.0.0/libpod/containers/" + container_name + "/json";
+
+        curl_easy_setopt(curl, CURLOPT_UNIX_SOCKET_PATH, PODMAN_SOCKET);
+        curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+
+        // Set up the write callback to capture response data
+        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
+        curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
+
+    	std::clog << "Get Container info" << std::endl;
+
+        // Perform the request
+        res = curl_easy_perform(curl);
+
+        if (res != CURLE_OK) {
+            std::cerr << "Failed to get container info: " << curl_easy_strerror(res) << std::endl;
+            response.clear();
+        }
+
+        long http_code = 0;
+        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
+
+        if (http_code == 404) {
+            response.clear(); // Container does not exist
+        } else if (http_code >= 400) {
+            std::cerr << "HTTP error code: " << http_code << std::endl;
+            response.clear();
+        }
+
+    	std::clog << "Get Container info - http code: " << http_code << std::endl;
+
+        curl_easy_cleanup(curl);
+    }
+    return response;
+}
+
+// Check if the container exists
+bool container_exists(const std::string& container_name) {
+    std::string info = get_container_info(container_name);
+    return !info.empty();
+}
+
+// Check if the container is running
+bool container_running(const std::string& container_name) {
+    std::string info = get_container_info(container_name);
+    if (info.empty()) {
+        return false;
+    }
+
+    Json::Value root;
+    Json::Reader reader;
+    if (!reader.parse(info, root)) {
+        std::cerr << "Failed to parse container JSON info." << std::endl;
+        return false;
+    }
+
+    std::string status = root["State"]["Status"].asString();
+    return status == "running";
+}
+
+// Start the container using Podman RESTful API
+bool start_container(const std::string& container_name) {
+    CURL* curl;
+    CURLcode res;
+    bool success = false;
+
+    curl = curl_easy_init();
+    if (curl) {
+        std::string url = "http://d/v1.0.0/libpod/containers/" + container_name + "/start";
+
+        curl_easy_setopt(curl, CURLOPT_UNIX_SOCKET_PATH, PODMAN_SOCKET);
+        curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+        curl_easy_setopt(curl, CURLOPT_POST, 1L);
+
+        // Perform the request
+        res = curl_easy_perform(curl);
+
+        if (res == CURLE_OK) {
+            long http_code = 0;
+            curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
+
+            if (http_code >= 200 && http_code < 300) {
+                success = true;
+            } else {
+                std::cerr << "Failed to start container, HTTP code: " << http_code << std::endl;
+            }
+        } else {
+            std::cerr << "Failed to start container: " << curl_easy_strerror(res) << std::endl;
+        }
+
+        curl_easy_cleanup(curl);
+    }
+    return success;
+}
+
+// Get the container's IP address
+std::string get_container_ip(const std::string& container_name) {
+    std::string info = get_container_info(container_name);
+    if (info.empty()) {
+        return "";
+    }
+
+    Json::Value root;
+    Json::Reader reader;
+    if (!reader.parse(info, root)) {
+        std::cerr << "Failed to parse container JSON info." << std::endl;
+        return "";
+    }
+
+    const Json::Value& networks = root["NetworkSettings"]["Networks"];
+    if (!networks.isObject()) {
+        std::cerr << "No network information available." << std::endl;
+        return "";
+    }
+
+    for (const auto& network_name : networks.getMemberNames()) {
+        const Json::Value& network = networks[network_name];
+        std::string ip = network["IPAddress"].asString();
+        if (!ip.empty()) {
+            return ip;
+        }
+    }
+    return "";
+}
+
+// Main function to manage the container
+std::string manage_container(const std::string& username, const std::string& container_prefix= "weston-") {
+    if (!container_exists(container_prefix + username)) {
+        // Create container using compose, suppose we're in the same directory as the compose file
+        std::string command = "env USERNAME=" + username + " podman-compose up -d";
+        int result = system(command.c_str());
+        if (result != 0) {
+            std::cerr << "Failed to create container using compose." << std::endl;
+            return "";
+        }
+    } else {
+        if (!container_running(container_prefix + username)) {
+            // Start the container
+            if (!start_container(container_prefix + username)) {
+                std::cerr << "Failed to start the container." << std::endl;
+                return "";
+            }
+        }
+    }
+
+    // Wait for the container to fully start
+    sleep(2);
+
+    // Get the container's IP address
+    std::string ip = get_container_ip(container_prefix + username);
+    if (ip.empty()) {
+        std::cerr << "Failed to retrieve the container's IP address." << std::endl;
+    }
+    return ip;
+}
 
 struct demo_custom_data
 {
@@ -36,7 +218,7 @@ struct demo_custom_data
 };
 
 static constexpr char plugin_name[] = "vdi-broker";
-static constexpr char plugin_desc[] = "this is a test plugin";
+static constexpr char plugin_desc[] = "Intercepts RDP Authentication and forwards the connection to an RDP Enabled Container";
 
 static BOOL demo_plugin_unload(proxyPlugin* plugin)
 {
@@ -80,9 +262,11 @@ static BOOL demo_client_pre_connect(proxyPlugin* plugin, proxyData* pdata, void*
 
         //Set target to another thing
 	auto settings = pdata->pc->context.settings;
-	WLog_INFO(TAG, "Setting target address: %s", "127.0.0.1");
-	WLog_INFO(TAG, "User: %s", freerdp_settings_get_string(settings, FreeRDP_Username));
-	freerdp_settings_set_string(settings, FreeRDP_ServerHostname, "127.0.0.1");
+	auto username = freerdp_settings_get_string(settings, FreeRDP_Username);
+	WLog_INFO(TAG, "User: %s", username);
+	auto ip = manage_container(username);
+	WLog_INFO(TAG, "Setting target address: %s", ip);
+	freerdp_settings_set_string(settings, FreeRDP_ServerHostname, ip.c_str());
 	if(!freerdp_settings_get_string(settings, FreeRDP_Username))
 		freerdp_settings_set_string(settings, FreeRDP_Username, "None");
 	if(!freerdp_settings_get_string(settings, FreeRDP_Password))
@@ -260,6 +444,32 @@ static BOOL demo_filter_unicode_event(proxyPlugin* plugin, proxyData* pdata, voi
 	return TRUE;
 }
 
+void printDelayBetweenCalls() {
+    // Declare a static variable to hold the last time the function was called
+    static struct timeval lastTime = {0, 0};
+
+    // Get the current time
+    struct timeval currentTime;
+    gettimeofday(&currentTime, NULL);
+
+    // Check if the function has been called before
+    if (lastTime.tv_sec != 0 || lastTime.tv_usec != 0) {
+        // Calculate the delay in microseconds
+        long seconds = currentTime.tv_sec - lastTime.tv_sec;
+        long microseconds = currentTime.tv_usec - lastTime.tv_usec;
+        long totalMicroseconds = (seconds * 1000) + microseconds;
+
+        printf("Time delay between calls: %ld microseconds\n", totalMicroseconds);
+    } else {
+        // If this is the first call, print a message indicating so
+        printf("This is the first time the function is being called.\n");
+    }
+
+    // Update the lastTime variable with the current time
+    lastTime = currentTime;
+}
+
+
 static BOOL demo_mouse_event(proxyPlugin* plugin, proxyData* pdata, void* param)
 {
 	auto event_data = static_cast<const proxyMouseEventInfo*>(param);
@@ -269,6 +479,7 @@ static BOOL demo_mouse_event(proxyPlugin* plugin, proxyData* pdata, void* param)
 	WINPR_ASSERT(event_data);
 
 	WLog_INFO(TAG, "called %p", event_data);
+	printDelayBetweenCalls();
 	return TRUE;
 }
 

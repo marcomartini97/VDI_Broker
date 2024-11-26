@@ -33,6 +33,18 @@ project(proxy-vdi-broker-plugin
        	LANGUAGES CXX
 )
 
+# Find libcurl
+find_package(CURL REQUIRED)
+if(NOT CURL_FOUND)
+	message(FATAL_ERROR "libcurl not found")
+endif()
+
+# Find jsoncpp
+find_package(jsoncpp REQUIRED)
+if(NOT jsoncpp_FOUND)
+	message(FATAL_ERROR "jsoncpp not found")
+endif()
+
 message("project ${PROJECT_NAME} is using version ${PROJECT_VERSION}")
 
 set(CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/../../../../cmake/)
@@ -47,6 +59,6 @@ set(SRCS
 )
 AddTargetWithResourceFile(${PROJECT_NAME} FALSE "${PROJECT_VERSION}" SRCS FALSE)
 
-target_link_libraries(${PROJECT_NAME} winpr)
+target_link_libraries(${PROJECT_NAME} winpr CURL::libcurl jsoncpp)
 
 install(TARGETS ${PROJECT_NAME} DESTINATION ${FREERDP_PROXY_PLUGINDIR})
