@@ -37,7 +37,7 @@ UINT32 shadow_encoder_preferred_fps(rdpShadowEncoder* encoder)
 
 UINT32 shadow_encoder_inflight_frames(rdpShadowEncoder* encoder)
 {
-	/* Return inflight frame count.
+	/* Return in-flight frame count.
 	 * If queueDepth is SUSPEND_FRAME_ACKNOWLEDGEMENT, count = 0
 	 * Otherwise, calculate count =
 	 * <last sent frame id> - <last client-acknowledged frame id>
@@ -56,7 +56,7 @@ UINT32 shadow_encoder_create_frame_id(rdpShadowEncoder* encoder)
 
 	/*
 	 * Calculate preferred fps according to how much frames are
-	 * in-progress. Note that it only works when subsytem implementation
+	 * in-progress. Note that it only works when subsystem implementation
 	 * calls shadow_encoder_preferred_fps and takes the suggestion.
 	 */
 	if (inFlightFrames > 1)

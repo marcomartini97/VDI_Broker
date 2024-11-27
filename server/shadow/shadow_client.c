@@ -68,8 +68,13 @@ static BOOL BitmapUpdateProxyEx(rdpUpdate* update, rdpContext* context, const BI
 		const BOOL rc = IFCALLRESULT(FALSE, update->BitmapUpdate, context, &cur);
 		if (!rc)
 		{
-			WLog_Print(WLog_Get(TAG), WLOG_ERROR, line, file, fkt,
-			           "BitmapUpdate[%" PRIu32 "] failed", x);
+			const DWORD log_level = WLOG_ERROR;
+			wLog* log = WLog_Get(TAG);
+			if (WLog_IsLevelActive(log, log_level))
+			{
+				WLog_PrintMessage(log, WLOG_MESSAGE_TEXT, log_level, line, file, fkt,
+				                  "BitmapUpdate[%" PRIu32 "] failed", x);
+			}
 			return FALSE;
 		}
 	}
@@ -776,7 +781,7 @@ static INLINE void shadow_client_common_frame_acknowledge(rdpShadowClient* clien
 	 * calculate how much frames are in progress.
 	 * Some rdp clients (win7 mstsc) skips frame ACK if it is
 	 * inactive, we should not expect ACK for each frame.
-	 * So it is OK to calculate inflight frame count according to
+	 * So it is OK to calculate in-flight frame count according to
 	 * a latest acknowledged frame id.
 	 */
 	WINPR_ASSERT(client);
