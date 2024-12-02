@@ -790,6 +790,9 @@ static BOOL pf_client_connect(freerdp* instance)
 	               freerdp_settings_get_bool(settings, FreeRDP_TlsSecurity),
 	               freerdp_settings_get_bool(settings, FreeRDP_NlaSecurity));
 
+	/* Set RFX Codec */
+	freerdp_settings_set_bool(settings, FreeRDP_RemoteFxCodec, true);
+
 	if (!freerdp_connect(instance))
 	{
 		if (!pf_modules_run_hook(pc->pdata->module, HOOK_TYPE_CLIENT_LOGIN_FAILURE, pc->pdata, pc))
