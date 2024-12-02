@@ -25,7 +25,7 @@
 #include <string>
 #include <curl/curl.h>
 #include <unistd.h>
-#include <jsoncpp/json/json.h>
+#include <json/json.h>
 
 
 #include <freerdp/api.h>
@@ -64,8 +64,6 @@ std::string get_container_info(const std::string& container_name) {
         curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
         curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
 
-    	std::clog << "Get Container info" << std::endl;
-
         // Perform the request
         res = curl_easy_perform(curl);
 
@@ -84,7 +82,7 @@ std::string get_container_info(const std::string& container_name) {
             response.clear();
         }
 
-    	std::clog << "Get Container info - http code: " << http_code << std::endl;
+    	std::clog << "Get Container info - http code: " << http_code << std::endl << "Response: " << res << std::endl; 
 
         curl_easy_cleanup(curl);
     }
@@ -94,6 +92,9 @@ std::string get_container_info(const std::string& container_name) {
 // Check if the container exists
 bool container_exists(const std::string& container_name) {
     std::string info = get_container_info(container_name);
+    if(info.empty()){
+	    std::clog << "Container doesn't exist: Create it" << std::endl;
+    }
     return !info.empty();
 }
 
@@ -112,6 +113,7 @@ bool container_running(const std::string& container_name) {
     }
 
     std::string status = root["State"]["Status"].asString();
+    std::clog << "Container status:" << status << std::endl;
     return status == "running";
 }
 
@@ -120,6 +122,7 @@ bool start_container(const std::string& container_name) {
     CURL* curl;
     CURLcode res;
     bool success = false;
+    std::clog << "Starting container: " << container_name << std::endl;
 
     curl = curl_easy_init();
     if (curl) {
@@ -145,6 +148,7 @@ bool start_container(const std::string& container_name) {
             std::cerr << "Failed to start container: " << curl_easy_strerror(res) << std::endl;
         }
 
+
         curl_easy_cleanup(curl);
     }
     return success;
@@ -164,6 +168,7 @@ std::string get_container_ip(const std::string& container_name) {
         return "";
     }
 
+    //Note this only works with podman default network
     const Json::Value& networks = root["NetworkSettings"]["Networks"];
     if (!networks.isObject()) {
         std::cerr << "No network information available." << std::endl;
@@ -174,6 +179,7 @@ std::string get_container_ip(const std::string& container_name) {
         const Json::Value& network = networks[network_name];
         std::string ip = network["IPAddress"].asString();
         if (!ip.empty()) {
+	    std::clog << "Found IP: " << ip << std::endl;
             return ip;
         }
     }
@@ -264,9 +270,9 @@ static BOOL demo_client_pre_connect(proxyPlugin* plugin, proxyData* pdata, void*
 	auto settings = pdata->pc->context.settings;
 	auto username = freerdp_settings_get_string(settings, FreeRDP_Username);
 	WLog_INFO(TAG, "User: %s", username);
-	auto ip = manage_container(username);
+	auto ip = manage_container(username).c_str();
 	WLog_INFO(TAG, "Setting target address: %s", ip);
-	freerdp_settings_set_string(settings, FreeRDP_ServerHostname, ip.c_str());
+	freerdp_settings_set_string(settings, FreeRDP_ServerHostname, ip);
 	if(!freerdp_settings_get_string(settings, FreeRDP_Username))
 		freerdp_settings_set_string(settings, FreeRDP_Username, "None");
 	if(!freerdp_settings_get_string(settings, FreeRDP_Password))

@@ -39,11 +39,9 @@ if(NOT CURL_FOUND)
 	message(FATAL_ERROR "libcurl not found")
 endif()
 
-# Find jsoncpp
-find_package(jsoncpp REQUIRED)
-if(NOT jsoncpp_FOUND)
-	message(FATAL_ERROR "jsoncpp not found")
-endif()
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(JSONCPP jsoncpp)
+link_libraries(${JSONCPP_LIBRARIES})
 
 message("project ${PROJECT_NAME} is using version ${PROJECT_VERSION}")
 
@@ -59,6 +57,6 @@ set(SRCS
 )
 AddTargetWithResourceFile(${PROJECT_NAME} FALSE "${PROJECT_VERSION}" SRCS FALSE)
 
-target_link_libraries(${PROJECT_NAME} winpr CURL::libcurl jsoncpp)
+target_link_libraries(${PROJECT_NAME} winpr CURL::libcurl ${JSONCPP_LIBRARIES})
 
 install(TARGETS ${PROJECT_NAME} DESTINATION ${FREERDP_PROXY_PLUGINDIR})
