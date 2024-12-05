@@ -136,6 +136,10 @@ static BOOL pf_server_get_target_info(rdpContext* context, rdpSettings* settings
 		{
 			WINPR_ASSERT(config);
 
+			//SET SAM File hardcoded
+			if (!freerdp_settings_set_string(settings, FreeRDP_NtlmSamFile, "SAM"))
+				return FALSE;
+
 			if (config->TargetPort > 0)
 			{
 				if (!freerdp_settings_set_uint32(settings, FreeRDP_ServerPort, config->TargetPort))

@@ -23,9 +23,10 @@
 
 #include <iostream>
 #include <string>
+#include <thread>
 #include <curl/curl.h>
 #include <unistd.h>
-#include <json/json.h>
+#include <jsoncpp/json/json.h>
 
 
 #include <freerdp/api.h>
@@ -117,42 +118,96 @@ bool container_running(const std::string& container_name) {
     return status == "running";
 }
 
-// Start the container using Podman RESTful API
-bool start_container(const std::string& container_name) {
-    CURL* curl;
-    CURLcode res;
-    bool success = false;
-    std::clog << "Starting container: " << container_name << std::endl;
+bool wait_for_weston(const std::string& container_name) {
+    std::clog << "Waiting for weston to be active in container: " << container_name << std::endl;
 
-    curl = curl_easy_init();
-    if (curl) {
-        std::string url = "http://d/v1.0.0/libpod/containers/" + container_name + "/start";
+    bool is_weston_active = false;
+    while (!is_weston_active) {
+        CURL* exec_curl = curl_easy_init();
+        if (exec_curl) {
+            std::string exec_url = "http://d/v1.0.0/libpod/containers/" + container_name + "/exec";
+            std::string exec_command = "{\"Cmd\": [\"systemctl\", \"status\", \"weston\"], \"AttachStdout\": true, \"AttachStderr\": true}";
 
-        curl_easy_setopt(curl, CURLOPT_UNIX_SOCKET_PATH, PODMAN_SOCKET);
-        curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-        curl_easy_setopt(curl, CURLOPT_POST, 1L);
+            struct curl_slist* headers = nullptr;
+            headers = curl_slist_append(headers, "Content-Type: application/json");
 
-        // Perform the request
-        res = curl_easy_perform(curl);
+            curl_easy_setopt(exec_curl, CURLOPT_UNIX_SOCKET_PATH, PODMAN_SOCKET);
+            curl_easy_setopt(exec_curl, CURLOPT_URL, exec_url.c_str());
+            curl_easy_setopt(exec_curl, CURLOPT_HTTPHEADER, headers);
+            curl_easy_setopt(exec_curl, CURLOPT_POSTFIELDS, exec_command.c_str());
 
-        if (res == CURLE_OK) {
-            long http_code = 0;
-            curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
+            // Capture the response
+            std::string response;
+            curl_easy_setopt(exec_curl, CURLOPT_WRITEFUNCTION, [](void* contents, size_t size, size_t nmemb, void* userp) -> size_t {
+                ((std::string*)userp)->append((char*)contents, size * nmemb);
+                return size * nmemb;
+            });
+            curl_easy_setopt(exec_curl, CURLOPT_WRITEDATA, &response);
 
-            if (http_code >= 200 && http_code < 300) {
-                success = true;
+            // Perform the exec request
+            CURLcode res = curl_easy_perform(exec_curl);
+
+            if (res == CURLE_OK) {
+                if (response.find("active (running)") != std::string::npos) {
+                    is_weston_active = true;
+                    std::clog << "Weston is active (running)." << std::endl;
+                } else {
+                    std::clog << "Weston is not active yet, retrying..." << std::endl;
+                }
             } else {
-                std::cerr << "Failed to start container, HTTP code: " << http_code << std::endl;
+                std::cerr << "Failed to execute command in container: " << curl_easy_strerror(res) << std::endl;
             }
-        } else {
-            std::cerr << "Failed to start container: " << curl_easy_strerror(res) << std::endl;
+
+            curl_slist_free_all(headers);
+            curl_easy_cleanup(exec_curl);
         }
 
-
-        curl_easy_cleanup(curl);
+        if (!is_weston_active) {
+            std::this_thread::sleep_for(std::chrono::seconds(2)); // Wait before retrying
+        }
     }
-    return success;
+
+    return is_weston_active;
 }
+
+
+// Start the container using Podman RESTful API
+bool start_container(const std::string& container_name) {
+	CURL* curl;
+	CURLcode res;
+	bool success = false;
+	std::clog << "Starting container: " << container_name << std::endl;
+
+	curl = curl_easy_init();
+	if (curl) {
+		std::string url = "http://d/v1.0.0/libpod/containers/" + container_name + "/start";
+
+		curl_easy_setopt(curl, CURLOPT_UNIX_SOCKET_PATH, PODMAN_SOCKET);
+		curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+		curl_easy_setopt(curl, CURLOPT_POST, 1L);
+
+		// Perform the request to start the container
+		res = curl_easy_perform(curl);
+
+		if (res == CURLE_OK) {
+			long http_code = 0;
+			curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
+
+			if (http_code >= 200 && http_code < 300) {
+				success = true;
+				std::clog << "Container started successfully." << std::endl;
+			} else {
+				std::cerr << "Failed to start container, HTTP code: " << http_code << std::endl;
+			}
+		} else {
+			std::cerr << "Failed to start container: " << curl_easy_strerror(res) << std::endl;
+		}
+
+		curl_easy_cleanup(curl);
+	}
+	return success;
+}
+
 
 // Get the container's IP address
 std::string get_container_ip(const std::string& container_name) {
@@ -186,16 +241,76 @@ std::string get_container_ip(const std::string& container_name) {
     return "";
 }
 
+
+bool create_container(const std::string& container_name, const std::string& username) {
+    CURL* curl;
+    CURLcode res;
+    bool success = false;
+    std::clog << "Creating container: " << container_name << std::endl;
+
+    curl = curl_easy_init();
+    if (curl) {
+        std::string url = "http://d/v1.0.0/libpod/containers/create";
+        std::string create_command = "{\"name\": \"" + container_name + "\","
+                                     "\"hostname\": \"" + container_name + "\","
+                                     "\"restart_policy\": \"unless-stopped\","
+                                     "\"env\": [\"XDG_RUNTIME_DIR=/tmp\", \"USERNAME=" + username + "\"],"
+                                     "\"volumes\": ["
+                                     "{\"source\": \"/sys/fs/cgroup\", \"destination\": \"/sys/fs/cgroup\", \"options\": [\"ro\"]},"
+                                     "{\"source\": \"/tmp/dbus\", \"destination\": \"/var/run/dbus\"},"
+                                     "{\"source\": \"/etc/passwd\", \"destination\": \"/etc/passwd\", \"options\": [\"ro\"]},"
+                                     "{\"source\": \"/etc/group\", \"destination\": \"/etc/group\", \"options\": [\"ro\"]},"
+                                     "{\"source\": \"/home/marco\", \"destination\": \"/mnt/home/marco\"},"
+                                     "{\"source\": \"/etc/weston\", \"destination\": \"/etc/weston\", \"options\": [\"ro\"]}],"
+                                     "\"cap_add\": [\"SYS_ADMIN\", \"NET_ADMIN\", \"SYS_PTRACE\", \"AUDIT_CONTROL\"],"
+                                     "\"security_opt\": [\"seccomp=unconfined\", \"label=disable\"],"
+                                     "\"devices\": ["
+                                     "{\"path_on_host\": \"/dev/fuse\"},"
+                                     "{\"path_on_host\": \"/dev/nvidia0\"},"
+                                     "{\"path_on_host\": \"/dev/nvidiactl\"},"
+                                     "{\"path_on_host\": \"/dev/nvidia-uvm\"},"
+                                     "{\"path_on_host\": \"/dev/dri/renderD128\"}],"
+                                     "\"image\": \"fedora_dev\","
+                                     "\"command\": [\"/usr/sbin/init\"]}";
+
+        struct curl_slist* headers = nullptr;
+        headers = curl_slist_append(headers, "Content-Type: application/json");
+
+        curl_easy_setopt(curl, CURLOPT_UNIX_SOCKET_PATH, PODMAN_SOCKET);
+        curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+        curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+        curl_easy_setopt(curl, CURLOPT_POSTFIELDS, create_command.c_str());
+
+        // Perform the request to create the container
+        res = curl_easy_perform(curl);
+
+        if (res == CURLE_OK) {
+            long http_code = 0;
+            curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
+
+            if (http_code >= 200 && http_code < 300) {
+                success = true;
+                std::clog << "Container created successfully." << std::endl;
+            } else {
+                std::cerr << "Failed to create container, HTTP code: " << http_code << std::endl;
+            }
+        } else {
+            std::cerr << "Failed to create container: " << curl_easy_strerror(res) << std::endl;
+        }
+
+        curl_slist_free_all(headers);
+        curl_easy_cleanup(curl);
+    }
+
+    return success;
+}
+
+
 // Main function to manage the container
 std::string manage_container(const std::string& username, const std::string& container_prefix= "weston-") {
     if (!container_exists(container_prefix + username)) {
         // Create container using compose, suppose we're in the same directory as the compose file
-        std::string command = "env USERNAME=" + username + " podman-compose up -d";
-        int result = system(command.c_str());
-        if (result != 0) {
-            std::cerr << "Failed to create container using compose." << std::endl;
-            return "";
-        }
+    	create_container(container_prefix + username, username);
     } else {
         if (!container_running(container_prefix + username)) {
             // Start the container
@@ -206,8 +321,8 @@ std::string manage_container(const std::string& username, const std::string& con
         }
     }
 
-    // Wait for the container to fully start
-    sleep(2);
+    // Wait for weston to be up
+    wait_for_weston(container_prefix + username);
 
     // Get the container's IP address
     std::string ip = get_container_ip(container_prefix + username);
@@ -268,9 +383,31 @@ static BOOL demo_client_pre_connect(proxyPlugin* plugin, proxyData* pdata, void*
 
         //Set target to another thing
 	auto settings = pdata->pc->context.settings;
-	auto username = freerdp_settings_get_string(settings, FreeRDP_Username);
-	WLog_INFO(TAG, "User: %s", username);
-	auto ip = manage_container(username).c_str();
+	std::string username = freerdp_settings_get_string(settings, FreeRDP_Username);
+	WLog_INFO(TAG, "Username full: %s", username);
+
+
+	//Set Default Codec
+	freerdp_settings_set_bool(settings, FreeRDP_NSCodec, true);
+	// Otherwise find the position of '#', then set RFX if found
+	auto hashPos = username.find('#');
+
+	if (hashPos != std::string::npos) { // Check if '#' is present
+		// Extract the part after '#'
+		auto codec = username.substr(hashPos + 1);
+
+		if (!codec.empty()) {
+			if(codec.compare("rfx") == 0) {
+				freerdp_settings_set_bool(settings, FreeRDP_RemoteFxCodec, true);
+				WLog_INFO(TAG, "USING CODEC RFX");
+			}
+		}
+	}
+	WLog_INFO(TAG, "USING CODEC NSC");
+
+	auto user = username.substr(0, hashPos);
+	WLog_INFO(TAG, "Username: %s", username);
+	auto ip = manage_container(user).c_str();
 	WLog_INFO(TAG, "Setting target address: %s", ip);
 	freerdp_settings_set_string(settings, FreeRDP_ServerHostname, ip);
 	if(!freerdp_settings_get_string(settings, FreeRDP_Username))
@@ -280,8 +417,6 @@ static BOOL demo_client_pre_connect(proxyPlugin* plugin, proxyData* pdata, void*
 	if(!freerdp_settings_get_string(settings, FreeRDP_Domain))
 		freerdp_settings_set_string(settings, FreeRDP_Domain, "None");
 
-
-	WLog_INFO(TAG, "called");
 	return TRUE;
 }
 
