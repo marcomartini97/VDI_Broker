@@ -177,10 +177,15 @@ bool start_container(const std::string& container_name) {
 	curl = curl_easy_init();
 	if (curl) {
 		std::string url = "http://d/v5.3.0/libpod/containers/" + container_name + "/start";
+		std::string start_command = R"({"name": ")" + container_name + R"("})";
+
+		struct curl_slist* headers = nullptr;
+		headers = curl_slist_append(headers, "Content-Type: application/json");
 
 		curl_easy_setopt(curl, CURLOPT_UNIX_SOCKET_PATH, PODMAN_SOCKET);
 		curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-		curl_easy_setopt(curl, CURLOPT_POST, 1L);
+		curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+		curl_easy_setopt(curl, CURLOPT_POSTFIELDS, start_command.c_str());
 
 		// Perform the request to start the container
 		res = curl_easy_perform(curl);
@@ -199,6 +204,7 @@ bool start_container(const std::string& container_name) {
 			std::cerr << "Failed to start container: " << curl_easy_strerror(res) << std::endl;
 		}
 
+		curl_slist_free_all(headers);
 		curl_easy_cleanup(curl);
 	}
 	return success;
@@ -265,14 +271,14 @@ bool create_container(const std::string& container_name, const std::string& user
 				         { "path": "/dev/dri/renderD128" }
 				     ],
 				     "env": {
-				         "XDG_RUNTIME_DIR": "/tmp",
-				         "USERNAME": "marco"
+				         "XDG_RUNTIME_DIR": "/tmp"
 				     },
 				     "mounts": [
 				         { "Source": "/etc/weston", "Destination": "/etc/weston", "Type": "bind", "ReadOnly": true },
 				         { "Source": "/etc/passwd", "Destination": "/etc/passwd", "Type": "bind", "ReadOnly": true },
 				         { "Source": "/etc/group", "Destination": "/etc/group", "Type": "bind", "ReadOnly": true },
-				         { "Source": "/etc/shadow", "Destination": "/etc/shadow", "Type": "bind", "ReadOnly": true }
+				         { "Source": "/etc/shadow", "Destination": "/etc/shadow", "Type": "bind", "ReadOnly": true },
+				         { "Source": "/home", "Destination": "/home", "Type": "bind" }
 				     ],
 				     "command": ["/usr/sbin/init"]
 				     })";
