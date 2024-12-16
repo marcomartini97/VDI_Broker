@@ -276,7 +276,8 @@ bool create_container(const std::string& container_name, const std::string& user
 				         { "path": "/dev/dri/renderD128" }
 				     ],
 				     "env": {
-				         "XDG_RUNTIME_DIR": "/tmp"
+				         "XDG_RUNTIME_DIR": "/tmp",
+				         "GSK_RENDERER": "ngl"
 				     },
 				     "mounts": [
 				         { "Source": "/etc/vdi", "Destination": "/etc/vdi", "Type": "bind", "ReadOnly": true },
