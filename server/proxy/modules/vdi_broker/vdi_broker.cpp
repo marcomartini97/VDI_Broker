@@ -35,6 +35,8 @@
 #include <sys/time.h>
 
 #define TAG MODULE_TAG("vdi_broker")
+#define PODMAN_IMAGE "vdi-gnome"
+#define CONTAINER_PREFIX "vdi-"
 
 /* Container Management Part */
 
@@ -83,7 +85,7 @@ std::string get_container_info(const std::string& container_name, const std::str
             response.clear();
         }
 
-    	std::clog << "Get Container info - http code: " << http_code << std::endl << "Response: " << res << std::endl; 
+    	//std::clog << "Get Container info - http code: " << http_code << std::endl << "Response: " << res << std::endl; 
 
         curl_easy_cleanup(curl);
     }
@@ -114,18 +116,19 @@ bool container_running(const std::string& container_name) {
     }
 
     std::string status = root["State"]["Status"].asString();
-    std::clog << "Container status:" << status << std::endl;
+    //std::clog << "Container status:" << status << std::endl;
     return status == "running";
 }
 
-bool wait_for_weston(const std::string& container_name) {
-    std::clog << "Waiting for weston to be active in container: " << container_name << std::endl;
+bool wait_for_compositor(const std::string& container_name) {
+    std::clog << "Waiting for compositor to be active in container: " << container_name << std::endl;
 
-    bool is_weston_active = false;
-    while (!is_weston_active) {
+    bool is_compositor_active = false;
+    int count = 0;
+    while (!is_compositor_active && count < 10) {
     	auto response = get_container_info(container_name, "/top");
-    	//Check if weston is running
-    	auto searchValue = "weston -c /etc/weston/weston.ini";
+    	//Check if compositor is running (hard coded string)
+    	auto searchValue = "/usr/bin/gnome-shell --headless";
 
 
     	// Parse the JSON string
@@ -153,17 +156,19 @@ bool wait_for_weston(const std::string& container_name) {
 
     		// Check if the last element in the process array matches the searchValue
     		if (process[process.size() - 1].asString() == searchValue) {
-    			is_weston_active = true;
+    			is_compositor_active = true;
     		}
     	}
 
 
-        if (!is_weston_active) {
+        if (!is_compositor_active) {
             std::this_thread::sleep_for(std::chrono::seconds(2)); // Wait before retrying
         }
+	count++;
     }
 
-    return is_weston_active;
+    std::this_thread::sleep_for(std::chrono::seconds(2)); // Wait before returning true 
+    return is_compositor_active;
 }
 
 
@@ -256,7 +261,7 @@ bool create_container(const std::string& container_name, const std::string& user
     	std::string create_command = "{\"name\": \"" + container_name + "\","
 				     "\"hostname\": \"" + container_name + "\","
     				     R"(
-				     "image": "fedora_dev",
+				     "image": ")" + PODMAN_IMAGE + R"(",
 				     "cap_add": [
 				         "SYS_ADMIN",
 				         "NET_ADMIN",
@@ -274,7 +279,7 @@ bool create_container(const std::string& container_name, const std::string& user
 				         "XDG_RUNTIME_DIR": "/tmp"
 				     },
 				     "mounts": [
-				         { "Source": "/etc/weston", "Destination": "/etc/weston", "Type": "bind", "ReadOnly": true },
+				         { "Source": "/etc/vdi", "Destination": "/etc/vdi", "Type": "bind", "ReadOnly": true },
 				         { "Source": "/etc/passwd", "Destination": "/etc/passwd", "Type": "bind", "ReadOnly": true },
 				         { "Source": "/etc/group", "Destination": "/etc/group", "Type": "bind", "ReadOnly": true },
 				         { "Source": "/etc/shadow", "Destination": "/etc/shadow", "Type": "bind", "ReadOnly": true },
@@ -319,7 +324,7 @@ bool create_container(const std::string& container_name, const std::string& user
 
 
 // Main function to manage the container
-std::string manage_container(const std::string& username, const std::string& container_prefix= "weston-") {
+std::string manage_container(const std::string& username, const std::string& container_prefix= CONTAINER_PREFIX) {
     if (!container_exists(container_prefix + username)) {
         // Create container
     	create_container(container_prefix + username, username);
@@ -334,7 +339,7 @@ std::string manage_container(const std::string& username, const std::string& con
     }
 
     // Wait for weston to be up
-    wait_for_weston(container_prefix + username);
+    wait_for_compositor(container_prefix + username);
 
     // Get the container's IP address
     std::string ip = get_container_ip(container_prefix + username);
@@ -396,11 +401,11 @@ static BOOL demo_client_pre_connect(proxyPlugin* plugin, proxyData* pdata, void*
         //Set target to another thing
 	auto settings = pdata->pc->context.settings;
 	std::string username = freerdp_settings_get_string(settings, FreeRDP_Username);
-	WLog_INFO(TAG, "Username full: %s", username);
+	WLog_INFO(TAG, "Username full: %s", username.c_str());
 
 
 	//Set Default Codec
-	freerdp_settings_set_bool(settings, FreeRDP_NSCodec, true);
+	//freerdp_settings_set_bool(settings, FreeRDP_NSCodec, true);
 	// Otherwise find the position of '#', then set RFX if found
 	auto hashPos = username.find('#');
 
@@ -415,20 +420,18 @@ static BOOL demo_client_pre_connect(proxyPlugin* plugin, proxyData* pdata, void*
 			}
 		}
 	}
-	WLog_INFO(TAG, "USING CODEC NSC");
+	//WLog_INFO(TAG, "USING CODEC NSC");
 
 	auto user = username.substr(0, hashPos);
-	WLog_INFO(TAG, "Username: %s", username);
+	WLog_INFO(TAG, "Username: %s", username.c_str());
 	auto ip = manage_container(user).c_str();
 	if(ip != "") {
 		WLog_INFO(TAG, "Setting target address: %s", ip);
+		//Hardcoded password for now, set the same for grd in container
 		freerdp_settings_set_string(settings, FreeRDP_ServerHostname, ip);
-		if(!freerdp_settings_get_string(settings, FreeRDP_Username))
-			freerdp_settings_set_string(settings, FreeRDP_Username, "None");
-		if(!freerdp_settings_get_string(settings, FreeRDP_Password))
-			freerdp_settings_set_string(settings, FreeRDP_Password, "None");
-		if(!freerdp_settings_get_string(settings, FreeRDP_Domain))
-			freerdp_settings_set_string(settings, FreeRDP_Domain, "None");
+		freerdp_settings_set_string(settings, FreeRDP_Username, "rdp");
+		freerdp_settings_set_string(settings, FreeRDP_Password, "rdp");
+		freerdp_settings_set_string(settings, FreeRDP_Domain, "None");
 	}
 
 	return TRUE;
