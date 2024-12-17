@@ -43,6 +43,12 @@ find_package(PkgConfig REQUIRED)
 pkg_check_modules(JSONCPP jsoncpp)
 link_libraries(${JSONCPP_LIBRARIES})
 
+# Find PAM libraries using pkg-config
+pkg_check_modules(PAM REQUIRED pam pam_misc)
+if(NOT PAM_FOUND)
+    message(FATAL_ERROR "PAM libraries (libpam and libpam_misc) not found")
+endif()
+
 message("project ${PROJECT_NAME} is using version ${PROJECT_VERSION}")
 
 set(CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/../../../../cmake/)
@@ -57,6 +63,6 @@ set(SRCS
 )
 AddTargetWithResourceFile(${PROJECT_NAME} FALSE "${PROJECT_VERSION}" SRCS FALSE)
 
-target_link_libraries(${PROJECT_NAME} winpr CURL::libcurl ${JSONCPP_LIBRARIES})
+target_link_libraries(${PROJECT_NAME} winpr CURL::libcurl ${JSONCPP_LIBRARIES} ${PAM_LIBRARIES})
 
 install(TARGETS ${PROJECT_NAME} DESTINATION ${FREERDP_PROXY_PLUGINDIR})

@@ -27,7 +27,8 @@
 #include <curl/curl.h>
 #include <unistd.h>
 #include <json/json.h>
-
+#include <security/pam_appl.h>
+#include <security/pam_misc.h>
 
 #include <freerdp/api.h>
 #include <freerdp/scancode.h>
@@ -37,6 +38,18 @@
 #define TAG MODULE_TAG("vdi_broker")
 #define PODMAN_IMAGE "vdi-gnome"
 #define CONTAINER_PREFIX "vdi-"
+
+
+// Set Nla Security to login
+static BOOL vdi_server_session_started(proxyPlugin* plugin, proxyData* pdata, void* custom) {
+	auto settings = pdata->ps->context.settings;
+	freerdp_settings_set_bool (settings, FreeRDP_RdpSecurity, FALSE);
+	freerdp_settings_set_bool (settings, FreeRDP_TlsSecurity, TRUE);
+	freerdp_settings_set_bool (settings, FreeRDP_NlaSecurity, TRUE);
+	freerdp_settings_set_bool (settings, FreeRDP_RdstlsSecurity, TRUE);
+	return TRUE;
+}
+
 
 /* Container Management Part */
 
@@ -377,6 +390,12 @@ static BOOL demo_client_init_connect(proxyPlugin* plugin, proxyData* pdata, void
 	WINPR_ASSERT(plugin);
 	WINPR_ASSERT(pdata);
 	WINPR_ASSERT(custom);
+	auto settings = pdata->pc->context.settings;
+
+	freerdp_settings_set_bool (settings, FreeRDP_RdpSecurity, FALSE);
+	freerdp_settings_set_bool (settings, FreeRDP_TlsSecurity, FALSE);
+	freerdp_settings_set_bool (settings, FreeRDP_NlaSecurity, TRUE);
+
 
 	WLog_INFO(TAG, "called");
 	return TRUE;
@@ -392,6 +411,103 @@ static BOOL demo_client_uninit_connect(proxyPlugin* plugin, proxyData* pdata, vo
 	return TRUE;
 }
 
+// Structure to hold the password
+struct pam_conv_data {
+    const char* password;
+};
+
+
+// PAM conversation function
+static int pam_conversation(int num_msg, const struct pam_message** msg,
+                            struct pam_response** resp, void* appdata_ptr) {
+    if (num_msg <= 0) {
+        return PAM_CONV_ERR;
+    }
+
+    pam_conv_data* conv_data = static_cast<pam_conv_data*>(appdata_ptr);
+    struct pam_response* responses = (struct pam_response*)calloc(num_msg, sizeof(struct pam_response));
+    if (responses == nullptr) {
+        return PAM_CONV_ERR;
+    }
+
+    for (int i = 0; i < num_msg; ++i) {
+        switch (msg[i]->msg_style) {
+            case PAM_PROMPT_ECHO_OFF:
+                // Provide the password
+                responses[i].resp = strdup(conv_data->password);
+                responses[i].resp_retcode = 0;
+                break;
+            case PAM_PROMPT_ECHO_ON:
+                // Handle cases where echo is allowed (not used here)
+                responses[i].resp = nullptr;
+                responses[i].resp_retcode = 0;
+                break;
+            case PAM_ERROR_MSG:
+                std::cerr << "PAM Error Message: " << msg[i]->msg << std::endl;
+                responses[i].resp = nullptr;
+                responses[i].resp_retcode = 0;
+                break;
+            case PAM_TEXT_INFO:
+                std::cout << "PAM Info: " << msg[i]->msg << std::endl;
+                responses[i].resp = nullptr;
+                responses[i].resp_retcode = 0;
+                break;
+            default:
+                free(responses);
+                return PAM_CONV_ERR;
+        }
+    }
+
+    *resp = responses;
+    return PAM_SUCCESS;
+}
+
+
+
+
+// Function to authenticate user via PAM
+bool vdi_auth(const std::string& username, const std::string& password) {
+    WLog_INFO(TAG, "called, password: %s", password.c_str());
+    pam_handle_t* pamh = nullptr;
+    struct pam_conv conv;
+    pam_conv_data conv_data = { password.c_str() };
+
+    conv.conv = pam_conversation;
+    conv.appdata_ptr = &conv_data;
+
+    // Start PAM transaction
+    int retval = pam_start("login", username.c_str(), &conv, &pamh);
+    if (retval != PAM_SUCCESS) {
+        std::cerr << "pam_start failed: " << pam_strerror(pamh, retval) << std::endl;
+        return false;
+    }
+
+    // Authenticate the user
+    retval = pam_authenticate(pamh, 0);
+    if (retval != PAM_SUCCESS) {
+        std::cerr << "pam_authenticate failed: " << pam_strerror(pamh, retval) << std::endl;
+        pam_end(pamh, retval);
+        return false;
+    }
+
+    // Check account status
+    retval = pam_acct_mgmt(pamh, 0);
+    if (retval != PAM_SUCCESS) {
+        std::cerr << "pam_acct_mgmt failed: " << pam_strerror(pamh, retval) << std::endl;
+        pam_end(pamh, retval);
+        return false;
+    }
+
+    // End PAM transaction
+    retval = pam_end(pamh, PAM_SUCCESS);
+    if (retval != PAM_SUCCESS) {
+        std::cerr << "pam_end failed: " << pam_strerror(pamh, retval) << std::endl;
+        return false;
+    }
+
+    return true;
+}
+
 static BOOL demo_client_pre_connect(proxyPlugin* plugin, proxyData* pdata, void* custom)
 {
 	WINPR_ASSERT(plugin);
@@ -401,9 +517,18 @@ static BOOL demo_client_pre_connect(proxyPlugin* plugin, proxyData* pdata, void*
 
         //Set target to another thing
 	auto settings = pdata->pc->context.settings;
-	std::string username = freerdp_settings_get_string(settings, FreeRDP_Username);
-	WLog_INFO(TAG, "Username full: %s", username.c_str());
+	const char* uname = freerdp_settings_get_string(settings, FreeRDP_Username);
+	const char* passw = freerdp_settings_get_string(settings, FreeRDP_Password);
 
+	if(uname == nullptr)
+		return FALSE;
+	if(passw == nullptr)
+		return FALSE;
+
+	std::string username = uname;
+	std::string password = passw;
+
+	WLog_INFO(TAG, "Username full: %s", username.c_str());
 
 	//Set Default Codec
 	//freerdp_settings_set_bool(settings, FreeRDP_NSCodec, true);
@@ -421,8 +546,11 @@ static BOOL demo_client_pre_connect(proxyPlugin* plugin, proxyData* pdata, void*
 			}
 		}
 	}
-	//WLog_INFO(TAG, "USING CODEC NSC");
 
+	//WLog_INFO(TAG, "USING CODEC NSC");
+	if(!vdi_auth(username, password)) {
+		return FALSE;
+	}
 	auto user = username.substr(0, hashPos);
 	WLog_INFO(TAG, "Username: %s", username.c_str());
 	auto ip = manage_container(user).c_str();
@@ -772,9 +900,10 @@ BOOL proxy_module_entry_point(proxyPluginsManager* plugins_manager, void* userda
 	plugin.name = plugin_name;
 	plugin.description = plugin_desc;
 	plugin.PluginUnload = demo_plugin_unload;
-	//plugin.ClientInitConnect = demo_client_init_connect;
+	plugin.ClientInitConnect = demo_client_init_connect;
 	//plugin.ClientUninitConnect = demo_client_uninit_connect;
 	plugin.ClientPreConnect = demo_client_pre_connect;
+	plugin.ServerSessionStarted = vdi_server_session_started;
 	//plugin.ClientPostConnect = demo_client_post_connect;
 	//plugin.ClientPostDisconnect = demo_client_post_disconnect;
 	//plugin.ClientX509Certificate = demo_client_x509_certificate;
