@@ -133,15 +133,15 @@ bool container_running(const std::string& container_name) {
     return status == "running";
 }
 
-bool wait_for_compositor(const std::string& container_name) {
-    std::clog << "Waiting for compositor to be active in container: " << container_name << std::endl;
+bool wait_for_process(const std::string& container_name, const std::string& process_name) {
+    std::clog << "Waiting for <" << process_name  << "> to be active in container: " << container_name << std::endl;
 
     bool is_compositor_active = false;
     int count = 0;
     while (!is_compositor_active && count < 10) {
     	auto response = get_container_info(container_name, "/top");
     	//Check if compositor is running (hard coded string)
-    	auto searchValue = "/usr/bin/gnome-shell --headless";
+    	auto searchValue = process_name;
 
 
     	// Parse the JSON string
@@ -353,7 +353,8 @@ std::string manage_container(const std::string& username, const std::string& con
     }
 
     // Wait for weston to be up
-    wait_for_compositor(container_prefix + username);
+    wait_for_process(container_prefix + username, "/usr/libexec/gnome-remote-desktop-daemon --headless");
+    wait_for_process(container_prefix + username, "/usr/bin/gnome-shell --headless");
 
     // Get the container's IP address
     std::string ip = get_container_ip(container_prefix + username);
@@ -467,7 +468,6 @@ static int pam_conversation(int num_msg, const struct pam_message** msg,
 
 // Function to authenticate user via PAM
 bool vdi_auth(const std::string& username, const std::string& password) {
-    WLog_INFO(TAG, "called, password: %s", password.c_str());
     pam_handle_t* pamh = nullptr;
     struct pam_conv conv;
     pam_conv_data conv_data = { password.c_str() };
@@ -476,7 +476,7 @@ bool vdi_auth(const std::string& username, const std::string& password) {
     conv.appdata_ptr = &conv_data;
 
     // Start PAM transaction
-    int retval = pam_start("login", username.c_str(), &conv, &pamh);
+    int retval = pam_start("vdi-broker", username.c_str(), &conv, &pamh);
     if (retval != PAM_SUCCESS) {
         std::cerr << "pam_start failed: " << pam_strerror(pamh, retval) << std::endl;
         return false;
@@ -547,11 +547,12 @@ static BOOL demo_client_pre_connect(proxyPlugin* plugin, proxyData* pdata, void*
 		}
 	}
 
+	auto user = username.substr(0, hashPos);
+
 	//WLog_INFO(TAG, "USING CODEC NSC");
-	if(!vdi_auth(username, password)) {
+	if(!vdi_auth(user, password)) {
 		return FALSE;
 	}
-	auto user = username.substr(0, hashPos);
 	WLog_INFO(TAG, "Username: %s", username.c_str());
 	auto ip = manage_container(user).c_str();
 	if(ip != "") {
