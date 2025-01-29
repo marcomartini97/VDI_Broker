@@ -353,8 +353,8 @@ std::string manage_container(const std::string& username, const std::string& con
     }
 
     // Wait for weston to be up
+    wait_for_process(container_prefix + username, "/usr/bin/gnome-shell");
     wait_for_process(container_prefix + username, "/usr/libexec/gnome-remote-desktop-daemon --headless");
-    wait_for_process(container_prefix + username, "/usr/bin/gnome-shell --headless");
 
     // Get the container's IP address
     std::string ip = get_container_ip(container_prefix + username);
