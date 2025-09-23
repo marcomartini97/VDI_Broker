@@ -1,0 +1,20 @@
+# Example configuration for the VDI broker plugin.
+# Copy this file and adjust paths according to your environment.
+
+podman_image: vdi-gnome
+
+# Override the render node passed into the container (optional).
+dri_device: /dev/dri/renderD128
+
+# Host directories bound into the VDI session container.
+home_path: /home
+shadow_path: /etc/shadow
+group_path: /etc/group
+passwd_path: /etc/passwd
+
+# Path to the PAM stack file used for authentication.
+pam_path: /etc/pam.d/vdi-broker
+
+# Optional path to a Dockerfile that can be used to build the podman image
+# when it is not present locally.
+dockerfile_path: /path/to/Dockerfile
