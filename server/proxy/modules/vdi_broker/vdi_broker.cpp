@@ -53,6 +53,41 @@ static BOOL vdi_server_session_started(proxyPlugin* plugin, proxyData* pdata, vo
 	return TRUE;
 }
 
+
+static void vdi_log_configuration_state(bool refreshed)
+{
+	auto& configuration = vdi::Config();
+	const std::string configPath = configuration.ConfigPath();
+	const std::string podmanImage = configuration.PodmanImage();
+	const std::string driDevice = configuration.DriDevice();
+	const std::string homePath = configuration.HomePath();
+	const std::string shadowPath = configuration.ShadowPath();
+	const std::string groupPath = configuration.GroupPath();
+	const std::string passwdPath = configuration.PasswdPath();
+	const std::string pamPath = configuration.PamPath();
+	const std::string dockerfilePath = configuration.DockerfilePath();
+	const std::string pamService = configuration.PamServiceName();
+
+	const char* configPathStr = configPath.empty() ? "<defaults>" : configPath.c_str();
+	const char* dockerfileStr = dockerfilePath.empty() ? "<unset>" : dockerfilePath.c_str();
+
+	if (!refreshed)
+		WLog_WARN(TAG, "Failed to refresh VDI broker configuration at %s; using defaults",
+		         configPathStr);
+
+	WLog_INFO(TAG, "VDI broker configuration loaded");
+	WLog_INFO(TAG, "  config_path   : %s", configPathStr);
+	WLog_INFO(TAG, "  podman_image  : %s", podmanImage.c_str());
+	WLog_INFO(TAG, "  dri_device    : %s", driDevice.c_str());
+	WLog_INFO(TAG, "  home_path     : %s", homePath.c_str());
+	WLog_INFO(TAG, "  shadow_path   : %s", shadowPath.c_str());
+	WLog_INFO(TAG, "  group_path    : %s", groupPath.c_str());
+	WLog_INFO(TAG, "  passwd_path   : %s", passwdPath.c_str());
+	WLog_INFO(TAG, "  pam_path      : %s", pamPath.c_str());
+	WLog_INFO(TAG, "  pam_service   : %s", pamService.c_str());
+	WLog_INFO(TAG, "  dockerfile    : %s", dockerfileStr);
+}
+
 static void vdi_refresh_configuration(proxyData* pdata)
 {
 	auto& configuration = vdi::Config();
@@ -90,39 +125,6 @@ static void vdi_initialize_configuration(const proxyConfig* config)
 		configuration.SetConfigPath(path);
 }
 
-static void vdi_log_configuration_state(bool refreshed)
-{
-	auto& configuration = vdi::Config();
-	const std::string configPath = configuration.ConfigPath();
-	const std::string podmanImage = configuration.PodmanImage();
-	const std::string driDevice = configuration.DriDevice();
-	const std::string homePath = configuration.HomePath();
-	const std::string shadowPath = configuration.ShadowPath();
-	const std::string groupPath = configuration.GroupPath();
-	const std::string passwdPath = configuration.PasswdPath();
-	const std::string pamPath = configuration.PamPath();
-	const std::string dockerfilePath = configuration.DockerfilePath();
-	const std::string pamService = configuration.PamServiceName();
-
-	const char* configPathStr = configPath.empty() ? "<defaults>" : configPath.c_str();
-	const char* dockerfileStr = dockerfilePath.empty() ? "<unset>" : dockerfilePath.c_str();
-
-	if (!refreshed)
-		WLog_WARN(TAG, "Failed to refresh VDI broker configuration at %s; using defaults",
-		         configPathStr);
-
-	WLog_INFO(TAG, "VDI broker configuration loaded");
-	WLog_INFO(TAG, "  config_path   : %s", configPathStr);
-	WLog_INFO(TAG, "  podman_image  : %s", podmanImage.c_str());
-	WLog_INFO(TAG, "  dri_device    : %s", driDevice.c_str());
-	WLog_INFO(TAG, "  home_path     : %s", homePath.c_str());
-	WLog_INFO(TAG, "  shadow_path   : %s", shadowPath.c_str());
-	WLog_INFO(TAG, "  group_path    : %s", groupPath.c_str());
-	WLog_INFO(TAG, "  passwd_path   : %s", passwdPath.c_str());
-	WLog_INFO(TAG, "  pam_path      : %s", pamPath.c_str());
-	WLog_INFO(TAG, "  pam_service   : %s", pamService.c_str());
-	WLog_INFO(TAG, "  dockerfile    : %s", dockerfileStr);
-}
 
 
 struct vdi_custom_data
@@ -669,7 +671,6 @@ BOOL proxy_module_entry_point(proxyPluginsManager* plugins_manager, void* userda
 	const proxyConfig* initialConfig = static_cast<const proxyConfig*>(userdata);
 	vdi_initialize_configuration(initialConfig);
 	const bool refreshed = vdi::Config().Refresh();
-	vdi_log_configuration_state(refreshed);
 
 	plugin.name = plugin_name;
 	plugin.description = plugin_desc;
@@ -716,4 +717,5 @@ BOOL proxy_module_entry_point(proxyPluginsManager* plugins_manager, void* userda
 	plugin.userdata = userdata;
 
 	return plugins_manager->RegisterPlugin(plugins_manager, &plugin);
+	vdi_log_configuration_state(refreshed);
 }

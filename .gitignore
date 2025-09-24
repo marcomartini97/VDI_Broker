@@ -1,5 +1,8 @@
 **/CMakeCache.txt
 **/CMakeFiles
+.idea
 build
 checker
 abi-checker
+AGENTS.md
+cmake-build-debug
