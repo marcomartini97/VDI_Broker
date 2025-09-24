@@ -623,7 +623,7 @@ static UINT rdpsnd_treat_wave(rdpsndPlugin* rdpsnd, wStream* s, size_t size)
 	const BYTE* data = Stream_ConstPointer(s);
 	format = &rdpsnd->ClientFormats[rdpsnd->wCurrentFormatNo];
 	WLog_Print(rdpsnd->log, WLOG_DEBUG,
-	           "%s Wave: cBlockNo: %" PRIu8 " wTimeStamp: %" PRIu16 ", size: %" PRIdz,
+	           "%s Wave: cBlockNo: %" PRIu8 " wTimeStamp: %" PRIu16 ", size: %" PRIuz,
 	           rdpsnd_is_dyn_str(rdpsnd->dynamic), rdpsnd->cBlockNo, rdpsnd->wTimeStamp, size);
 
 	if (rdpsnd->device && rdpsnd->attached && !rdpsnd_detect_overrun(rdpsnd, format, size))
@@ -712,9 +712,11 @@ static UINT rdpsnd_recv_wave2_pdu(rdpsndPlugin* rdpsnd, wStream* s, UINT16 BodyS
 	rdpsnd->waveDataSize = BodySize - 12;
 	rdpsnd->wArrivalTime = GetTickCount64();
 	WLog_Print(rdpsnd->log, WLOG_DEBUG,
-	           "%s Wave2PDU: cBlockNo: %" PRIu8 " wFormatNo: %" PRIu16 " [%s] , align=%hu",
+	           "%s Wave2PDU: cBlockNo: %" PRIu8 " wFormatNo: %" PRIu16
+	           " [%s] , align=%hu wTimeStamp=0x%04" PRIx16 ", dwAudioTimeStamp=0x%08" PRIx32,
 	           rdpsnd_is_dyn_str(rdpsnd->dynamic), rdpsnd->cBlockNo, wFormatNo,
-	           audio_format_get_tag_string(format->wFormatTag), format->nBlockAlign);
+	           audio_format_get_tag_string(format->wFormatTag), format->nBlockAlign,
+	           rdpsnd->wTimeStamp, dwAudioTimeStamp);
 
 	if (!rdpsnd_ensure_device_is_open(rdpsnd, wFormatNo, format))
 		return ERROR_INTERNAL_ERROR;
@@ -1560,7 +1562,7 @@ static rdpsndPlugin* allocatePlugin(void)
 
 fail:
 	if (rdpsnd)
-		audio_format_free(rdpsnd->fixed_format);
+		audio_formats_free(rdpsnd->fixed_format, 1);
 	free(rdpsnd);
 	return NULL;
 }

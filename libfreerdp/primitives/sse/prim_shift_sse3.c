@@ -24,40 +24,41 @@
 #include "prim_internal.h"
 #include "prim_templates.h"
 
-#if defined(SSE2_ENABLED)
+#if defined(SSE_AVX_INTRINSICS_ENABLED)
 #include <emmintrin.h>
 #include <pmmintrin.h>
 
 static primitives_t* generic = NULL;
 
 /* ------------------------------------------------------------------------- */
-SSE3_SCD_ROUTINE(sse2_lShiftC_16s, INT16, generic->lShiftC_16s, _mm_slli_epi16,
-                 *dptr++ = (INT16)((UINT16)*sptr++ << val))
+SSE3_SCD_ROUTINE(sse2_lShiftC_16s, INT16, generic->lShiftC_16s, _mm_slli_epi16, int16_t,
+                 *dptr++ = (INT16)(((UINT16)*sptr++ << val) & 0xFFFF))
 /* ------------------------------------------------------------------------- */
-SSE3_SCD_ROUTINE(sse2_rShiftC_16s, INT16, generic->rShiftC_16s, _mm_srai_epi16,
+SSE3_SCD_ROUTINE(sse2_rShiftC_16s, INT16, generic->rShiftC_16s, _mm_srai_epi16, int16_t,
                  *dptr++ = *sptr++ >> val)
 /* ------------------------------------------------------------------------- */
-SSE3_SCD_ROUTINE(sse2_lShiftC_16u, UINT16, generic->lShiftC_16u, _mm_slli_epi16,
-                 *dptr++ = (INT16)((UINT16)*sptr++ << val))
+SSE3_SCD_ROUTINE(sse2_lShiftC_16u, UINT16, generic->lShiftC_16u, _mm_slli_epi16, int16_t,
+                 *dptr++ = (((UINT16)*sptr++ << val) & 0xFFFF))
 /* ------------------------------------------------------------------------- */
-SSE3_SCD_ROUTINE(sse2_rShiftC_16u, UINT16, generic->rShiftC_16u, _mm_srli_epi16,
+SSE3_SCD_ROUTINE(sse2_rShiftC_16u, UINT16, generic->rShiftC_16u, _mm_srli_epi16, int16_t,
                  *dptr++ = *sptr++ >> val)
 
-static pstatus_t sse2_lShiftC_16s_inplace(INT16* WINPR_RESTRICT pSrcDst, UINT32 val, UINT32 len)
+static pstatus_t sse2_lShiftC_16s_inplace(INT16* WINPR_RESTRICT pSrcDst, UINT32 val, UINT32 ulen)
 {
+	size_t len = ulen;
 	const INT32 shifts = 2;
 	if (val == 0)
 		return PRIMITIVES_SUCCESS;
 	if (val >= 16)
 		return -1;
 	if (len < 16) /* pointless if too small */
-		return generic->lShiftC_16s_inplace(pSrcDst, val, len);
+		return generic->lShiftC_16s_inplace(pSrcDst, val, ulen);
 
 	UINT32 offBeatMask = (1 << (shifts - 1)) - 1;
 	if ((ULONG_PTR)pSrcDst & offBeatMask)
 	{
 		/* Incrementing the pointer skips over 16-byte boundary. */
-		return generic->lShiftC_16s_inplace(pSrcDst, val, len);
+		return generic->lShiftC_16s_inplace(pSrcDst, val, ulen);
 	}
 	/* Get to the 16-byte boundary now. */
 	const UINT32 rem = ((UINT_PTR)pSrcDst & 0x0f) / sizeof(INT16);
@@ -72,41 +73,41 @@ static pstatus_t sse2_lShiftC_16s_inplace(INT16* WINPR_RESTRICT pSrcDst, UINT32 
 	}
 
 	/* Use 8 128-bit SSE registers. */
-	int count = len >> (8 - shifts);
+	size_t count = len >> (8 - shifts);
 	len -= count << (8 - shifts);
 
 	while (count--)
 	{
 		const __m128i* src = (const __m128i*)pSrcDst;
 
-		__m128i xmm0 = _mm_load_si128(src++);
-		__m128i xmm1 = _mm_load_si128(src++);
-		__m128i xmm2 = _mm_load_si128(src++);
-		__m128i xmm3 = _mm_load_si128(src++);
-		__m128i xmm4 = _mm_load_si128(src++);
-		__m128i xmm5 = _mm_load_si128(src++);
-		__m128i xmm6 = _mm_load_si128(src++);
-		__m128i xmm7 = _mm_load_si128(src);
+		__m128i xmm0 = LOAD_SI128(src++);
+		__m128i xmm1 = LOAD_SI128(src++);
+		__m128i xmm2 = LOAD_SI128(src++);
+		__m128i xmm3 = LOAD_SI128(src++);
+		__m128i xmm4 = LOAD_SI128(src++);
+		__m128i xmm5 = LOAD_SI128(src++);
+		__m128i xmm6 = LOAD_SI128(src++);
+		__m128i xmm7 = LOAD_SI128(src);
 
-		xmm0 = _mm_slli_epi16(xmm0, val);
-		xmm1 = _mm_slli_epi16(xmm1, val);
-		xmm2 = _mm_slli_epi16(xmm2, val);
-		xmm3 = _mm_slli_epi16(xmm3, val);
-		xmm4 = _mm_slli_epi16(xmm4, val);
-		xmm5 = _mm_slli_epi16(xmm5, val);
-		xmm6 = _mm_slli_epi16(xmm6, val);
-		xmm7 = _mm_slli_epi16(xmm7, val);
+		xmm0 = _mm_slli_epi16(xmm0, (int16_t)val);
+		xmm1 = _mm_slli_epi16(xmm1, (int16_t)val);
+		xmm2 = _mm_slli_epi16(xmm2, (int16_t)val);
+		xmm3 = _mm_slli_epi16(xmm3, (int16_t)val);
+		xmm4 = _mm_slli_epi16(xmm4, (int16_t)val);
+		xmm5 = _mm_slli_epi16(xmm5, (int16_t)val);
+		xmm6 = _mm_slli_epi16(xmm6, (int16_t)val);
+		xmm7 = _mm_slli_epi16(xmm7, (int16_t)val);
 
 		__m128i* dst = (__m128i*)pSrcDst;
 
-		_mm_store_si128(dst++, xmm0);
-		_mm_store_si128(dst++, xmm1);
-		_mm_store_si128(dst++, xmm2);
-		_mm_store_si128(dst++, xmm3);
-		_mm_store_si128(dst++, xmm4);
-		_mm_store_si128(dst++, xmm5);
-		_mm_store_si128(dst++, xmm6);
-		_mm_store_si128(dst++, xmm7);
+		STORE_SI128(dst++, xmm0);
+		STORE_SI128(dst++, xmm1);
+		STORE_SI128(dst++, xmm2);
+		STORE_SI128(dst++, xmm3);
+		STORE_SI128(dst++, xmm4);
+		STORE_SI128(dst++, xmm5);
+		STORE_SI128(dst++, xmm6);
+		STORE_SI128(dst++, xmm7);
 
 		pSrcDst = (INT16*)dst;
 	}
@@ -119,16 +120,16 @@ static pstatus_t sse2_lShiftC_16s_inplace(INT16* WINPR_RESTRICT pSrcDst, UINT32 
 		const __m128i* src = (const __m128i*)pSrcDst;
 		__m128i xmm0 = LOAD_SI128(src);
 
-		xmm0 = _mm_slli_epi16(xmm0, val);
+		xmm0 = _mm_slli_epi16(xmm0, (int16_t)val);
 
 		__m128i* dst = (__m128i*)pSrcDst;
-		_mm_store_si128(dst++, xmm0);
+		STORE_SI128(dst++, xmm0);
 		pSrcDst = (INT16*)dst;
 	}
 
 	/* Finish off the remainder. */
 	if (len > 0)
-		return generic->lShiftC_16s_inplace(pSrcDst, val, len);
+		return generic->lShiftC_16s_inplace(pSrcDst, val, WINPR_ASSERTING_INT_CAST(uint32_t, len));
 
 	return PRIMITIVES_SUCCESS;
 }
@@ -140,25 +141,20 @@ static pstatus_t sse2_lShiftC_16s_inplace(INT16* WINPR_RESTRICT pSrcDst, UINT32 
  */
 
 /* ------------------------------------------------------------------------- */
-void primitives_init_shift_sse3(primitives_t* WINPR_RESTRICT prims)
+void primitives_init_shift_sse3_int(primitives_t* WINPR_RESTRICT prims)
 {
-#if defined(SSE2_ENABLED)
+#if defined(SSE_AVX_INTRINSICS_ENABLED)
 	generic = primitives_get_generic();
-	primitives_init_shift(prims);
 
-	if (IsProcessorFeaturePresent(PF_SSE2_INSTRUCTIONS_AVAILABLE) &&
-	    IsProcessorFeaturePresent(PF_SSE3_INSTRUCTIONS_AVAILABLE))
-	{
-		WLog_VRB(PRIM_TAG, "SSE2/SSE3 optimizations");
-		prims->lShiftC_16s_inplace = sse2_lShiftC_16s_inplace;
-		prims->lShiftC_16s = sse2_lShiftC_16s;
-		prims->rShiftC_16s = sse2_rShiftC_16s;
-		prims->lShiftC_16u = sse2_lShiftC_16u;
-		prims->rShiftC_16u = sse2_rShiftC_16u;
-	}
+	WLog_VRB(PRIM_TAG, "SSE2/SSE3 optimizations");
+	prims->lShiftC_16s_inplace = sse2_lShiftC_16s_inplace;
+	prims->lShiftC_16s = sse2_lShiftC_16s;
+	prims->rShiftC_16s = sse2_rShiftC_16s;
+	prims->lShiftC_16u = sse2_lShiftC_16u;
+	prims->rShiftC_16u = sse2_rShiftC_16u;
 
 #else
-	WLog_VRB(PRIM_TAG, "undefined WITH_SSE2");
+	WLog_VRB(PRIM_TAG, "undefined WITH_SIMD or SSE3 intrinsics not available");
 	WINPR_UNUSED(prims);
 #endif
 }

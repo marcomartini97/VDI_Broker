@@ -566,9 +566,9 @@ static size_t WinPrAsn1EncIntegerLike(WinPrAsn1Encoder* enc, WinPrAsn1_tag b,
 	return 1 + len;
 }
 
-size_t WinPrAsn1EncInteger(WinPrAsn1Encoder* enc, WinPrAsn1_INTEGER value)
+size_t WinPrAsn1EncInteger(WinPrAsn1Encoder* enc, WinPrAsn1_INTEGER integer)
 {
-	return WinPrAsn1EncIntegerLike(enc, ER_TAG_INTEGER, value);
+	return WinPrAsn1EncIntegerLike(enc, ER_TAG_INTEGER, integer);
 }
 
 size_t WinPrAsn1EncEnumerated(WinPrAsn1Encoder* enc, WinPrAsn1_ENUMERATED value)
@@ -615,9 +615,9 @@ static size_t WinPrAsn1EncContextualIntegerLike(WinPrAsn1Encoder* enc, WinPrAsn1
 }
 
 size_t WinPrAsn1EncContextualInteger(WinPrAsn1Encoder* enc, WinPrAsn1_tagId tagId,
-                                     WinPrAsn1_INTEGER value)
+                                     WinPrAsn1_INTEGER integer)
 {
-	return WinPrAsn1EncContextualIntegerLike(enc, ER_TAG_INTEGER, tagId, value);
+	return WinPrAsn1EncContextualIntegerLike(enc, ER_TAG_INTEGER, tagId, integer);
 }
 
 size_t WinPrAsn1EncContextualEnumerated(WinPrAsn1Encoder* enc, WinPrAsn1_tagId tagId,
@@ -686,9 +686,9 @@ size_t WinPrAsn1EncOID(WinPrAsn1Encoder* enc, const WinPrAsn1_OID* oid)
 	return WinPrAsn1EncMemoryChunk(enc, ER_TAG_OBJECT_IDENTIFIER, oid);
 }
 
-size_t WinPrAsn1EncOctetString(WinPrAsn1Encoder* enc, const WinPrAsn1_OctetString* octets)
+size_t WinPrAsn1EncOctetString(WinPrAsn1Encoder* enc, const WinPrAsn1_OctetString* octetstring)
 {
-	return WinPrAsn1EncMemoryChunk(enc, ER_TAG_OCTET_STRING, octets);
+	return WinPrAsn1EncMemoryChunk(enc, ER_TAG_OCTET_STRING, octetstring);
 }
 
 size_t WinPrAsn1EncIA5String(WinPrAsn1Encoder* enc, WinPrAsn1_IA5STRING ia5)
@@ -742,9 +742,9 @@ size_t WinPrAsn1EncContextualOID(WinPrAsn1Encoder* enc, WinPrAsn1_tagId tagId,
 }
 
 size_t WinPrAsn1EncContextualOctetString(WinPrAsn1Encoder* enc, WinPrAsn1_tagId tagId,
-                                         const WinPrAsn1_OctetString* octets)
+                                         const WinPrAsn1_OctetString* octetstring)
 {
-	return WinPrAsn1EncContextualMemoryChunk(enc, ER_TAG_OCTET_STRING, tagId, octets);
+	return WinPrAsn1EncContextualMemoryChunk(enc, ER_TAG_OCTET_STRING, tagId, octetstring);
 }
 
 size_t WinPrAsn1EncContextualIA5String(WinPrAsn1Encoder* enc, WinPrAsn1_tagId tagId,
@@ -1081,7 +1081,7 @@ static size_t WinPrAsn1DecReadMemoryChunkLike(WinPrAsn1Decoder* dec, WinPrAsn1_t
 	ret += len;
 
 	target->len = len;
-	if (allocate)
+	if (allocate && (len > 0))
 	{
 		target->data = malloc(len);
 		if (!target->data)
@@ -1168,13 +1168,13 @@ static int read2digits(wStream* s)
 	int ret = 0;
 	char c = 0;
 
-	Stream_Read_UINT8(s, c);
+	Stream_Read_INT8(s, c);
 	if (c < '0' || c > '9')
 		return -1;
 
 	ret = (c - '0') * 10;
 
-	Stream_Read_UINT8(s, c);
+	Stream_Read_INT8(s, c);
 	if (c < '0' || c > '9')
 		return -1;
 
@@ -1203,38 +1203,38 @@ size_t WinPrAsn1DecReadUtcTime(WinPrAsn1Decoder* dec, WinPrAsn1_UTCTIME* target)
 	Stream_StaticConstInit(s, Stream_ConstPointer(&dec->source), len);
 
 	v = read2digits(s);
-	if (v <= 0)
+	if ((v <= 0) || (v >= UINT16_MAX - 2000))
 		return 0;
-	target->year = 2000 + v;
+	target->year = (UINT16)(2000 + v);
 
 	v = read2digits(s);
-	if (v <= 0)
+	if ((v <= 0) || (v > UINT8_MAX))
 		return 0;
-	target->month = v;
+	target->month = (UINT8)v;
 
 	v = read2digits(s);
-	if (v <= 0)
+	if ((v <= 0) || (v > UINT8_MAX))
 		return 0;
-	target->day = v;
+	target->day = (UINT8)v;
 
 	v = read2digits(s);
-	if (v <= 0)
+	if ((v <= 0) || (v > UINT8_MAX))
 		return 0;
-	target->hour = v;
+	target->hour = (UINT8)v;
 
 	v = read2digits(s);
-	if (v <= 0)
+	if ((v <= 0) || (v > UINT8_MAX))
 		return 0;
-	target->minute = v;
+	target->minute = (UINT8)v;
 
 	v = read2digits(s);
-	if (v <= 0)
+	if ((v <= 0) || (v > UINT8_MAX))
 		return 0;
-	target->second = v;
+	target->second = (UINT8)v;
 
 	if (Stream_GetRemainingLength(s) >= 1)
 	{
-		Stream_Read_UINT8(s, target->tz);
+		Stream_Read_INT8(s, target->tz);
 	}
 
 	Stream_Seek(&dec->source, len);
@@ -1274,15 +1274,15 @@ static size_t readConstructed(WinPrAsn1Decoder* dec, wStream* s, WinPrAsn1_tag* 
 	return ret + len;
 }
 
-size_t WinPrAsn1DecReadApp(WinPrAsn1Decoder* dec, WinPrAsn1_tagId* tagId, WinPrAsn1Decoder* target)
+size_t WinPrAsn1DecReadApp(WinPrAsn1Decoder* dec, WinPrAsn1_tagId* tagId, WinPrAsn1Decoder* setDec)
 {
 	WinPrAsn1_tag tag = 0;
 	size_t ret = 0;
 
 	WINPR_ASSERT(dec);
-	WINPR_ASSERT(target);
+	WINPR_ASSERT(setDec);
 
-	ret = readConstructed(dec, &dec->source, &tag, target);
+	ret = readConstructed(dec, &dec->source, &tag, setDec);
 	if ((tag & ER_TAG_APP) != ER_TAG_APP)
 		return 0;
 
@@ -1290,30 +1290,30 @@ size_t WinPrAsn1DecReadApp(WinPrAsn1Decoder* dec, WinPrAsn1_tagId* tagId, WinPrA
 	return ret;
 }
 
-size_t WinPrAsn1DecReadSequence(WinPrAsn1Decoder* dec, WinPrAsn1Decoder* target)
+size_t WinPrAsn1DecReadSequence(WinPrAsn1Decoder* dec, WinPrAsn1Decoder* seqDec)
 {
 	WinPrAsn1_tag tag = 0;
 	size_t ret = 0;
 
 	WINPR_ASSERT(dec);
-	WINPR_ASSERT(target);
+	WINPR_ASSERT(seqDec);
 
-	ret = readConstructed(dec, &dec->source, &tag, target);
+	ret = readConstructed(dec, &dec->source, &tag, seqDec);
 	if (tag != ER_TAG_SEQUENCE)
 		return 0;
 
 	return ret;
 }
 
-size_t WinPrAsn1DecReadSet(WinPrAsn1Decoder* dec, WinPrAsn1Decoder* target)
+size_t WinPrAsn1DecReadSet(WinPrAsn1Decoder* dec, WinPrAsn1Decoder* setDec)
 {
 	WinPrAsn1_tag tag = 0;
 	size_t ret = 0;
 
 	WINPR_ASSERT(dec);
-	WINPR_ASSERT(target);
+	WINPR_ASSERT(setDec);
 
-	ret = readConstructed(dec, &dec->source, &tag, target);
+	ret = readConstructed(dec, &dec->source, &tag, setDec);
 	if (tag != ER_TAG_SET)
 		return 0;
 

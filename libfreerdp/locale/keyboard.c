@@ -35,11 +35,12 @@
 
 #include "liblocale.h"
 
+#if !defined(WITHOUT_FREERDP_3x_DEPRECATED)
+#define TAG FREERDP_TAG("locale.keyboard")
+
 #if defined(__MACOSX__)
 #include "keyboard_apple.h"
 #endif
-
-#define TAG FREERDP_TAG("locale.keyboard")
 
 #ifdef WITH_X11
 #include "keyboard_x11.h"
@@ -47,13 +48,21 @@
 #ifdef WITH_XKBFILE
 #include "keyboard_xkbfile.h"
 #endif
+#endif
 
 #endif
 
+#if !defined(WITHOUT_FREERDP_3x_DEPRECATED)
 static WINPR_KEYCODE_TYPE maptype = WINPR_KEYCODE_TYPE_NONE;
 static DWORD VIRTUAL_SCANCODE_TO_X11_KEYCODE[256][2] = { 0 };
 static DWORD X11_KEYCODE_TO_VIRTUAL_SCANCODE[256] = { 0 };
 static DWORD REMAPPING_TABLE[0x10000] = { 0 };
+#endif
+
+struct rdp_remap_table
+{
+	DWORD table[0x10000];
+};
 
 struct scancode_map_entry
 {
@@ -221,6 +230,7 @@ static const struct scancode_map_entry RDP_SCANCODE_MAP[] = {
 	{ RDP_SCANCODE_LAUNCH_APP2, "VK_LAUNCH_APP2" },
 };
 
+#if !defined(WITHOUT_FREERDP_3x_DEPRECATED)
 static int freerdp_detect_keyboard(DWORD* keyboardLayoutId)
 {
 #if defined(_WIN32)
@@ -236,7 +246,11 @@ static int freerdp_detect_keyboard(DWORD* keyboardLayoutId)
 	}
 
 	if (*keyboardLayoutId == 0)
-		*keyboardLayoutId = ((DWORD)GetKeyboardLayout(0) >> 16) & 0x0000FFFF;
+	{
+		const HKL layout = GetKeyboardLayout(0);
+		const uint32_t masked = (uint32_t)(((uintptr_t)layout >> 16) & 0xFFFF);
+		*keyboardLayoutId = masked;
+	}
 #endif
 
 #if defined(__MACOSX__)
@@ -258,7 +272,8 @@ static int freerdp_detect_keyboard(DWORD* keyboardLayoutId)
 	return 0;
 }
 
-static int freerdp_keyboard_init_apple(const DWORD* keyboardLayoutId,
+#if defined(__APPLE__)
+static int freerdp_keyboard_init_apple(WINPR_ATTR_UNUSED const DWORD* keyboardLayoutId,
                                        DWORD* x11_keycode_to_rdp_scancode, size_t count)
 {
 	WINPR_ASSERT(x11_keycode_to_rdp_scancode);
@@ -275,8 +290,9 @@ static int freerdp_keyboard_init_apple(const DWORD* keyboardLayoutId,
 	maptype = WINPR_KEYCODE_TYPE_APPLE;
 	return 0;
 }
+#endif
 
-static int freerdp_keyboard_init_x11_evdev(const DWORD* keyboardLayoutId,
+static int freerdp_keyboard_init_x11_evdev(WINPR_ATTR_UNUSED const DWORD* keyboardLayoutId,
                                            DWORD* x11_keycode_to_rdp_scancode, size_t count)
 {
 	WINPR_ASSERT(keyboardLayoutId);
@@ -341,7 +357,55 @@ DWORD freerdp_keyboard_init(DWORD keyboardLayoutId)
 
 	return keyboardLayoutId;
 }
+#endif
 
+FREERDP_REMAP_TABLE* freerdp_keyboard_remap_string_to_list(const char* list)
+{
+	const size_t remap_table_size = 0x10000;
+
+	FREERDP_REMAP_TABLE* remap_table = calloc(1, sizeof(FREERDP_REMAP_TABLE));
+	if (!remap_table)
+		return NULL;
+
+	for (size_t x = 0; x < ARRAYSIZE(remap_table->table); x++)
+		remap_table->table[x] = (UINT32)x;
+
+	if (!list)
+		return remap_table;
+
+	BOOL success = FALSE;
+	char* copy = _strdup(list);
+	if (!copy)
+		goto fail;
+
+	char* context = NULL;
+	char* token = strtok_s(copy, ",", &context);
+	while (token)
+	{
+		DWORD key = 0;
+		DWORD value = 0;
+		if (!freerdp_extract_key_value(token, &key, &value))
+			goto fail;
+		if (key >= remap_table_size)
+			goto fail;
+		remap_table->table[key] = value;
+		token = strtok_s(NULL, ",", &context);
+	}
+
+	success = TRUE;
+
+fail:
+	free(copy);
+
+	if (!success)
+	{
+		free(remap_table);
+		return NULL;
+	}
+	return remap_table;
+}
+
+#if !defined(WITHOUT_FREERDP_3x_DEPRECATED)
 DWORD freerdp_keyboard_init_ex(DWORD keyboardLayoutId, const char* keyboardRemappingList)
 {
 	DWORD res = freerdp_keyboard_init(keyboardLayoutId);
@@ -430,6 +494,7 @@ DWORD freerdp_keyboard_get_x11_keycode_from_rdp_scancode(DWORD scancode, BOOL ex
 	else
 		return x11[0];
 }
+#endif
 
 const char* freerdp_keyboard_scancode_name(DWORD scancode)
 {
@@ -441,4 +506,17 @@ const char* freerdp_keyboard_scancode_name(DWORD scancode)
 	}
 
 	return NULL;
+}
+
+DWORD freerdp_keyboard_remap_key(const FREERDP_REMAP_TABLE* remap_table, DWORD rdpScanCode)
+{
+	if (!remap_table || (ARRAYSIZE(remap_table->table) <= rdpScanCode))
+		return 0;
+
+	return remap_table->table[rdpScanCode];
+}
+
+void freerdp_keyboard_remap_free(FREERDP_REMAP_TABLE* table)
+{
+	free(table);
 }

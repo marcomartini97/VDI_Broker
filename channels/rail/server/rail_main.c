@@ -92,8 +92,8 @@ static UINT rail_write_local_move_size_order(wStream* s,
 	Stream_Write_UINT32(s, localMoveSize->windowId);                /* WindowId (4 bytes) */
 	Stream_Write_UINT16(s, localMoveSize->isMoveSizeStart ? 1 : 0); /* IsMoveSizeStart (2 bytes) */
 	Stream_Write_UINT16(s, localMoveSize->moveSizeType);            /* MoveSizeType (2 bytes) */
-	Stream_Write_UINT16(s, localMoveSize->posX);                    /* PosX (2 bytes) */
-	Stream_Write_UINT16(s, localMoveSize->posY);                    /* PosY (2 bytes) */
+	Stream_Write_INT16(s, localMoveSize->posX);                     /* PosX (2 bytes) */
+	Stream_Write_INT16(s, localMoveSize->posY);                     /* PosY (2 bytes) */
 	return ERROR_SUCCESS;
 }
 
@@ -1439,7 +1439,7 @@ static UINT rail_server_start(RailServerContext* context)
 		goto out_close;
 	}
 
-	CopyMemory(&priv->channelEvent, buffer, sizeof(HANDLE));
+	priv->channelEvent = *(HANDLE*)buffer;
 	WTSFreeMemory(buffer);
 	context->priv->stopEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
 

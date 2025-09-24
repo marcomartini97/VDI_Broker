@@ -32,13 +32,13 @@
 typedef struct
 {
 	const char* variant;     /* XKB Keyboard layout variant */
-	UINT32 keyboardLayoutID; /* Keyboard Layout ID */
+	INT64 keyboardLayoutID;  /* Keyboard Layout ID */
 } XKB_VARIANT;
 
 typedef struct
 {
 	const char* layout;      /* XKB Keyboard layout */
-	UINT32 keyboardLayoutID; /* Keyboard Layout ID */
+	INT64 keyboardLayoutID;  /* Keyboard Layout ID */
 	const XKB_VARIANT* variants;
 } XKB_LAYOUT;
 
@@ -198,7 +198,7 @@ static const XKB_VARIANT ca_variants[] = {
 	{ "multi", KBD_CANADIAN_MULTILINGUAL_STANDARD },     /* Multilingual, first part */
 	{ "multi-2gr", KBD_CANADIAN_MULTILINGUAL_STANDARD }, /* Multilingual, second part */
 	{ "ike", KBD_INUKTITUT_LATIN },                      /* Inuktitut */
-	{ "shs", 0 },                                        /* Secwepemctsin */
+	{ "shs" /* codespell:ignore shs */, 0 },             /* Secwepemctsin */
 	{ "kut", 0 },                                        /* Ktunaxa */
 	{ "", 0 },
 };
@@ -826,6 +826,13 @@ static const XKB_LAYOUT xkbLayouts[] = {
 	{ "tm", KBD_TURKISH_Q, tm_variants },                        /* Turkmenistan */
 };
 
+static uint32_t convert(int64_t val)
+{
+	WINPR_ASSERT(val <= UINT32_MAX);
+	WINPR_ASSERT(val >= INT32_MIN);
+	return WINPR_CXX_COMPAT_CAST(uint32_t, val);
+}
+
 static UINT32 find_keyboard_layout_variant(const XKB_LAYOUT* layout, const char* variant)
 {
 	WINPR_ASSERT(layout);
@@ -838,12 +845,12 @@ static UINT32 find_keyboard_layout_variant(const XKB_LAYOUT* layout, const char*
 		while (var->variant && (strlen(var->variant) != 0))
 		{
 			if (strcmp(var->variant, variant) == 0)
-				return var->keyboardLayoutID;
+				return convert(var->keyboardLayoutID);
 			var++;
 		}
 	}
 
-	return layout->keyboardLayoutID;
+	return convert(layout->keyboardLayoutID);
 }
 
 UINT32 find_keyboard_layout_in_xorg_rules(const char* layout, const char* variant)

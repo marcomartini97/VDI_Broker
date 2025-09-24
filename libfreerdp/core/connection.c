@@ -319,6 +319,7 @@ BOOL rdp_client_connect(rdpRdp* rdp)
 		flags |= WINPR_SSL_INIT_ENABLE_FIPS;
 
 	winpr_InitializeSSL(flags);
+	rdp_log_build_warnings(rdp);
 
 	/* FIPS Mode forces the following and overrides the following(by happening later */
 	/* in the command line processing): */
@@ -335,7 +336,7 @@ BOOL rdp_client_connect(rdpRdp* rdp)
 	UINT32 TcpConnectTimeout = freerdp_settings_get_uint32(settings, FreeRDP_TcpConnectTimeout);
 	if (settings->GatewayArmTransport)
 	{
-		if (!arm_resolve_endpoint(rdp->context, TcpConnectTimeout))
+		if (!arm_resolve_endpoint(rdp->log, rdp->context, TcpConnectTimeout))
 		{
 			WLog_ERR(TAG, "error retrieving ARM configuration");
 			return FALSE;
@@ -490,6 +491,9 @@ BOOL rdp_client_disconnect(rdpRdp* rdp)
 		if (!nego_disconnect(rdp->nego))
 			return FALSE;
 	}
+
+	if (!transport_disconnect(rdp->transport))
+		return FALSE;
 
 	if (!rdp_reset(rdp))
 		return FALSE;
@@ -775,9 +779,10 @@ static BOOL rdp_client_establish_keys(rdpRdp* rdp)
 		goto end;
 	}
 
-	if (!rdp_write_header(rdp, s, length, MCS_GLOBAL_CHANNEL_ID))
+	UINT16 sec_flags = SEC_EXCHANGE_PKT | SEC_LICENSE_ENCRYPT_SC;
+	if (!rdp_write_header(rdp, s, length, MCS_GLOBAL_CHANNEL_ID, sec_flags))
 		goto end;
-	if (!rdp_write_security_header(rdp, s, SEC_EXCHANGE_PKT | SEC_LICENSE_ENCRYPT_SC))
+	if (!rdp_write_security_header(rdp, s, sec_flags))
 		goto end;
 
 	Stream_Write_UINT32(s, info->ModulusLength + 8);
@@ -897,25 +902,25 @@ BOOL rdp_server_establish_keys(rdpRdp* rdp, wStream* s)
 
 	if (!rdp_read_security_header(rdp, s, &sec_flags, NULL))
 	{
-		WLog_ERR(TAG, "invalid security header");
+		WLog_Print(rdp->log, WLOG_ERROR, "invalid security header");
 		return FALSE;
 	}
 
 	if ((sec_flags & SEC_EXCHANGE_PKT) == 0)
 	{
-		WLog_ERR(TAG, "missing SEC_EXCHANGE_PKT in security header");
+		WLog_Print(rdp->log, WLOG_ERROR, "missing SEC_EXCHANGE_PKT in security header");
 		return FALSE;
 	}
 
 	rdp->do_crypt_license = (sec_flags & SEC_LICENSE_ENCRYPT_SC) != 0 ? TRUE : FALSE;
 
-	if (!Stream_CheckAndLogRequiredLength(TAG, s, 4))
+	if (!Stream_CheckAndLogRequiredLengthWLog(rdp->log, s, 4))
 		return FALSE;
 
 	Stream_Read_UINT32(s, rand_len);
 
 	/* rand_len already includes 8 bytes of padding */
-	if (!Stream_CheckAndLogRequiredLength(TAG, s, rand_len))
+	if (!Stream_CheckAndLogRequiredLengthWLog(rdp->log, s, rand_len))
 		return FALSE;
 
 	const BYTE* crypt_random = Stream_ConstPointer(s);
@@ -938,7 +943,7 @@ BOOL rdp_server_establish_keys(rdpRdp* rdp, wStream* s)
 
 		if (!rdp->fips_encrypt)
 		{
-			WLog_ERR(TAG, "unable to allocate des3 encrypt key");
+			WLog_Print(rdp->log, WLOG_ERROR, "unable to allocate des3 encrypt key");
 			goto end;
 		}
 
@@ -948,7 +953,7 @@ BOOL rdp_server_establish_keys(rdpRdp* rdp, wStream* s)
 
 		if (!rdp->fips_decrypt)
 		{
-			WLog_ERR(TAG, "unable to allocate des3 decrypt key");
+			WLog_Print(rdp->log, WLOG_ERROR, "unable to allocate des3 decrypt key");
 			goto end;
 		}
 
@@ -962,7 +967,7 @@ BOOL rdp_server_establish_keys(rdpRdp* rdp, wStream* s)
 	if (!rdp_reset_rc4_decrypt_keys(rdp))
 		goto end;
 
-	ret = tpkt_ensure_stream_consumed(s, length);
+	ret = tpkt_ensure_stream_consumed(rdp->log, s, length);
 end:
 
 	if (!ret)
@@ -1135,7 +1140,7 @@ BOOL rdp_client_connect_mcs_channel_join_confirm(rdpRdp* rdp, wStream* s)
 	return TRUE;
 }
 
-BOOL rdp_handle_message_channel(rdpRdp* rdp, wStream* s, UINT16 channelId, UINT16 length)
+state_run_t rdp_handle_message_channel(rdpRdp* rdp, wStream* s, UINT16 channelId, UINT16 length)
 {
 	WINPR_ASSERT(rdp);
 	WINPR_ASSERT(rdp->mcs);
@@ -1143,39 +1148,43 @@ BOOL rdp_handle_message_channel(rdpRdp* rdp, wStream* s, UINT16 channelId, UINT1
 	if (!rdp->mcs->messageChannelJoined)
 	{
 		WLog_Print(rdp->log, WLOG_WARN, "MCS message channel not joined!");
-		return FALSE;
+		return STATE_RUN_FAILED;
 	}
 	const UINT16 messageChannelId = rdp->mcs->messageChannelId;
 	if (messageChannelId == 0)
 	{
 		WLog_Print(rdp->log, WLOG_WARN, "MCS message channel id == 0");
-		return FALSE;
+		return STATE_RUN_FAILED;
 	}
 
-	if (channelId != messageChannelId)
+	if ((channelId != messageChannelId) && (channelId != MCS_GLOBAL_CHANNEL_ID))
 	{
-		WLog_Print(rdp->log, WLOG_WARN, "MCS message channel expected id=%" PRIu16 ", got %" PRIu16,
-		           messageChannelId, channelId);
-		return FALSE;
+		WLog_Print(rdp->log, WLOG_WARN,
+		           "MCS message channel expected id=[%" PRIu16 "|%d], got %" PRIu16,
+		           messageChannelId, MCS_GLOBAL_CHANNEL_ID, channelId);
+		return STATE_RUN_FAILED;
 	}
 
 	UINT16 securityFlags = 0;
 	if (!rdp_read_security_header(rdp, s, &securityFlags, &length))
-		return FALSE;
+		return STATE_RUN_FAILED;
 
 	if (securityFlags & SEC_ENCRYPT)
 	{
 		if (!rdp_decrypt(rdp, s, &length, securityFlags))
-			return FALSE;
+			return STATE_RUN_FAILED;
 	}
 
-	if (rdp_recv_message_channel_pdu(rdp, s, securityFlags) != STATE_RUN_SUCCESS)
-		return FALSE;
-
-	return tpkt_ensure_stream_consumed(s, length);
+	const state_run_t rc = rdp_recv_message_channel_pdu(rdp, s, securityFlags);
+	if (state_run_success(rc))
+	{
+		if (!tpkt_ensure_stream_consumed(rdp->log, s, length))
+			return STATE_RUN_FAILED;
+	}
+	return rc;
 }
 
-BOOL rdp_client_connect_auto_detect(rdpRdp* rdp, wStream* s)
+BOOL rdp_client_connect_auto_detect(rdpRdp* rdp, wStream* s, DWORD logLevel)
 {
 	WINPR_ASSERT(rdp);
 	WINPR_ASSERT(rdp->mcs);
@@ -1192,13 +1201,14 @@ BOOL rdp_client_connect_auto_detect(rdpRdp* rdp, wStream* s)
 		/* Process any MCS message channel PDUs. */
 		if (rdp->mcs->messageChannelJoined && (channelId == messageChannelId))
 		{
-			if (rdp_handle_message_channel(rdp, s, channelId, length))
-				return TRUE;
+			const state_run_t rc = rdp_handle_message_channel(rdp, s, channelId, length);
+			return state_run_success(rc);
 		}
 		else
 		{
-			WLog_WARN(TAG, "expected messageChannelId=%" PRIu16 ", got %" PRIu16, messageChannelId,
-			          channelId);
+			wLog* log = WLog_Get(TAG);
+			WLog_Print(log, logLevel, "expected messageChannelId=%" PRIu16 ", got %" PRIu16,
+			           messageChannelId, channelId);
 		}
 	}
 
@@ -1224,9 +1234,7 @@ state_run_t rdp_client_connect_license(rdpRdp* rdp, wStream* s)
 	const UINT16 messageChannelId = rdp->mcs->messageChannelId;
 	if (rdp->mcs->messageChannelJoined && (channelId == messageChannelId))
 	{
-		if (!rdp_handle_message_channel(rdp, s, channelId, length))
-			return STATE_RUN_FAILED;
-		return STATE_RUN_SUCCESS;
+		return rdp_handle_message_channel(rdp, s, channelId, length);
 	}
 
 	if (!rdp_read_security_header(rdp, s, &securityFlags, &length))
@@ -1302,9 +1310,7 @@ state_run_t rdp_client_connect_demand_active(rdpRdp* rdp, wStream* s)
 	if (rdp->mcs->messageChannelId && (channelId == rdp->mcs->messageChannelId))
 	{
 		rdp->inPackets++;
-		if (!rdp_handle_message_channel(rdp, s, channelId, length))
-			return STATE_RUN_FAILED;
-		return STATE_RUN_SUCCESS;
+		return rdp_handle_message_channel(rdp, s, channelId, length);
 	}
 
 	if (!rdp_handle_optional_rdp_decryption(rdp, s, &length, NULL))
@@ -1415,7 +1421,7 @@ BOOL rdp_client_transition_to_state(rdpRdp* rdp, CONNECTION_STATE state)
 		ConnectionStateChangeEventArgs stateEvent = { 0 };
 		rdpContext* context = rdp->context;
 		EventArgsInit(&stateEvent, "libfreerdp");
-		stateEvent.state = rdp_get_state(rdp);
+		stateEvent.state = WINPR_ASSERTING_INT_CAST(int32_t, rdp_get_state(rdp));
 		stateEvent.active = rdp_is_active_state(rdp);
 		PubSub_OnConnectionStateChange(rdp->pubSub, context, &stateEvent);
 	}
@@ -1520,7 +1526,11 @@ BOOL rdp_server_accept_nego(rdpRdp* rdp, wStream* s)
 	SelectedProtocol = nego_get_selected_protocol(nego);
 	status = FALSE;
 
-	if (SelectedProtocol & PROTOCOL_RDSTLS)
+	if (freerdp_settings_get_bool(rdp->settings, FreeRDP_VmConnectMode) &&
+	    SelectedProtocol != PROTOCOL_RDP)
+		/* When behind a Hyper-V proxy, security != RDP is handled by the host. */
+		status = TRUE;
+	else if (SelectedProtocol & PROTOCOL_RDSTLS)
 		status = transport_accept_rdstls(rdp->transport);
 	else if (SelectedProtocol & PROTOCOL_HYBRID)
 		status = transport_accept_nla(rdp->transport);
@@ -1991,7 +2001,7 @@ fail:
 	return status;
 }
 
-const char* rdp_client_connection_state_string(int state)
+const char* rdp_client_connection_state_string(UINT state)
 {
 	switch (state)
 	{
@@ -2129,7 +2139,7 @@ BOOL rdp_channels_from_mcs(rdpSettings* settings, const rdpRdp* rdp)
  * 1. send the CONFIRM_ACTIVE PDU to the server
  * 2. register callbacks, the server can now start sending stuff
  */
-state_run_t rdp_client_connect_confirm_active(rdpRdp* rdp, wStream* s)
+state_run_t rdp_client_connect_confirm_active(rdpRdp* rdp, WINPR_ATTR_UNUSED wStream* s)
 {
 	WINPR_ASSERT(rdp);
 	WINPR_ASSERT(rdp->settings);

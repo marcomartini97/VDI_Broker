@@ -117,7 +117,7 @@ struct rdp_nla
 	rdpTransport* transport;
 	UINT32 version;
 	UINT32 peerVersion;
-	UINT32 errorCode;
+	INT32 errorCode;
 
 	/* Lifetime of buffer nla_new -> nla_free */
 	SecBuffer ClientNonce; /* Depending on protocol version a random nonce or a value read from the
@@ -364,6 +364,7 @@ static BOOL nla_client_setup_identity(rdpNla* nla)
 	if (!settings->Username)
 	{
 		sspi_FreeAuthIdentity(nla->identity);
+		free(nla->identity);
 		nla->identity = NULL;
 	}
 	else if (settings->SmartcardLogon)
@@ -385,10 +386,11 @@ static BOOL nla_client_setup_identity(rdpNla* nla)
 
 		if (settings->RedirectionPassword && (settings->RedirectionPasswordLength > 0))
 		{
-			if (!identity_set_from_settings_with_pwd(
-			        nla->identity, settings, FreeRDP_Username, FreeRDP_Domain,
-			        (const WCHAR*)settings->RedirectionPassword,
-			        settings->RedirectionPasswordLength / sizeof(WCHAR)))
+			const WCHAR* wstr = (const WCHAR*)settings->RedirectionPassword;
+			const size_t len = _wcsnlen(wstr, settings->RedirectionPasswordLength / sizeof(WCHAR));
+
+			if (!identity_set_from_settings_with_pwd(nla->identity, settings, FreeRDP_Username,
+			                                         FreeRDP_Domain, wstr, len))
 				return FALSE;
 
 			usePassword = FALSE;
@@ -1110,7 +1112,7 @@ static BOOL set_creds_octetstring_to_settings(WinPrAsn1Decoder* dec, WinPrAsn1_t
 	if (optional)
 	{
 		WinPrAsn1_tagId itemTag = 0;
-		if (!WinPrAsn1DecPeekTag(dec, &itemTag) || (itemTag != tagId))
+		if (!WinPrAsn1DecPeekTag(dec, &itemTag) || (itemTag != (ER_TAG_CONTEXTUAL | tagId)))
 			return TRUE;
 	}
 
@@ -1152,7 +1154,8 @@ static BOOL nla_read_TSCspDataDetail(WinPrAsn1Decoder* dec, rdpSettings* setting
 	return set_creds_octetstring_to_settings(dec, 4, TRUE, FreeRDP_CspName, settings);
 }
 
-static BOOL nla_read_KERB_TICKET_LOGON(rdpNla* nla, wStream* s, KERB_TICKET_LOGON* ticket)
+static BOOL nla_read_KERB_TICKET_LOGON(WINPR_ATTR_UNUSED rdpNla* nla, wStream* s,
+                                       KERB_TICKET_LOGON* ticket)
 {
 	WINPR_ASSERT(nla);
 
@@ -1201,7 +1204,7 @@ typedef enum
 	RCG_TYPE_NTLM
 } RemoteGuardPackageCredType;
 
-static BOOL nla_read_TSRemoteGuardPackageCred(rdpNla* nla, WinPrAsn1Decoder* dec,
+static BOOL nla_read_TSRemoteGuardPackageCred(WINPR_ATTR_UNUSED rdpNla* nla, WinPrAsn1Decoder* dec,
                                               RemoteGuardPackageCredType* credsType,
                                               wStream* payload)
 {
@@ -1534,7 +1537,7 @@ static BOOL nla_encode_ts_credentials(rdpNla* nla)
 			struct
 			{
 				WinPrAsn1_tagId tag;
-				size_t setting_id;
+				FreeRDP_Settings_Keys_String setting_id;
 			} cspData_fields[] = { { 1, FreeRDP_CardName },
 				                   { 2, FreeRDP_ReaderName },
 				                   { 3, FreeRDP_ContainerName },
@@ -1550,7 +1553,7 @@ static BOOL nla_encode_ts_credentials(rdpNla* nla)
 			octet_string.data =
 			    (BYTE*)freerdp_settings_get_string_as_utf16(settings, FreeRDP_Password, &ss);
 			octet_string.len = ss * sizeof(WCHAR);
-			const BOOL res = WinPrAsn1EncContextualOctetString(enc, 0, &octet_string) > 0;
+			BOOL res = WinPrAsn1EncContextualOctetString(enc, 0, &octet_string) > 0;
 			free(octet_string.data);
 			if (!res)
 				goto out;
@@ -1561,7 +1564,9 @@ static BOOL nla_encode_ts_credentials(rdpNla* nla)
 
 			/* keySpec [0] INTEGER */
 			if (!WinPrAsn1EncContextualInteger(
-			        enc, 0, freerdp_settings_get_uint32(settings, FreeRDP_KeySpec)))
+			        enc, 0,
+			        WINPR_ASSERTING_INT_CAST(
+			            WinPrAsn1_INTEGER, freerdp_settings_get_uint32(settings, FreeRDP_KeySpec))))
 				goto out;
 
 			for (size_t i = 0; i < ARRAYSIZE(cspData_fields); i++)
@@ -1569,7 +1574,7 @@ static BOOL nla_encode_ts_credentials(rdpNla* nla)
 				size_t len = 0;
 
 				octet_string.data = (BYTE*)freerdp_settings_get_string_as_utf16(
-				    settings, (FreeRDP_Settings_Keys_String)cspData_fields[i].setting_id, &len);
+				    settings, cspData_fields[i].setting_id, &len);
 				octet_string.len = len * sizeof(WCHAR);
 				if (octet_string.len)
 				{
@@ -1584,6 +1589,30 @@ static BOOL nla_encode_ts_credentials(rdpNla* nla)
 			/* End cspData */
 			if (!WinPrAsn1EncEndContainer(enc))
 				goto out;
+
+			/* userHint [2] OCTET STRING OPTIONAL, */
+			if (freerdp_settings_get_string(settings, FreeRDP_Username))
+			{
+				octet_string.data =
+				    (BYTE*)freerdp_settings_get_string_as_utf16(settings, FreeRDP_Username, &ss);
+				octet_string.len = ss * sizeof(WCHAR);
+				res = WinPrAsn1EncContextualOctetString(enc, 2, &octet_string) > 0;
+				free(octet_string.data);
+				if (!res)
+					goto out;
+			}
+
+			/* domainHint [3] OCTET STRING OPTIONAL */
+			if (freerdp_settings_get_string(settings, FreeRDP_Domain))
+			{
+				octet_string.data =
+				    (BYTE*)freerdp_settings_get_string_as_utf16(settings, FreeRDP_Domain, &ss);
+				octet_string.len = ss * sizeof(WCHAR);
+				res = WinPrAsn1EncContextualOctetString(enc, 3, &octet_string) > 0;
+				free(octet_string.data);
+				if (!res)
+					goto out;
+			}
 
 			/* End TSSmartCardCreds */
 			if (!WinPrAsn1EncEndContainer(enc))
@@ -1770,7 +1799,8 @@ BOOL nla_send(rdpNla* nla)
 
 	/* version [0] INTEGER */
 	WLog_DBG(TAG, "   ----->> protocol version %" PRIu32, nla->version);
-	if (!WinPrAsn1EncContextualInteger(enc, 0, nla->version))
+	if (!WinPrAsn1EncContextualInteger(enc, 0,
+	                                   WINPR_ASSERTING_INT_CAST(WinPrAsn1_INTEGER, nla->version)))
 		goto fail;
 
 	/* negoTokens [1] SEQUENCE OF SEQUENCE */
@@ -1809,7 +1839,8 @@ BOOL nla_send(rdpNla* nla)
 	{
 		WLog_DBG(TAG, "   ----->> error code %s 0x%08" PRIx32, NtStatus2Tag(nla->errorCode),
 		         nla->errorCode);
-		if (!WinPrAsn1EncContextualInteger(enc, 4, nla->errorCode))
+		if (!WinPrAsn1EncContextualInteger(
+		        enc, 4, WINPR_ASSERTING_INT_CAST(WinPrAsn1_INTEGER, nla->errorCode)))
 			goto fail;
 	}
 
@@ -1932,7 +1963,7 @@ static int nla_decode_ts_request(rdpNla* nla, wStream* s)
 				/* errorCode [4] INTEGER */
 				if (WinPrAsn1DecReadInteger(&dec2, &val) == 0)
 					return -1;
-				nla->errorCode = (UINT)val;
+				nla->errorCode = val;
 				WLog_DBG(TAG, "   <<----- error code %s 0x%08" PRIx32, NtStatus2Tag(nla->errorCode),
 				         nla->errorCode);
 				break;
@@ -2200,10 +2231,10 @@ DWORD nla_get_error(rdpNla* nla)
 {
 	if (!nla)
 		return ERROR_INTERNAL_ERROR;
-	return nla->errorCode;
+	return (UINT32)nla->errorCode;
 }
 
-UINT32 nla_get_sspi_error(rdpNla* nla)
+INT32 nla_get_sspi_error(rdpNla* nla)
 {
 	WINPR_ASSERT(nla);
 	return credssp_auth_sspi_error(nla->auth);

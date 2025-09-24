@@ -28,41 +28,9 @@
 #include <memory>
 #include <functional>
 
+#include <sdl_common_utils.hpp>
+
 template <typename T> using deleted_unique_ptr = std::unique_ptr<T, std::function<void(T*)>>;
-
-class CriticalSection
-{
-  public:
-	CriticalSection();
-	CriticalSection(const CriticalSection& other) = delete;
-	CriticalSection(CriticalSection&& other) = delete;
-	~CriticalSection();
-
-	CriticalSection& operator=(const CriticalSection& other) = delete;
-	CriticalSection& operator=(CriticalSection&& other) = delete;
-
-	void lock();
-	void unlock();
-
-  private:
-	CRITICAL_SECTION _section{};
-};
-
-class WinPREvent
-{
-  public:
-	explicit WinPREvent(bool initial = false);
-	~WinPREvent();
-
-	void set();
-	void clear();
-	[[nodiscard]] bool isSet() const;
-
-	[[nodiscard]] HANDLE handle() const;
-
-  private:
-	HANDLE _handle;
-};
 
 enum
 {
@@ -99,14 +67,23 @@ typedef struct
 	Sint32 result;
 } SDL_UserAuthArg;
 
-BOOL sdl_push_user_event(Uint32 type, ...);
+bool sdl_push_user_event(Uint32 type, ...);
 
 bool sdl_push_quit();
 
 std::string sdl_window_event_str(Uint32 ev);
 const char* sdl_event_type_str(Uint32 type);
-const char* sdl_error_string(Uint32 res);
+const char* sdl_error_string(Sint32 res);
 
 #define sdl_log_error(res, log, what) sdl_log_error_ex(res, log, what, __FILE__, __LINE__, __func__)
-BOOL sdl_log_error_ex(Uint32 res, wLog* log, const char* what, const char* file, size_t line,
+BOOL sdl_log_error_ex(Sint32 res, wLog* log, const char* what, const char* file, size_t line,
                       const char* fkt);
+
+namespace sdl::utils
+{
+	std::string rdp_orientation_to_str(uint32_t orientation);
+	std::string sdl_orientation_to_str(SDL_DisplayOrientation orientation);
+	UINT32 orientaion_to_rdp(SDL_DisplayOrientation orientation);
+
+	std::string generate_uuid_v4();
+} // namespace sdl::utils

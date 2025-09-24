@@ -90,7 +90,6 @@ WINPR_API INT winpr_inet_pton(INT Family, PCSTR pszAddrString, PVOID pAddrBuf);
 
 #include <winpr/io.h>
 #include <winpr/error.h>
-#include <winpr/platform.h>
 
 #define WSAEVENT HANDLE
 #define LPWSAEVENT LPHANDLE
@@ -185,18 +184,21 @@ struct sockaddr_in6_old
 typedef union sockaddr_gen
 {
 	struct sockaddr Address;
-	struct sockaddr_in AddressIn;
+	struct sockaddr_in AddressIn; /* codespell:ignore addressin */
 	struct sockaddr_in6_old AddressIn6;
+
 } sockaddr_gen;
 
 WINPR_PRAGMA_DIAG_PUSH
 WINPR_PRAGMA_DIAG_IGNORED_RESERVED_ID_MACRO
 
+// NOLINTBEGIN(bugprone-reserved-identifier,cert-dcl37-c,cert-dcl51-cpp)
 #define _IFF_UP 0x00000001
 #define _IFF_BROADCAST 0x00000002
 #define _IFF_LOOPBACK 0x00000004
 #define _IFF_POINTTOPOINT 0x00000008
 #define _IFF_MULTICAST 0x00000010
+// NOLINTEND(bugprone-reserved-identifier,cert-dcl37-c,cert-dcl51-cpp)
 
 WINPR_PRAGMA_DIAG_POP
 
@@ -322,6 +324,7 @@ extern "C"
 	                       LPWSAOVERLAPPED lpOverlapped,
 	                       LPWSAOVERLAPPED_COMPLETION_ROUTINE lpCompletionRoutine);
 
+	// NOLINTBEGIN(bugprone-reserved-identifier,cert-dcl37-c,cert-dcl51-cpp)
 	WINPR_API SOCKET _accept(SOCKET s, struct sockaddr* addr, int* addrlen);
 	WINPR_API int _bind(SOCKET s, const struct sockaddr* addr, int namelen);
 	WINPR_API int closesocket(SOCKET s);
@@ -351,10 +354,14 @@ extern "C"
 	WINPR_API struct hostent* _gethostbyaddr(const char* addr, int len, int type);
 	WINPR_API struct hostent* _gethostbyname(const char* name);
 	WINPR_API int _gethostname(char* name, int namelen);
-	WINPR_API struct servent* _getservbyport(int port, const char* proto);
-	WINPR_API struct servent* _getservbyname(const char* name, const char* proto);
+	WINPR_API struct servent* /* codespell:ignore servent */ _getservbyport(int port,
+	                                                                        const char* proto);
+	WINPR_API struct servent* /* codespell:ignore servent */ _getservbyname(const char* name,
+	                                                                        const char* proto);
 	WINPR_API struct protoent* _getprotobynumber(int number);
 	WINPR_API struct protoent* _getprotobyname(const char* name);
+
+	// NOLINTEND(bugprone-reserved-identifier,cert-dcl37-c,cert-dcl51-cpp)
 
 #ifdef __cplusplus
 }

@@ -139,7 +139,7 @@ static FILE* IniFile_Open_File(wIniFile* ini, const char* filename)
 	WINPR_ASSERT(ini);
 
 	if (!filename)
-		return FALSE;
+		return NULL;
 
 	if (ini->readOnly)
 		return winpr_fopen(filename, "rb");
@@ -181,6 +181,7 @@ static BOOL IniFile_Load_File(wIniFile* ini, const char* filename)
 		goto out_file;
 
 	ini->buffer[fileSize] = '\n';
+	ini->buffer[fileSize + 1] = '\0';
 	IniFile_Load_NextLine(ini, ini->buffer);
 	rc = TRUE;
 
@@ -250,7 +251,7 @@ static void IniFile_Section_Free(wIniFileSection* section)
 		IniFile_Key_Free(section->keys[index]);
 	}
 
-	free(section->keys);
+	free((void*)section->keys);
 	free(section);
 }
 
@@ -263,12 +264,12 @@ static BOOL IniFile_SectionKeysResize(wIniFileSection* section, size_t count)
 		const size_t new_size = section->cKeys + count + 1024;
 		const size_t diff = new_size - section->cKeys;
 		wIniFileKey** new_keys =
-		    (wIniFileKey**)realloc(section->keys, sizeof(wIniFileKey*) * new_size);
+		    (wIniFileKey**)realloc((void*)section->keys, sizeof(wIniFileKey*) * new_size);
 
 		if (!new_keys)
 			return FALSE;
 
-		memset(&new_keys[section->cKeys], 0, diff * sizeof(wIniFileKey*));
+		memset((void*)&new_keys[section->cKeys], 0, diff * sizeof(wIniFileKey*));
 		section->cKeys = new_size;
 		section->keys = new_keys;
 	}
@@ -330,12 +331,12 @@ static BOOL IniFile_SectionResize(wIniFile* ini, size_t count)
 		const size_t new_size = ini->cSections + count + 1024;
 		const size_t diff = new_size - ini->cSections;
 		wIniFileSection** new_sect =
-		    (wIniFileSection**)realloc(ini->sections, sizeof(wIniFileSection*) * new_size);
+		    (wIniFileSection**)realloc((void*)ini->sections, sizeof(wIniFileSection*) * new_size);
 
 		if (!new_sect)
 			return FALSE;
 
-		memset(&new_sect[ini->cSections], 0, diff * sizeof(wIniFileSection*));
+		memset((void*)&new_sect[ini->cSections], 0, diff * sizeof(wIniFileSection*));
 		ini->cSections = new_size;
 		ini->sections = new_sect;
 	}
@@ -811,7 +812,7 @@ void IniFile_Free(wIniFile* ini)
 	for (size_t index = 0; index < ini->nSections; index++)
 		IniFile_Section_Free(ini->sections[index]);
 
-	free(ini->sections);
+	free((void*)ini->sections);
 	free(ini->buffer);
 	free(ini);
 }

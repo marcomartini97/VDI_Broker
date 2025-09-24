@@ -103,7 +103,7 @@ static char* tz_get_object_str(WINPR_JSON* json, size_t pos, const char* name)
 		          name);
 		return NULL;
 	}
-	WINPR_JSON* obj = WINPR_JSON_GetObjectItem(json, name);
+	WINPR_JSON* obj = WINPR_JSON_GetObjectItemCaseSensitive(json, name);
 	WINPR_ASSERT(obj);
 	if (!WINPR_JSON_IsString(obj))
 	{
@@ -149,54 +149,9 @@ static BOOL tz_parse_json_entry(WINPR_JSON* json, size_t pos, TimeZoneNameMapEnt
 
 static WINPR_JSON* load_timezones_from_file(const char* filename)
 {
-	INT64 jstrlen = 0;
-	char* jstr = NULL;
-	WINPR_JSON* json = NULL;
-	FILE* fp = winpr_fopen(filename, "r");
-	if (!fp)
-	{
-		WLog_WARN(TAG, "Timezone resource file '%s' does not exist or is not readable", filename);
-		return NULL;
-	}
-
-	if (_fseeki64(fp, 0, SEEK_END) < 0)
-	{
-		WLog_WARN(TAG, "Timezone resource file '%s' seek failed", filename);
-		goto end;
-	}
-	jstrlen = _ftelli64(fp);
-	if (jstrlen < 0)
-	{
-		WLog_WARN(TAG, "Timezone resource file '%s' invalid length %" PRId64, filename, jstrlen);
-		goto end;
-	}
-	if (_fseeki64(fp, 0, SEEK_SET) < 0)
-	{
-		WLog_WARN(TAG, "Timezone resource file '%s' seek failed", filename);
-		goto end;
-	}
-
-	jstr = calloc(jstrlen + 1, sizeof(char));
-	if (!jstr)
-	{
-		WLog_WARN(TAG, "Timezone resource file '%s' failed to allocate buffer of size %" PRId64,
-		          filename, jstrlen);
-		goto end;
-	}
-
-	if (fread(jstr, jstrlen, sizeof(char), fp) != 1)
-	{
-		WLog_WARN(TAG, "Timezone resource file '%s' failed to read buffer of size %" PRId64,
-		          filename, jstrlen);
-		goto end;
-	}
-
-	json = WINPR_JSON_ParseWithLength(jstr, jstrlen);
+	WINPR_JSON* json = WINPR_JSON_ParseFromFile(filename);
 	if (!json)
 		WLog_WARN(TAG, "Timezone resource file '%s' is not a valid JSON file", filename);
-end:
-	fclose(fp);
-	free(jstr);
 	return json;
 }
 #endif
@@ -252,7 +207,7 @@ static BOOL CALLBACK load_timezones(PINIT_ONCE once, PVOID param, PVOID* pvconte
 			goto end;
 		}
 
-		WINPR_JSON* obj = WINPR_JSON_GetObjectItem(json, "TimeZoneNameMap");
+		WINPR_JSON* obj = WINPR_JSON_GetObjectItemCaseSensitive(json, "TimeZoneNameMap");
 		if (!WINPR_JSON_IsArray(obj))
 		{
 			WLog_WARN(TAG, "Invalid top level JSON type in file %s, expected an array", filename);
@@ -356,7 +311,8 @@ static char* get_wzid_icu(const UChar* utzid, size_t utzid_len)
 	char* res = NULL;
 	UErrorCode error = U_ZERO_ERROR;
 
-	int32_t rc = ucal_getWindowsTimeZoneID(utzid, utzid_len, NULL, 0, &error);
+	int32_t rc = ucal_getWindowsTimeZoneID(utzid, WINPR_ASSERTING_INT_CAST(int32_t, utzid_len),
+	                                       NULL, 0, &error);
 	if ((error == U_BUFFER_OVERFLOW_ERROR) && (rc > 0))
 	{
 		rc++; // make space for '\0'
@@ -364,7 +320,8 @@ static char* get_wzid_icu(const UChar* utzid, size_t utzid_len)
 		if (wzid)
 		{
 			UErrorCode error2 = U_ZERO_ERROR;
-			int32_t rc2 = ucal_getWindowsTimeZoneID(utzid, utzid_len, wzid, rc, &error2);
+			int32_t rc2 = ucal_getWindowsTimeZoneID(
+			    utzid, WINPR_ASSERTING_INT_CAST(int32_t, utzid_len), wzid, rc, &error2);
 			if (U_SUCCESS(error2) && (rc2 > 0))
 				res = ConvertWCharNToUtf8Alloc(wzid, (size_t)rc, NULL);
 			free(wzid);
@@ -396,7 +353,7 @@ static const char* map_fallback(const char* iana, TimeZoneNameType type)
 	return res;
 }
 #else
-static const char* map_fallback(const char* iana, TimeZoneNameType type)
+static const char* map_fallback(const char* iana, WINPR_ATTR_UNUSED TimeZoneNameType type)
 {
 	if (!iana)
 		return NULL;

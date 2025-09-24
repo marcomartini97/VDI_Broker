@@ -80,7 +80,7 @@ static
 		return FALSE;
 
 	if (pOffset)
-		(void)_fseeki64(fp, *pOffset, SEEK_SET);
+		(void)_fseeki64(fp, WINPR_ASSERTING_INT_CAST(int64_t, *pOffset), SEEK_SET);
 
 	r = fread(&ts, 1, sizeof(ts), fp);
 	if (r != sizeof(ts))
@@ -98,14 +98,16 @@ static
 		*flags = STREAM_MSG_SRV_RX;
 	else
 		*flags = STREAM_MSG_SRV_TX;
-	if (!Stream_EnsureRemainingCapacity(s, size))
+
+	const size_t usize = WINPR_ASSERTING_INT_CAST(size_t, size);
+	if (!Stream_EnsureRemainingCapacity(s, usize))
 		goto fail;
-	r = fread(Stream_Pointer(s), 1, size, fp);
+	r = fread(Stream_Pointer(s), 1, usize, fp);
 	if (r != size)
 		goto fail;
-	if (crc32 != crc32b(Stream_ConstPointer(s), size))
+	if (crc32 != crc32b(Stream_ConstPointer(s), usize))
 		goto fail;
-	Stream_Seek(s, size);
+	Stream_Seek(s, usize);
 
 	if (pOffset)
 	{
@@ -133,13 +135,14 @@ static
 	BOOL rc = FALSE;
 	const UINT64 t = GetTickCount64();
 	const BYTE* data = Stream_Buffer(s);
-	const UINT64 size = Stream_Length(s);
+	const size_t usize = Stream_Length(s);
+	const uint64_t size = (uint64_t)usize;
 
 	if (!fp || !s)
 		return FALSE;
 
 	{
-		const UINT32 crc32 = crc32b(data, size);
+		const UINT32 crc32 = crc32b(data, usize);
 		const BYTE received = flags & STREAM_MSG_SRV_RX;
 		size_t r = fwrite(&t, 1, sizeof(t), fp);
 		if (r != sizeof(t))
@@ -153,8 +156,8 @@ static
 		r = fwrite(&size, 1, sizeof(size), fp);
 		if (r != sizeof(size))
 			goto fail;
-		r = fwrite(data, 1, size, fp);
-		if (r != size)
+		r = fwrite(data, 1, usize, fp);
+		if (r != usize)
 			goto fail;
 	}
 
@@ -211,16 +214,23 @@ SSIZE_T stream_dump_append(const rdpContext* context, UINT32 flags, wStream* s, 
 	if (!fp)
 		return -1;
 
-	r = _fseeki64(fp, *offset, SEEK_SET);
+	r = _fseeki64(fp, WINPR_ASSERTING_INT_CAST(int64_t, *offset), SEEK_SET);
 	if (r < 0)
 		goto fail;
 
 	if (!stream_dump_write_line(fp, flags, s))
 		goto fail;
-	rc = _ftelli64(fp);
-	if (rc < 0)
-		goto fail;
+	{
+		const int64_t rt = _ftelli64(fp);
+		if (rt < 0)
+		{
+			rc = -1;
+			goto fail;
+		}
+		rc = WINPR_ASSERTING_INT_CAST(SSIZE_T, rt);
+	}
 	*offset = (size_t)rc;
+
 fail:
 	if (fp)
 		(void)fclose(fp);
@@ -239,14 +249,17 @@ SSIZE_T stream_dump_get(const rdpContext* context, UINT32* flags, wStream* s, si
 	fp = stream_dump_get_file(context->settings, "rb");
 	if (!fp)
 		return -1;
-	r = _fseeki64(fp, *offset, SEEK_SET);
+	r = _fseeki64(fp, WINPR_ASSERTING_INT_CAST(int64_t, *offset), SEEK_SET);
 	if (r < 0)
 		goto fail;
 
 	if (!stream_dump_read_line(fp, s, pts, offset, flags))
 		goto fail;
 
-	rc = _ftelli64(fp);
+	const int64_t rt = _ftelli64(fp);
+	if (rt < 0)
+		goto fail;
+	rc = WINPR_ASSERTING_INT_CAST(SSIZE_T, rt);
 fail:
 	if (fp)
 		(void)fclose(fp);
@@ -364,7 +377,7 @@ static int stream_dump_replay_transport_read(rdpTransport* transport, wStream* s
 
 	if (slp > 0)
 	{
-		size_t duration = slp;
+		uint64_t duration = slp;
 		do
 		{
 			const DWORD actual = (DWORD)MIN(duration, UINT32_MAX);
@@ -376,8 +389,11 @@ static int stream_dump_replay_transport_read(rdpTransport* transport, wStream* s
 	return 1;
 }
 
-static int stream_dump_replay_transport_tcp_connect(rdpContext* context, rdpSettings* settings,
-                                                    const char* hostname, int port, DWORD timeout)
+static int stream_dump_replay_transport_tcp_connect(WINPR_ATTR_UNUSED rdpContext* context,
+                                                    WINPR_ATTR_UNUSED rdpSettings* settings,
+                                                    WINPR_ATTR_UNUSED const char* hostname,
+                                                    WINPR_ATTR_UNUSED int port,
+                                                    WINPR_ATTR_UNUSED DWORD timeout)
 {
 	WINPR_ASSERT(context);
 	WINPR_ASSERT(settings);
@@ -386,9 +402,9 @@ static int stream_dump_replay_transport_tcp_connect(rdpContext* context, rdpSett
 	return 42;
 }
 
-static rdpTransportLayer* stream_dump_replay_transport_connect_layer(rdpTransport* transport,
-                                                                     const char* hostname, int port,
-                                                                     DWORD timeout)
+static rdpTransportLayer* stream_dump_replay_transport_connect_layer(
+    WINPR_ATTR_UNUSED rdpTransport* transport, WINPR_ATTR_UNUSED const char* hostname,
+    WINPR_ATTR_UNUSED int port, WINPR_ATTR_UNUSED DWORD timeout)
 {
 	WINPR_ASSERT(transport);
 	WINPR_ASSERT(hostname);
@@ -396,13 +412,13 @@ static rdpTransportLayer* stream_dump_replay_transport_connect_layer(rdpTranspor
 	return NULL;
 }
 
-static BOOL stream_dump_replay_transport_tls_connect(rdpTransport* transport)
+static BOOL stream_dump_replay_transport_tls_connect(WINPR_ATTR_UNUSED rdpTransport* transport)
 {
 	WINPR_ASSERT(transport);
 	return TRUE;
 }
 
-static BOOL stream_dump_replay_transport_accept(rdpTransport* transport)
+static BOOL stream_dump_replay_transport_accept(WINPR_ATTR_UNUSED rdpTransport* transport)
 {
 	WINPR_ASSERT(transport);
 	return TRUE;

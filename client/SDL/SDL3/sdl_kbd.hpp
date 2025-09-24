@@ -26,6 +26,7 @@
 
 #include <winpr/wtypes.h>
 #include <freerdp/freerdp.h>
+#include <freerdp/locale/keyboard.h>
 #include <SDL3/SDL.h>
 
 #include "sdl_types.hpp"
@@ -36,10 +37,12 @@ class sdlInput
 	explicit sdlInput(SdlContext* sdl);
 	sdlInput(const sdlInput& other) = delete;
 	sdlInput(sdlInput&& other) = delete;
-	~sdlInput() = default;
+	~sdlInput();
 
 	sdlInput& operator=(const sdlInput& other) = delete;
 	sdlInput& operator=(sdlInput&& other) = delete;
+
+	BOOL initialize();
 
 	BOOL keyboard_sync_state();
 	BOOL keyboard_focus_in();
@@ -54,7 +57,8 @@ class sdlInput
 	static BOOL keyboard_set_ime_status(rdpContext* context, UINT16 imeId, UINT32 imeState,
 	                                    UINT32 imeConvMode);
 
-	static uint32_t prefToMask();
+	bool prefToEnabled();
+	uint32_t prefToMask();
 	static uint32_t prefKeyValue(const std::string& key, uint32_t fallback = SDL_SCANCODE_UNKNOWN);
 
   private:
@@ -62,19 +66,18 @@ class sdlInput
 	                                       const std::string& delimiter = ",");
 	static bool extract(const std::string& token, uint32_t& key, uint32_t& value);
 
-	uint32_t remapScancode(uint32_t scancode);
-	void remapInitialize();
+	UINT32 scancode_to_rdp(Uint32 scancode);
 
 	SdlContext* _sdl;
 	Uint32 _lastWindowID;
-	std::map<uint32_t, uint32_t> _remapList;
-	std::atomic<bool> _remapInitialized = false;
 
 	// hotkey handling
+	bool _hotkeysEnabled;
 	uint32_t _hotkeyModmask; // modifier keys mask
 	uint32_t _hotkeyFullscreen;
 	uint32_t _hotkeyResizable;
 	uint32_t _hotkeyGrab;
 	uint32_t _hotkeyDisconnect;
 	uint32_t _hotkeyMinimize;
+	FREERDP_REMAP_TABLE* _remapTable = nullptr;
 };

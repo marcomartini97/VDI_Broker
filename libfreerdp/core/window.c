@@ -401,8 +401,8 @@ static BOOL update_read_window_state_order(wStream* s, WINDOW_ORDER_INFO* orderI
 		if (!Stream_CheckAndLogRequiredLength(TAG, s, 8))
 			return FALSE;
 
-		Stream_Read_UINT32(s, windowState->visibleOffsetX); /* visibleOffsetX (4 bytes) */
-		Stream_Read_UINT32(s, windowState->visibleOffsetY); /* visibleOffsetY (4 bytes) */
+		Stream_Read_INT32(s, windowState->visibleOffsetX); /* visibleOffsetX (4 bytes) */
+		Stream_Read_INT32(s, windowState->visibleOffsetY); /* visibleOffsetY (4 bytes) */
 	}
 
 	if (orderInfo->fieldFlags & WINDOW_ORDER_FIELD_VISIBILITY)
@@ -508,7 +508,8 @@ static BOOL update_read_window_cached_icon_order(wStream* s, WINDOW_ORDER_INFO* 
 	    s, &window_cached_icon->cachedIcon); /* cachedIcon (CACHED_ICON_INFO) */
 }
 
-static void update_read_window_delete_order(wStream* s, WINDOW_ORDER_INFO* orderInfo)
+static void update_read_window_delete_order(WINPR_ATTR_UNUSED wStream* s,
+                                            WINPR_ATTR_UNUSED WINDOW_ORDER_INFO* orderInfo)
 {
 	/* window deletion event */
 }
@@ -801,7 +802,7 @@ static void dump_window_state_order(wLog* log, const char* msg, const WINDOW_ORD
 		DUMP_APPEND(buffer, bufferSize, " appBarEdge=%s", appBarEdgeStr);
 	}
 
-	WLog_Print(log, WLOG_DEBUG, buffer);
+	WLog_Print(log, WLOG_DEBUG, "%s", buffer);
 }
 
 static BOOL update_recv_window_info_order(rdpUpdate* update, wStream* s,
@@ -939,7 +940,9 @@ static BOOL update_read_notification_icon_state_order(wStream* s, WINDOW_ORDER_I
 	return TRUE;
 }
 
-static void update_read_notification_icon_delete_order(wStream* s, WINDOW_ORDER_INFO* orderInfo)
+static void
+update_read_notification_icon_delete_order(WINPR_ATTR_UNUSED wStream* s,
+                                           WINPR_ATTR_UNUSED WINDOW_ORDER_INFO* orderInfo)
 {
 	/* notification icon deletion event */
 }
@@ -994,11 +997,10 @@ static BOOL update_recv_notification_icon_info_order(rdpUpdate* update, wStream*
 	return result;
 }
 
-static BOOL update_read_desktop_actively_monitored_order(wStream* s, WINDOW_ORDER_INFO* orderInfo,
+static BOOL update_read_desktop_actively_monitored_order(wStream* s,
+                                                         const WINDOW_ORDER_INFO* orderInfo,
                                                          MONITORED_DESKTOP_ORDER* monitored_desktop)
 {
-	int size = 0;
-
 	if (orderInfo->fieldFlags & WINDOW_ORDER_FIELD_DESKTOP_ACTIVE_WND)
 	{
 		if (!Stream_CheckAndLogRequiredLength(TAG, s, 4))
@@ -1009,25 +1011,27 @@ static BOOL update_read_desktop_actively_monitored_order(wStream* s, WINDOW_ORDE
 
 	if (orderInfo->fieldFlags & WINDOW_ORDER_FIELD_DESKTOP_ZORDER)
 	{
-		UINT32* newid = NULL;
-
 		if (!Stream_CheckAndLogRequiredLength(TAG, s, 1))
 			return FALSE;
 
 		Stream_Read_UINT8(s, monitored_desktop->numWindowIds); /* numWindowIds (1 byte) */
 
 		if (!Stream_CheckAndLogRequiredLengthOfSize(TAG, s, monitored_desktop->numWindowIds, 4ull))
+		{
+			monitored_desktop->numWindowIds = 0;
 			return FALSE;
+		}
 
 		if (monitored_desktop->numWindowIds > 0)
 		{
-			size = sizeof(UINT32) * monitored_desktop->numWindowIds;
-			newid = (UINT32*)realloc(monitored_desktop->windowIds, size);
+			const size_t size = sizeof(UINT32) * monitored_desktop->numWindowIds;
+			UINT32* newid = (UINT32*)realloc(monitored_desktop->windowIds, size);
 
 			if (!newid)
 			{
 				free(monitored_desktop->windowIds);
 				monitored_desktop->windowIds = NULL;
+				monitored_desktop->numWindowIds = 0;
 				return FALSE;
 			}
 
@@ -1039,12 +1043,18 @@ static BOOL update_read_desktop_actively_monitored_order(wStream* s, WINDOW_ORDE
 				Stream_Read_UINT32(s, monitored_desktop->windowIds[i]);
 			}
 		}
+		else
+		{
+			free(monitored_desktop->windowIds);
+			monitored_desktop->windowIds = NULL;
+		}
 	}
 
 	return TRUE;
 }
 
-static void update_read_desktop_non_monitored_order(wStream* s, WINDOW_ORDER_INFO* orderInfo)
+static void update_read_desktop_non_monitored_order(WINPR_ATTR_UNUSED wStream* s,
+                                                    WINPR_ATTR_UNUSED WINDOW_ORDER_INFO* orderInfo)
 {
 	/* non-monitored desktop notification event */
 }
@@ -1065,11 +1075,12 @@ static void dump_monitored_desktop(wLog* log, const char* msg, const WINDOW_ORDE
 		DUMP_APPEND(buffer, bufferSize, " windows=(");
 		for (UINT32 i = 0; i < monitored->numWindowIds; i++)
 		{
+			WINPR_ASSERT(monitored->windowIds);
 			DUMP_APPEND(buffer, bufferSize, "0x%" PRIx32 ",", monitored->windowIds[i]);
 		}
 		DUMP_APPEND(buffer, bufferSize, ")");
 	}
-	WLog_Print(log, WLOG_DEBUG, buffer);
+	WLog_Print(log, WLOG_DEBUG, "%s", buffer);
 }
 
 static BOOL update_recv_desktop_info_order(rdpUpdate* update, wStream* s,

@@ -17,6 +17,8 @@
  * limitations under the License.
  */
 
+#include <winpr/cast.h>
+
 #include <freerdp/config.h>
 
 #include <freerdp/freerdp.h>
@@ -122,7 +124,7 @@ static UINT enumerator_server_open_channel(enumerator_server* enumerator)
 }
 
 static UINT enumerator_server_handle_select_version_request(CamDevEnumServerContext* context,
-                                                            wStream* s,
+                                                            WINPR_ATTR_UNUSED wStream* s,
                                                             const CAM_SHARED_MSG_HEADER* header)
 {
 	CAM_SELECT_VERSION_REQUEST pdu = { 0 };
@@ -367,7 +369,7 @@ static HANDLE enumerator_server_get_channel_handle(enumerator_server* enumerator
 	                           &BytesReturned) == TRUE)
 	{
 		if (BytesReturned == sizeof(HANDLE))
-			CopyMemory(&ChannelEvent, buffer, sizeof(HANDLE));
+			ChannelEvent = *(HANDLE*)buffer;
 
 		WTSFreeMemory(buffer);
 	}
@@ -569,7 +571,8 @@ static UINT enumerator_send_select_version_response_pdu(
 	}
 
 	Stream_Write_UINT8(s, selectVersionResponse->Header.Version);
-	Stream_Write_UINT8(s, selectVersionResponse->Header.MessageId);
+	Stream_Write_UINT8(s,
+	                   WINPR_ASSERTING_INT_CAST(uint8_t, selectVersionResponse->Header.MessageId));
 
 	return enumerator_server_packet_send(context, s);
 }

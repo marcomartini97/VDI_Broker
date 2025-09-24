@@ -84,7 +84,7 @@ extern "C"
 	WINPR_API BOOL winpr_HMAC_Init(WINPR_HMAC_CTX* ctx, WINPR_MD_TYPE md, const void* key,
 	                               size_t keylen);
 	WINPR_API BOOL winpr_HMAC_Update(WINPR_HMAC_CTX* ctx, const void* input, size_t ilen);
-	WINPR_API BOOL winpr_HMAC_Final(WINPR_HMAC_CTX* ctx, void* output, size_t ilen);
+	WINPR_API BOOL winpr_HMAC_Final(WINPR_HMAC_CTX* ctx, void* output, size_t olen);
 
 	WINPR_API BOOL winpr_HMAC(WINPR_MD_TYPE md, const void* key, size_t keylen, const void* input,
 	                          size_t ilen, void* output, size_t olen);
@@ -111,7 +111,7 @@ extern "C"
 	WINPR_API BOOL winpr_Digest_Init_Allow_FIPS(WINPR_DIGEST_CTX* ctx, WINPR_MD_TYPE md);
 	WINPR_API BOOL winpr_Digest_Init(WINPR_DIGEST_CTX* ctx, WINPR_MD_TYPE md);
 	WINPR_API BOOL winpr_Digest_Update(WINPR_DIGEST_CTX* ctx, const void* input, size_t ilen);
-	WINPR_API BOOL winpr_Digest_Final(WINPR_DIGEST_CTX* ctx, void* output, size_t ilen);
+	WINPR_API BOOL winpr_Digest_Final(WINPR_DIGEST_CTX* ctx, void* output, size_t olen);
 
 	WINPR_API BOOL winpr_Digest_Allow_FIPS(WINPR_MD_TYPE md, const void* input, size_t ilen,
 	                                       void* output, size_t olen);
@@ -264,12 +264,14 @@ extern "C"
 
 	WINPR_API void winpr_Cipher_Free(WINPR_CIPHER_CTX* ctx);
 
-	WINPR_ATTR_MALLOC(winpr_Cipher_Free, 1)
-	WINPR_API WINPR_DEPRECATED_VAR("[since 3.10.0] use winpr_Cipher_NewEx",
-	                               WINPR_CIPHER_CTX* winpr_Cipher_New(WINPR_CIPHER_TYPE cipher,
-	                                                                  WINPR_CRYPTO_OPERATION op,
-	                                                                  const void* key,
-	                                                                  const void* iv));
+#if !defined(WITHOUT_FREERDP_3x_DEPRECATED)
+	WINPR_DEPRECATED_VAR("[since 3.10.0] use winpr_Cipher_NewEx",
+	                     WINPR_ATTR_MALLOC(winpr_Cipher_Free, 1)
+	                         WINPR_API WINPR_CIPHER_CTX* winpr_Cipher_New(WINPR_CIPHER_TYPE cipher,
+	                                                                      WINPR_CRYPTO_OPERATION op,
+	                                                                      const void* key,
+	                                                                      const void* iv));
+#endif
 
 	/** @brief Create a new \b WINPR_CIPHER_CTX
 	 *

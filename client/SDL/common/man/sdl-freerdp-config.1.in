@@ -39,6 +39,8 @@ An array of
 \fISDL_Keymod\fR
 strings as defined at
 \fI@SDL_WIKI_BASE_URL@/SDL_Keymod\fR
+.br
+use \fRKEYMOD_NONE\fR to disable hotkeys
 .RE
 .RE
 .PP
@@ -54,7 +56,7 @@ Default
 .br
 
 A string as defined at
-\fI@SDL_WIKI_BASE_URL@/SDLScancodeLookup\fR
+\fI@SDL_WIKI_BASE_URL@/SDL_Scancode\fR
 .RE
 .RE
 .PP
@@ -70,7 +72,7 @@ Default
 .br
 
 A string as defined at
-\fI@SDL_WIKI_BASE_URL@/SDLScancodeLookup\fR
+\fI@SDL_WIKI_BASE_URL@/SDL_Scancode\fR
 .RE
 .RE
 .PP
@@ -86,7 +88,7 @@ Default
 .br
 
 A string as defined at
-\fI@SDL_WIKI_BASE_URL@/SDLScancodeLookup\fR
+\fI@SDL_WIKI_BASE_URL@/SDL_Scancode\fR
 .RE
 .RE
 .PP
@@ -94,7 +96,11 @@ A string as defined at
 .RS 4
 .PP
 .RS 4
-Toggles keyboard and mouse grab state\&.
+Toggles keyboard and mouse grab state.
+.br
+If keyboard is grabbed the local system shortcuts do no longer work and are sent to the remote system.
+.br
+If the Mouse is grabbed (optional) local gesture detection does not work and the mouse might not be able to leave the RDP window. Mouse events are not altered.\&.
 .br
 
 Default
@@ -102,7 +108,7 @@ Default
 .br
 
 A string as defined at
-\fI@SDL_WIKI_BASE_URL@/SDLScancodeLookup\fR
+\fI@SDL_WIKI_BASE_URL@/SDL_Scancode\fR
 .RE
 .RE
 .PP
@@ -118,7 +124,7 @@ Default
 .br
 
 A string as defined at
-\fI@SDL_WIKI_BASE_URL@/SDLScancodeLookup\fR
+\fI@SDL_WIKI_BASE_URL@/SDL_Scancode\fR
 .RE
 .RE
 .RE

@@ -22,6 +22,7 @@
 #include <freerdp/config.h>
 
 #include <winpr/crt.h>
+#include <winpr/cast.h>
 #include <winpr/stream.h>
 #include <winpr/interlocked.h>
 
@@ -32,6 +33,21 @@
 #include "drdynvc_main.h"
 
 #define TAG CHANNELS_TAG("drdynvc.client")
+
+static const char* channel_state2str(DVC_CHANNEL_STATE state)
+{
+	switch (state)
+	{
+		case DVC_CHANNEL_INIT:
+			return "DVC_CHANNEL_INIT";
+		case DVC_CHANNEL_RUNNING:
+			return "DVC_CHANNEL_RUNNING";
+		case DVC_CHANNEL_CLOSED:
+			return "DVC_CHANNEL_CLOSED";
+		default:
+			return "DVC_CHANNEL_UNKNOWN";
+	}
+}
 
 static void dvcman_channel_free(DVCMAN_CHANNEL* channel);
 static UINT dvcman_channel_close(DVCMAN_CHANNEL* channel, BOOL perRequest, BOOL fromHashTableFn);
@@ -432,12 +448,9 @@ static void check_open_close_receive(DVCMAN_CHANNEL* channel)
 	const UINT32 id = channel->channel_id;
 
 	WINPR_ASSERT(cb);
-	if (cb->OnOpen || cb->OnClose)
-	{
-		if (!cb->OnOpen || !cb->OnClose)
-			WLog_WARN(TAG, "{%s:%" PRIu32 "} OnOpen=%p, OnClose=%p", name, id, cb->OnOpen,
-			          cb->OnClose);
-	}
+	if (!cb->OnOpen || !cb->OnClose || !cb->OnDataReceived)
+		WLog_VRB(TAG, "{%s:%" PRIu32 "} OnOpen=%p, OnClose=%p, OnDataReceived=%p", name, id,
+		         cb->OnOpen, cb->OnClose, cb->OnDataReceived);
 }
 
 static UINT dvcman_call_on_receive(DVCMAN_CHANNEL* channel, wStream* data)
@@ -476,12 +489,17 @@ static UINT dvcman_channel_close(DVCMAN_CHANNEL* channel, BOOL perRequest, BOOL 
 				error = dvcchannel_send_close(channel);
 				if (error != CHANNEL_RC_OK)
 				{
-					const char* msg = "error when sending close confirm for '%s'";
 					if (perRequest)
-						msg = "error when sending closeRequest for '%s'";
-
-					WLog_Print(drdynvc->log, WLOG_DEBUG, msg, channel->channel_name);
+						WLog_Print(drdynvc->log, WLOG_DEBUG,
+						           "error when sending closeRequest for '%s'",
+						           channel->channel_name);
+					else
+						WLog_Print(drdynvc->log, WLOG_DEBUG,
+						           "error when sending close confirm for '%s'",
+						           channel->channel_name);
 				}
+				WLog_Print(drdynvc->log, WLOG_DEBUG, "listener %s destroyed channel %" PRIu32 "",
+				           channel->channel_name, channel->channel_id);
 			}
 
 			channel->state = DVC_CHANNEL_CLOSED;
@@ -516,7 +534,7 @@ static UINT dvcman_channel_close(DVCMAN_CHANNEL* channel, BOOL perRequest, BOOL 
 	return error;
 }
 
-static DVCMAN_CHANNEL* dvcman_channel_new(drdynvcPlugin* drdynvc,
+static DVCMAN_CHANNEL* dvcman_channel_new(WINPR_ATTR_UNUSED drdynvcPlugin* drdynvc,
                                           IWTSVirtualChannelManager* pChannelMgr, UINT32 ChannelId,
                                           const char* ChannelName)
 {
@@ -690,10 +708,12 @@ static DVCMAN_CHANNEL* dvcman_create_channel(drdynvcPlugin* drdynvc,
 			case DVC_CHANNEL_CLOSED:
 			case DVC_CHANNEL_INIT:
 			default:
-				WLog_Print(drdynvc->log, WLOG_ERROR, "not expecting a createChannel from state %d",
-				           channel->state);
+			{
+				WLog_Print(drdynvc->log, WLOG_ERROR, "not expecting a createChannel from state %s",
+				           channel_state2str(channel->state));
 				*res = CHANNEL_RC_INITIALIZATION_ERROR;
 				goto out;
+			}
 		}
 	}
 	else
@@ -827,7 +847,7 @@ static UINT dvcman_receive_channel_data_first(DVCMAN_CHANNEL* channel, UINT32 le
  * @return 0 on success, otherwise a Win32 error code
  */
 static UINT dvcman_receive_channel_data(DVCMAN_CHANNEL* channel, wStream* data,
-                                        UINT32 ThreadingFlags)
+                                        WINPR_ATTR_UNUSED UINT32 ThreadingFlags)
 {
 	UINT status = CHANNEL_RC_OK;
 	size_t dataSize = Stream_GetRemainingLength(data);
@@ -944,7 +964,6 @@ static UINT drdynvc_write_data(drdynvcPlugin* drdynvc, UINT32 ChannelId, const B
 	size_t pos = 0;
 	UINT8 cbChId = 0;
 	UINT8 cbLen = 0;
-	unsigned long chunkLength = 0;
 	UINT status = CHANNEL_RC_BAD_INIT_HANDLE;
 	DVCMAN* dvcman = NULL;
 
@@ -988,12 +1007,20 @@ static UINT drdynvc_write_data(drdynvcPlugin* drdynvc, UINT32 ChannelId, const B
 		cbLen = drdynvc_write_variable_uint(data_out, dataSize);
 		pos = Stream_GetPosition(data_out);
 		Stream_SetPosition(data_out, 0);
-		Stream_Write_UINT8(data_out, (DATA_FIRST_PDU << 4) | cbChId | (cbLen << 2));
+
+		const INT32 pdu = (DATA_FIRST_PDU << 4) | cbChId | (cbLen << 2);
+		Stream_Write_UINT8(data_out, WINPR_ASSERTING_INT_CAST(UINT8, pdu));
 		Stream_SetPosition(data_out, pos);
-		chunkLength = CHANNEL_CHUNK_LENGTH - pos;
-		Stream_Write(data_out, data, chunkLength);
-		data += chunkLength;
-		dataSize -= chunkLength;
+
+		{
+			WINPR_ASSERT(pos <= CHANNEL_CHUNK_LENGTH);
+			const uint32_t chunkLength =
+			    CHANNEL_CHUNK_LENGTH - WINPR_ASSERTING_INT_CAST(uint32_t, pos);
+			Stream_Write(data_out, data, chunkLength);
+
+			data += chunkLength;
+			dataSize -= chunkLength;
+		}
 		status = drdynvc_send(drdynvc, data_out);
 
 		while (status == CHANNEL_RC_OK && dataSize > 0)
@@ -1012,10 +1039,12 @@ static UINT drdynvc_write_data(drdynvcPlugin* drdynvc, UINT32 ChannelId, const B
 			Stream_SetPosition(data_out, 0);
 			Stream_Write_UINT8(data_out, (DATA_PDU << 4) | cbChId);
 			Stream_SetPosition(data_out, pos);
-			chunkLength = dataSize;
 
+			uint32_t chunkLength = dataSize;
+
+			WINPR_ASSERT(pos <= CHANNEL_CHUNK_LENGTH);
 			if (chunkLength > CHANNEL_CHUNK_LENGTH - pos)
-				chunkLength = CHANNEL_CHUNK_LENGTH - pos;
+				chunkLength = CHANNEL_CHUNK_LENGTH - WINPR_ASSERTING_INT_CAST(uint32_t, pos);
 
 			Stream_Write(data_out, data, chunkLength);
 			data += chunkLength;
@@ -1154,14 +1183,15 @@ static UINT32 drdynvc_read_variable_uint(wStream* s, int cbLen)
  *
  * @return 0 on success, otherwise a Win32 error code
  */
-static UINT drdynvc_process_create_request(drdynvcPlugin* drdynvc, int Sp, int cbChId, wStream* s)
+static UINT drdynvc_process_create_request(drdynvcPlugin* drdynvc, UINT8 Sp, UINT8 cbChId,
+                                           wStream* s)
 {
 	UINT status = 0;
 	wStream* data_out = NULL;
 	UINT channel_status = 0;
 	DVCMAN* dvcman = NULL;
 	DVCMAN_CHANNEL* channel = NULL;
-	UINT32 retStatus = 0;
+	INT32 retStatus = 0;
 
 	WINPR_UNUSED(Sp);
 	if (!drdynvc)
@@ -1227,14 +1257,14 @@ static UINT drdynvc_process_create_request(drdynvcPlugin* drdynvc, int Sp, int c
 			break;
 		case ERROR_NOT_FOUND:
 			WLog_Print(drdynvc->log, WLOG_DEBUG, "no listener for '%s'", name);
-			retStatus = (UINT32)0xC0000001; /* same code used by mstsc, STATUS_UNSUCCESSFUL */
+			retStatus = STATUS_NOT_FOUND; /* same code used by mstsc, STATUS_UNSUCCESSFUL */
 			break;
 		default:
 			WLog_Print(drdynvc->log, WLOG_DEBUG, "channel creation error");
-			retStatus = (UINT32)0xC0000001; /* same code used by mstsc, STATUS_UNSUCCESSFUL */
+			retStatus = STATUS_UNSUCCESSFUL; /* same code used by mstsc, STATUS_UNSUCCESSFUL */
 			break;
 	}
-	Stream_Write_UINT32(data_out, retStatus);
+	Stream_Write_INT32(data_out, retStatus);
 
 	status = drdynvc_send(drdynvc, data_out);
 	if (status != CHANNEL_RC_OK)

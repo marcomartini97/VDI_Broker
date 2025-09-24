@@ -26,6 +26,10 @@
 
 static const COMMAND_LINE_ARGUMENT_A global_cmd_args[] = {
 	{ "a", COMMAND_LINE_VALUE_REQUIRED, "<addin>[,<options>]", NULL, NULL, -1, "addin", "Addin" },
+	{ "azure", COMMAND_LINE_VALUE_REQUIRED,
+	  "[tenantid:<id>],[use-tenantid[:[on|off]],[ad:<url>]"
+	  "[avd-access:<format string>],[avd-token:<format string>],[avd-scope:<format string>]",
+	  NULL, NULL, -1, NULL, "AzureAD options" },
 	{ "action-script", COMMAND_LINE_VALUE_REQUIRED, "<file-name>", "~/.config/freerdp/action.sh",
 	  NULL, -1, NULL, "Action script" },
 	{ "admin", COMMAND_LINE_VALUE_FLAG, NULL, NULL, NULL, -1, "console",
@@ -62,8 +66,11 @@ static const COMMAND_LINE_ARGUMENT_A global_cmd_args[] = {
 	  "Audio output mode" },
 	{ "auth-only", COMMAND_LINE_VALUE_BOOL, NULL, BoolValueFalse, NULL, -1, NULL,
 	  "Authenticate only" },
-	{ "auth-pkg-list", COMMAND_LINE_VALUE_REQUIRED, "<!ntlm,kerberos>", NULL, NULL, -1, NULL,
-	  "Authentication package filter (comma-separated list, use '!' to exclude)" },
+	{ "auth-pkg-list", COMMAND_LINE_VALUE_REQUIRED, "[[none],]<!ntlm,kerberos,!u2u>", NULL, NULL,
+	  -1, NULL,
+	  "Authentication package filter (comma-separated list, use '!' to disable). By default "
+	  "all methods are enabled. Use explicit 'none' as first argument to disable all methods, "
+	  "selectively enabling only the ones following." },
 	{ "authentication", COMMAND_LINE_VALUE_BOOL, NULL, BoolValueTrue, NULL, -1, NULL,
 	  "Authentication (experimental)" },
 	{ "auto-reconnect", COMMAND_LINE_VALUE_BOOL, NULL, BoolValueFalse, NULL, -1, NULL,
@@ -265,6 +272,9 @@ static const COMMAND_LINE_ARGUMENT_A global_cmd_args[] = {
 	  " * layout: set the keybouard layout announced to the server\n"
 	  " * lang: set the keyboard language identifier sent to the server\n"
 	  " * fn-key: Function key value\n"
+	  " * remap: RDP scancode to another one. Use /list:kbd-scancode to get the mapping. Example: "
+	  "To switch "
+	  "'a' and 's' on a US keyboard: /kbd:remap:0x1e=0x1f,remap:0x1f=0x1e\n"
 	  " * pipe: Name of a named pipe that can be used to type text into the RDP session\n" },
 #if defined(WITH_FREERDP_DEPRECATED_COMMANDLINE)
 	{ "kbd-lang", COMMAND_LINE_VALUE_REQUIRED, "0x<id>", NULL, NULL, -1, NULL,
@@ -323,7 +333,7 @@ static const COMMAND_LINE_ARGUMENT_A global_cmd_args[] = {
 	{ "monitors", COMMAND_LINE_VALUE_REQUIRED, "<id>[,<id>[,...]]", NULL, NULL, -1, NULL,
 	  "Select monitors to use (only effective in fullscreen or multimonitor mode)" },
 	{ "mouse-motion", COMMAND_LINE_VALUE_BOOL, NULL, BoolValueTrue, NULL, -1, NULL,
-	  "Send mouse motion" },
+	  "Send mouse motion events" },
 	{ "mouse-relative", COMMAND_LINE_VALUE_BOOL, NULL, BoolValueFalse, NULL, -1, NULL,
 	  "Send mouse motion with relative addressing" },
 	{ "mouse", COMMAND_LINE_VALUE_REQUIRED, "[relative:[on|off],grab:[on|off]]", NULL, NULL, -1,
@@ -373,7 +383,7 @@ static const COMMAND_LINE_ARGUMENT_A global_cmd_args[] = {
 	  "suppress output when minimized" },
 	{ "print-reconnect-cookie", COMMAND_LINE_VALUE_BOOL, NULL, BoolValueFalse, NULL, -1, NULL,
 	  "Print base64 reconnect cookie after connecting" },
-	{ "printer", COMMAND_LINE_VALUE_OPTIONAL, "<name>[,<driver>]", NULL, NULL, -1, NULL,
+	{ "printer", COMMAND_LINE_VALUE_OPTIONAL, "<name>[,<driver>[,default]]", NULL, NULL, -1, NULL,
 	  "Redirect printer device" },
 	{ "proxy", COMMAND_LINE_VALUE_REQUIRED, "[<proto>://][<user>:<password>@]<host>[:<port>]", NULL,
 	  NULL, -1, NULL,
@@ -505,7 +515,7 @@ static const COMMAND_LINE_ARGUMENT_A global_cmd_args[] = {
 	  "Redirect USB device" },
 #endif
 	{ "v", COMMAND_LINE_VALUE_REQUIRED, "<server>[:port]", NULL, NULL, -1, NULL,
-	  "Server hostname" },
+	  "Server hostname|URL|IPv4|IPv6 or /some/path/to/pipe or |:1234 to pass a TCP socket to use" },
 	{ "vc", COMMAND_LINE_VALUE_REQUIRED, "<channel>[,<options>]", NULL, NULL, -1, NULL,
 	  "Static virtual channel" },
 	{ "version", COMMAND_LINE_VALUE_FLAG | COMMAND_LINE_PRINT_VERSION, NULL, NULL, NULL, -1, NULL,

@@ -11,6 +11,7 @@ Build-Depends:
  pkg-config,
  libssl-dev,
  ninja-build,
+ zlib1g-dev,
  libkrb5-dev | krb5-multidev | heimdal-multidev,
  libxkbcommon-dev,
  libxkbfile-dev,
@@ -36,6 +37,7 @@ Build-Depends:
  libavcodec-dev,
  libavutil-dev,
  libfuse3-dev,
+ libgsm1-dev,
  libswresample-dev | libavresample-dev,
  libusb-1.0-0-dev,
  libudev-dev,
@@ -45,6 +47,10 @@ Build-Depends:
  libpam0g-dev,
  uuid-dev, 
  libjson-c-dev | libcjson-dev,
+ libsdl2-2.0-0,
+ libsdl2-dev,
+ libsdl2-ttf-dev,
+ libsdl2-image-dev,
  libsdl3-0 | libsdl2-2.0-0,
  libsdl3-dev | libsdl2-dev,
  libsdl3-ttf-dev | libsdl2-ttf-dev,
@@ -58,6 +64,10 @@ Build-Depends:
  libjpeg-dev,
  opensc-pkcs11,
  libv4l-dev,
+ ocl-icd-dev,
+ ocl-icd-opencl-dev,
+ opencl-headers,
+ opencl-c-headers,
  libasan5 | libasan6 | libasan8
 Standards-Version: 3.9.5
 Homepage: http://www.freerdp.com/

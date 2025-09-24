@@ -17,20 +17,18 @@
 
 if(WITH_V4L)
 
-	define_channel_client_subsystem("rdpecam" "v4l" "")
+  define_channel_client_subsystem("rdpecam" "v4l" "")
 
-	set(${MODULE_PREFIX}_SRCS
-		camera_v4l.c
-	)
+  find_package(libusb-1.0 REQUIRED)
+  freerdp_client_pc_add_requires_private("libusb-1.0")
+  include_directories(SYSTEM ${LIBUSB_1_INCLUDE_DIRS})
 
-	set(${MODULE_PREFIX}_LIBS
-		winpr
-		freerdp
-		${V4L_TARGETS}
-	)
+  set(${MODULE_PREFIX}_SRCS camera_v4l.c uvc_h264.c)
 
-	include_directories(..)
+  set(${MODULE_PREFIX}_LIBS winpr freerdp ${LIBUSB_1_LIBRARIES})
 
-	add_channel_client_subsystem_library(${MODULE_PREFIX} ${MODULE_NAME} ${CHANNEL_NAME} "" TRUE "")
+  include_directories(..)
+
+  add_channel_client_subsystem_library(${MODULE_PREFIX} ${MODULE_NAME} ${CHANNEL_NAME} "" TRUE "")
 
 endif()

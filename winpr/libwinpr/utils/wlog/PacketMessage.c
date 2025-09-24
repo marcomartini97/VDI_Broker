@@ -41,106 +41,6 @@ static BOOL Pcap_Read_Header(wPcap* pcap, wPcapHeader* header)
 	return FALSE;
 }
 
-/* currently unused code */
-#if 0
-static BOOL Pcap_Read_RecordHeader(wPcap* pcap, wPcapRecordHeader* record)
-{
-	if (pcap && pcap->fp && (fread((void*) record, sizeof(wPcapRecordHeader), 1, pcap->fp) == 1))
-		return TRUE;
-	return FALSE;
-}
-
-static BOOL Pcap_Read_Record(wPcap* pcap, wPcapRecord* record)
-{
-	if (pcap && pcap->fp)
-	{
-		if (!Pcap_Read_RecordHeader(pcap, &record->header))
-			return FALSE;
-		record->length = record->header.incl_len;
-		record->data = malloc(record->length);
-		if (!record->data)
-			return FALSE;
-		if (fread(record->data, record->length, 1, pcap->fp) != 1)
-		{
-			free(record->data);
-			record->length = 0;
-			record->data = NULL;
-			return FALSE;
-		}
-	}
-	return TRUE;
-}
-
-static BOOL Pcap_Add_Record(wPcap* pcap, void* data, UINT32 length)
-{
-	wPcapRecord* record = NULL;
-
-	if (!pcap->tail)
-	{
-		pcap->tail = (wPcapRecord*) calloc(1, sizeof(wPcapRecord));
-		if (!pcap->tail)
-			return FALSE;
-		pcap->head = pcap->tail;
-		pcap->record = pcap->head;
-		record = pcap->tail;
-	}
-	else
-	{
-		record = (wPcapRecord*) calloc(1, sizeof(wPcapRecord));
-		if (!record)
-			return FALSE;
-		pcap->tail->next = record;
-		pcap->tail = record;
-	}
-
-	if (!pcap->record)
-		pcap->record = record;
-
-	record->data = data;
-	record->length = length;
-	record->header.incl_len = length;
-	record->header.orig_len = length;
-
-	UINT64 ns = winpr_GetUnixTimeNS();
-	record->header.ts_sec = WINPR_TIME_NS_TO_S(ns);
-	record->header.ts_usec = WINPR_TIME_NS_REM_US(ns);
-	return TRUE;
-}
-
-static BOOL Pcap_HasNext_Record(wPcap* pcap)
-{
-	if (pcap->file_size - (_ftelli64(pcap->fp)) <= 16)
-		return FALSE;
-
-	return TRUE;
-}
-
-static BOOL Pcap_GetNext_RecordHeader(wPcap* pcap, wPcapRecord* record)
-{
-	if (!Pcap_HasNext_Record(pcap) || !Pcap_Read_RecordHeader(pcap, &record->header))
-		return FALSE;
-
-	record->length = record->header.incl_len;
-	return TRUE;
-}
-
-static BOOL Pcap_GetNext_RecordContent(wPcap* pcap, wPcapRecord* record)
-{
-	if (pcap && pcap->fp && fread(record->data, record->length, 1, pcap->fp) == 1)
-		return TRUE;
-
-	return FALSE;
-}
-
-static BOOL Pcap_GetNext_Record(wPcap* pcap, wPcapRecord* record)
-{
-	if (!Pcap_HasNext_Record(pcap))
-		return FALSE;
-
-	return Pcap_Read_Record(pcap, record);
-}
-#endif
-
 static BOOL Pcap_Write_Header(wPcap* pcap, wPcapHeader* header)
 {
 	if (pcap && pcap->fp && fwrite((void*)header, sizeof(wPcapHeader), 1, pcap->fp) == 1)
@@ -433,13 +333,16 @@ BOOL WLog_PacketMessage_Write(wPcap* pcap, void* data, size_t length, DWORD flag
 	{
 		tcp.SequenceNumber = g_OutboundSequenceNumber;
 		tcp.AcknowledgementNumber = g_InboundSequenceNumber;
-		g_OutboundSequenceNumber += length;
+		WINPR_ASSERT(length + g_OutboundSequenceNumber <= UINT32_MAX);
+		g_OutboundSequenceNumber += WINPR_ASSERTING_INT_CAST(uint32_t, length);
 	}
 	else
 	{
 		tcp.SequenceNumber = g_InboundSequenceNumber;
 		tcp.AcknowledgementNumber = g_OutboundSequenceNumber;
-		g_InboundSequenceNumber += length;
+
+		WINPR_ASSERT(length + g_InboundSequenceNumber <= UINT32_MAX);
+		g_InboundSequenceNumber += WINPR_ASSERTING_INT_CAST(uint32_t, length);
 	}
 
 	tcp.Offset = 5;
@@ -452,8 +355,9 @@ BOOL WLog_PacketMessage_Write(wPcap* pcap, void* data, size_t length, DWORD flag
 	record.length = length;
 	const size_t offset = 14 + 20 + 20;
 	WINPR_ASSERT(record.length <= UINT32_MAX - offset);
-	record.header.incl_len = (UINT32)record.length + offset;
-	record.header.orig_len = (UINT32)record.length + offset;
+	const uint32_t rloff = WINPR_ASSERTING_INT_CAST(uint32_t, record.length + offset);
+	record.header.incl_len = rloff;
+	record.header.orig_len = rloff;
 	record.next = NULL;
 
 	UINT64 ns = winpr_GetUnixTimeNS();

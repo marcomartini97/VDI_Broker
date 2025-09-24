@@ -258,7 +258,7 @@ BOOL ndr_start_constructed(NdrContext* context, wStream* s)
 {
 	WINPR_ASSERT(context);
 
-	if (!Stream_EnsureCapacity(s, 8))
+	if (!Stream_EnsureRemainingCapacity(s, 8))
 		return FALSE;
 
 	if (context->constructLevel == NDR_MAX_CONSTRUCTS)
@@ -990,5 +990,15 @@ BOOL ndr_treat_deferred_write(NdrContext* context, wStream* s)
 		}
 	}
 
+	return TRUE;
+}
+
+BOOL ndr_write_data(NdrContext* context, wStream* s, const void* data, size_t sz)
+{
+	if (!Stream_EnsureRemainingCapacity(s, sz))
+		return FALSE;
+
+	Stream_Write(s, data, sz);
+	ndr_context_bytes_written(context, sz);
 	return TRUE;
 }

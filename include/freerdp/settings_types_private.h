@@ -115,7 +115,10 @@ struct rdp_settings
 	SETTINGS_DEPRECATED(ALIGN64 BOOL SupportEdgeActionV2);     /* 151 */
 	SETTINGS_DEPRECATED(ALIGN64 BOOL SupportSkipChannelJoin);  /* 152 */
 	SETTINGS_DEPRECATED(ALIGN64 UINT16 SupportedColorDepths);  /* 153 */
-	UINT64 padding0192[192 - 154];                             /* 154 */
+	SETTINGS_DEPRECATED(ALIGN64 UINT64 MonitorOverrideFlags);  /** 154
+		                                                        * @since version 3.15.0
+		                                                        */
+	UINT64 padding0192[192 - 155];                             /* 155 */
 
 	/* Client/Server Security Data */
 	SETTINGS_DEPRECATED(ALIGN64 BOOL UseRdpSecurityLayer);                /* 192 */
@@ -160,8 +163,8 @@ struct rdp_settings
 	SETTINGS_DEPRECATED(ALIGN64 BOOL ListMonitors);            /*    392 */
 	SETTINGS_DEPRECATED(ALIGN64 UINT32* MonitorIds);           /*    393 */
 	SETTINGS_DEPRECATED(ALIGN64 UINT32 NumMonitorIds);         /*    394 */
-	SETTINGS_DEPRECATED(ALIGN64 UINT32 MonitorLocalShiftX);    /*395 */
-	SETTINGS_DEPRECATED(ALIGN64 UINT32 MonitorLocalShiftY);    /*    396 */
+	SETTINGS_DEPRECATED(ALIGN64 INT32 MonitorLocalShiftX);     /*395 */
+	SETTINGS_DEPRECATED(ALIGN64 INT32 MonitorLocalShiftY);     /*    396 */
 	SETTINGS_DEPRECATED(ALIGN64 BOOL HasMonitorAttributes);    /*    397 */
 	SETTINGS_DEPRECATED(ALIGN64 UINT32 MonitorFlags);          /* 398 */
 	SETTINGS_DEPRECATED(ALIGN64 UINT32 MonitorAttributeFlags); /* 399 */
@@ -286,7 +289,9 @@ struct rdp_settings
 	SETTINGS_DEPRECATED(ALIGN64 BOOL AadSecurity);                  /* 1112 */
 	SETTINGS_DEPRECATED(ALIGN64 char* WinSCardModule);              /* 1113 */
 	SETTINGS_DEPRECATED(ALIGN64 BOOL RemoteCredentialGuard);        /* 1114 */
-	UINT64 padding1152[1152 - 1115];                                /* 1115 */
+	SETTINGS_DEPRECATED(ALIGN64 BOOL RestrictedAdminModeSupported); /** 1115
+		                                                             * @since version 3.16.0 */
+	UINT64 padding1152[1152 - 1116];                                /* 1116 */
 
 	/* Connection Cookie */
 	SETTINGS_DEPRECATED(ALIGN64 BOOL MstscCookieMode);      /* 1152 */
@@ -482,7 +487,12 @@ struct rdp_settings
 	SETTINGS_DEPRECATED(ALIGN64 BOOL GatewayIgnoreRedirectionPolicy);  /** 2012
 		                                                                * @since version 3.4.0
 		                                                                */
-	UINT64 padding2015[2015 - 2013];                                   /* 2013 */
+	SETTINGS_DEPRECATED(ALIGN64 char* GatewayAvdClientID);             /** 2013
+		                                                                * @since version 3.10.0
+		                                                                */
+	SETTINGS_DEPRECATED(ALIGN64 char* GatewayAzureActiveDirectory);    /** 2014
+		                                                                * @since version 3.10.0
+		                                                                */
 
 	/* Proxy */
 	SETTINGS_DEPRECATED(ALIGN64 UINT32 ProxyType);    /* 2015 */
@@ -490,7 +500,19 @@ struct rdp_settings
 	SETTINGS_DEPRECATED(ALIGN64 UINT16 ProxyPort);    /* 2017 */
 	SETTINGS_DEPRECATED(ALIGN64 char* ProxyUsername); /* 2018 */
 	SETTINGS_DEPRECATED(ALIGN64 char* ProxyPassword); /* 2019 */
-	UINT64 padding2112[2112 - 2020];                  /* 2020 */
+	SETTINGS_DEPRECATED(ALIGN64 BOOL GatewayAvdUseTenantid); /** 2020
+		                                                      * @since version 3.10.0
+		                                                      */
+	SETTINGS_DEPRECATED(ALIGN64 char* GatewayAvdScope);      /** 2021
+		                                                      * @since version 3.16.0
+		                                                      */
+	SETTINGS_DEPRECATED(ALIGN64 char* GatewayAvdAccessTokenFormat); /** 2022
+		                                                             * @since version 3.16.0
+		                                                             */
+	SETTINGS_DEPRECATED(ALIGN64 char* GatewayAvdAccessAadFormat);   /** 2023
+		                                                             * @since version 3.16.0
+		                                                             */
+	UINT64 padding2112[2112 - 2024];                                /* 2024 */
 
 	/**
 	 * RemoteApp

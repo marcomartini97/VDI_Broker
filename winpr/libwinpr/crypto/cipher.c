@@ -251,9 +251,9 @@ static int cipher_compare(const void* a, const void* b)
 	return *cipher > map->md ? 1 : -1;
 }
 
-const char* winpr_cipher_type_to_string(WINPR_CIPHER_TYPE cipher)
+const char* winpr_cipher_type_to_string(WINPR_CIPHER_TYPE md)
 {
-	WINPR_CIPHER_TYPE lc = cipher;
+	WINPR_CIPHER_TYPE lc = md;
 	const struct cipher_map* ret = bsearch(&lc, s_cipher_map, ARRAYSIZE(s_cipher_map),
 	                                       sizeof(struct cipher_map), cipher_compare);
 	if (!ret)
@@ -574,15 +574,17 @@ mbedtls_cipher_type_t winpr_mbedtls_get_cipher_type(int cipher)
 }
 #endif
 
+#if !defined(WITHOUT_FREERDP_3x_DEPRECATED)
 WINPR_CIPHER_CTX* winpr_Cipher_New(WINPR_CIPHER_TYPE cipher, WINPR_CRYPTO_OPERATION op,
                                    const void* key, const void* iv)
 {
 	return winpr_Cipher_NewEx(cipher, op, key, 0, iv, 0);
 }
+#endif
 
 WINPR_API WINPR_CIPHER_CTX* winpr_Cipher_NewEx(WINPR_CIPHER_TYPE cipher, WINPR_CRYPTO_OPERATION op,
-                                               const void* key, size_t keylen, const void* iv,
-                                               size_t ivlen)
+                                               const void* key, WINPR_ATTR_UNUSED size_t keylen,
+                                               const void* iv, WINPR_ATTR_UNUSED size_t ivlen)
 {
 	if (cipher == WINPR_CIPHER_ARC4_128)
 	{
@@ -606,27 +608,6 @@ WINPR_API WINPR_CIPHER_CTX* winpr_Cipher_NewEx(WINPR_CIPHER_TYPE cipher, WINPR_C
 	ctx->ectx = EVP_CIPHER_CTX_new();
 	if (!ctx->ectx)
 		goto fail;
-
-#if 0
-	if (keylen != 0)
-	{
-		WINPR_ASSERT(keylen <= INT32_MAX);
-		const int len = EVP_CIPHER_CTX_key_length(ctx->ectx);
-		if ((len > 0) && (len != keylen))
-		{
-			if (EVP_CIPHER_CTX_set_key_length(ctx->ectx, (int)keylen) != 1)
-				goto fail;
-		}
-	}
-
-	if (ivlen != 0)
-	{
-		WINPR_ASSERT(ivlen <= INT32_MAX);
-		const int len = EVP_CIPHER_CTX_iv_length(ctx->ectx);
-		if ((len > 0) && (ivlen != len))
-			goto fail;
-	}
-#endif
 
 	const int operation = (op == WINPR_ENCRYPT) ? 1 : 0;
 
@@ -778,7 +759,7 @@ int winpr_Cipher_BytesToKey(int cipher, WINPR_MD_TYPE md, const void* salt, cons
 	const EVP_MD* evp_md = NULL;
 	const EVP_CIPHER* evp_cipher = NULL;
 	evp_md = winpr_openssl_get_evp_md(md);
-	evp_cipher = winpr_openssl_get_evp_cipher(cipher);
+	evp_cipher = winpr_openssl_get_evp_cipher(WINPR_ASSERTING_INT_CAST(WINPR_CIPHER_TYPE, cipher));
 	WINPR_ASSERT(datal <= INT_MAX);
 	WINPR_ASSERT(count <= INT_MAX);
 	return EVP_BytesToKey(evp_cipher, evp_md, salt, data, (int)datal, (int)count, key, iv);

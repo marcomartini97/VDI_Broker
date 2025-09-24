@@ -54,9 +54,9 @@
 #define BIO_C_WAIT_WRITE 1108
 #define BIO_C_SET_HANDLE 1109
 
-static INLINE long BIO_set_socket(BIO* b, SOCKET* s, long c)
+static INLINE long BIO_set_socket(BIO* b, SOCKET s, long c)
 {
-	return BIO_ctrl(b, BIO_C_SET_SOCKET, c, s);
+	return BIO_ctrl(b, BIO_C_SET_SOCKET, c, (void*)(intptr_t)s);
 }
 static INLINE long BIO_get_socket(BIO* b, SOCKET* c)
 {
@@ -64,9 +64,9 @@ static INLINE long BIO_get_socket(BIO* b, SOCKET* c)
 }
 static INLINE long BIO_get_event(BIO* b, HANDLE* c)
 {
-	return BIO_ctrl(b, BIO_C_GET_EVENT, 0, c);
+	return BIO_ctrl(b, BIO_C_GET_EVENT, 0, (void*)c);
 }
-static INLINE long BIO_set_handle(BIO* b, HANDLE* h)
+static INLINE long BIO_set_handle(BIO* b, HANDLE h)
 {
 	return BIO_ctrl(b, BIO_C_SET_HANDLE, 0, h);
 }
@@ -111,5 +111,7 @@ FREERDP_LOCAL char* freerdp_tcp_get_peer_address(SOCKET sockfd);
 FREERDP_LOCAL struct addrinfo* freerdp_tcp_resolve_host(const char* hostname, int port,
                                                         int ai_flags);
 FREERDP_LOCAL char* freerdp_tcp_address_to_string(const struct sockaddr_storage* addr, BOOL* pIPv6);
+
+FREERDP_LOCAL BOOL freerdp_tcp_set_nodelay(wLog* log, DWORD level, int sockfd);
 
 #endif /* FREERDP_LIB_CORE_TCP_H */

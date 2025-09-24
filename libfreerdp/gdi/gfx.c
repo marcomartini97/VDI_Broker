@@ -23,6 +23,9 @@
 
 #include "../core/update.h"
 
+#include <winpr/assert.h>
+#include <winpr/cast.h>
+
 #include <freerdp/api.h>
 #include <freerdp/log.h>
 #include <freerdp/gdi/gfx.h>
@@ -314,7 +317,8 @@ static UINT gdi_call_update_surfaces(RdpgfxClientContext* context)
  *
  * @return 0 on success, otherwise a Win32 error code
  */
-static UINT gdi_EndFrame(RdpgfxClientContext* context, const RDPGFX_END_FRAME_PDU* endFrame)
+static UINT gdi_EndFrame(RdpgfxClientContext* context,
+                         WINPR_ATTR_UNUSED const RDPGFX_END_FRAME_PDU* endFrame)
 {
 	WINPR_ASSERT(context);
 	WINPR_ASSERT(endFrame);
@@ -536,9 +540,10 @@ static UINT gdi_SurfaceCommand_Planar(rdpGdi* gdi, RdpgfxClientContext* context,
 	if (!is_within_surface(surface, cmd))
 		return ERROR_INVALID_DATA;
 
-	if (!planar_decompress(surface->codecs->planar, cmd->data, cmd->length, cmd->width, cmd->height,
-	                       DstData, surface->format, surface->scanline, cmd->left, cmd->top,
-	                       cmd->width, cmd->height, FALSE))
+	if (!freerdp_bitmap_decompress_planar(surface->codecs->planar, cmd->data, cmd->length,
+	                                      cmd->width, cmd->height, DstData, surface->format,
+	                                      surface->scanline, cmd->left, cmd->top, cmd->width,
+	                                      cmd->height, FALSE))
 		return ERROR_INTERNAL_ERROR;
 
 	invalidRect.left = (UINT16)MIN(UINT16_MAX, cmd->left);
@@ -1035,20 +1040,20 @@ static UINT gdi_SurfaceCommand(RdpgfxClientContext* context, const RDPGFX_SURFAC
 	gdi = (rdpGdi*)context->custom;
 
 	EnterCriticalSection(&context->mux);
+	const UINT16 codecId = WINPR_ASSERTING_INT_CAST(UINT16, cmd->codecId);
 	WLog_Print(gdi->log, WLOG_TRACE,
 	           "surfaceId=%" PRIu32 ", codec=%s [%" PRIu32 "], contextId=%" PRIu32 ", format=%s, "
 	           "left=%" PRIu32 ", top=%" PRIu32 ", right=%" PRIu32 ", bottom=%" PRIu32
 	           ", width=%" PRIu32 ", height=%" PRIu32 " "
 	           "length=%" PRIu32 ", data=%p, extra=%p",
-	           cmd->surfaceId, rdpgfx_get_codec_id_string(cmd->codecId), cmd->codecId,
-	           cmd->contextId, FreeRDPGetColorFormatName(cmd->format), cmd->left, cmd->top,
-	           cmd->right, cmd->bottom, cmd->width, cmd->height, cmd->length, (void*)cmd->data,
-	           (void*)cmd->extra);
+	           cmd->surfaceId, rdpgfx_get_codec_id_string(codecId), cmd->codecId, cmd->contextId,
+	           FreeRDPGetColorFormatName(cmd->format), cmd->left, cmd->top, cmd->right, cmd->bottom,
+	           cmd->width, cmd->height, cmd->length, (void*)cmd->data, (void*)cmd->extra);
 #if defined(WITH_GFX_FRAME_DUMP)
 	dump_cmd(cmd, gdi->frameId);
 #endif
 
-	switch (cmd->codecId)
+	switch (codecId)
 	{
 		case RDPGFX_CODECID_UNCOMPRESSED:
 			status = gdi_SurfaceCommand_Uncompressed(gdi, context, cmd);
@@ -1084,13 +1089,13 @@ static UINT gdi_SurfaceCommand(RdpgfxClientContext* context, const RDPGFX_SURFAC
 			break;
 
 		case RDPGFX_CODECID_CAPROGRESSIVE_V2:
-			WLog_WARN(TAG, "SurfaceCommand %s [0x%08" PRIX32 "] not implemented",
-			          rdpgfx_get_codec_id_string(cmd->codecId), cmd->codecId);
+			WLog_WARN(TAG, "SurfaceCommand %s [0x%08" PRIX16 "] not implemented",
+			          rdpgfx_get_codec_id_string(codecId), codecId);
 			break;
 
 		default:
-			WLog_WARN(TAG, "Invalid SurfaceCommand %s [0x%08" PRIX32 "]",
-			          rdpgfx_get_codec_id_string(cmd->codecId), cmd->codecId);
+			WLog_WARN(TAG, "Invalid SurfaceCommand %s [0x%08" PRIX16 "]",
+			          rdpgfx_get_codec_id_string(codecId), codecId);
 			break;
 	}
 
@@ -1251,8 +1256,9 @@ static BOOL intersect_rect(const RECTANGLE_16* rect, const gdiGfxSurface* surfac
 		return FALSE;
 	prect->left = rect->left;
 	prect->top = rect->top;
-	prect->right = MIN(rect->right, surface->width);
-	prect->bottom = MIN(rect->bottom, surface->height);
+
+	prect->right = MIN(rect->right, WINPR_ASSERTING_INT_CAST(UINT16, surface->width));
+	prect->bottom = MIN(rect->bottom, WINPR_ASSERTING_INT_CAST(UINT16, surface->height));
 	return TRUE;
 }
 
@@ -1280,15 +1286,11 @@ static UINT gdi_SolidFill(RdpgfxClientContext* context, const RDPGFX_SOLID_FILL_
 	const BYTE g = solidFill->fillPixel.G;
 	const BYTE r = solidFill->fillPixel.R;
 
-#if 0
 	/* [MS-RDPEGFX] 3.3.5.4 Processing an RDPGFX_SOLIDFILL_PDU message
 	 * https://learn.microsoft.com/en-us/windows/win32/gdi/binary-raster-operations
 	 *
 	 * this sounds like the alpha value is always ignored.
 	 */
-	if (FreeRDPColorHasAlpha(surface->format))
-		a = solidFill->fillPixel.XA;
-#endif
 
 	const UINT32 color = FreeRDPGetColor(surface->format, r, g, b, a);
 

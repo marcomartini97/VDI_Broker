@@ -24,9 +24,9 @@ static BOOL Test_GetComputerName(void)
 	 *
 	 */
 
-	CHAR netbiosName1[MAX_COMPUTERNAME_LENGTH + 1];
-	CHAR netbiosName2[MAX_COMPUTERNAME_LENGTH + 1];
-	const DWORD netbiosBufferSize = sizeof(netbiosName1) / sizeof(CHAR);
+	CHAR netbiosName1[MAX_COMPUTERNAME_LENGTH + 1] = { 0 };
+	CHAR netbiosName2[MAX_COMPUTERNAME_LENGTH + 1] = { 0 };
+	const size_t netbiosBufferSize = ARRAYSIZE(netbiosName1);
 	DWORD dwSize = 0;
 	DWORD dwNameLength = 0;
 	DWORD dwError = 0;
@@ -74,7 +74,7 @@ static BOOL Test_GetComputerName(void)
 	{
 		(void)fprintf(stderr,
 		              "%s: (5) GetComputerNameA returned wrong size %" PRIu32
-		              " (expected something in the range from 2 to %" PRIu32 ")\n",
+		              " (expected something in the range from 2 to %" PRIuz ")\n",
 		              __func__, dwSize, netbiosBufferSize);
 		return FALSE;
 	}

@@ -103,7 +103,7 @@ static BOOL gdi_Bitmap_New(rdpContext* context, rdpBitmap* bitmap)
 	return TRUE;
 }
 
-static void gdi_Bitmap_Free(rdpContext* context, rdpBitmap* bitmap)
+static void gdi_Bitmap_Free(WINPR_ATTR_UNUSED rdpContext* context, rdpBitmap* bitmap)
 {
 	gdiBitmap* gdi_bitmap = (gdiBitmap*)bitmap;
 
@@ -125,7 +125,9 @@ static BOOL gdi_Bitmap_Paint(rdpContext* context, rdpBitmap* bitmap)
 	gdiBitmap* gdi_bitmap = (gdiBitmap*)bitmap;
 	UINT32 width = bitmap->right - bitmap->left + 1;
 	UINT32 height = bitmap->bottom - bitmap->top + 1;
-	return gdi_BitBlt(context->gdi->primary->hdc, bitmap->left, bitmap->top, width, height,
+	return gdi_BitBlt(context->gdi->primary->hdc, WINPR_ASSERTING_INT_CAST(int, bitmap->left),
+	                  WINPR_ASSERTING_INT_CAST(int, bitmap->top),
+	                  WINPR_ASSERTING_INT_CAST(int, width), WINPR_ASSERTING_INT_CAST(int, height),
 	                  gdi_bitmap->hdc, 0, 0, GDI_SRCCOPY, &context->gdi->palette);
 }
 
@@ -158,12 +160,16 @@ static BOOL gdi_Bitmap_Decompress(rdpContext* context, rdpBitmap* bitmap, const 
 	{
 		if ((codecId == RDP_CODEC_ID_REMOTEFX) || (codecId == RDP_CODEC_ID_IMAGE_REMOTEFX))
 		{
-			REGION16 invalidRegion;
+			REGION16 invalidRegion = { 0 };
 			region16_init(&invalidRegion);
 
-			if (!rfx_process_message(context->codecs->rfx, pSrcData, SrcSize, bitmap->left,
-			                         bitmap->top, bitmap->data, bitmap->format, gdi->stride,
-			                         gdi->height, &invalidRegion))
+			const BOOL rc =
+			    rfx_process_message(context->codecs->rfx, pSrcData, SrcSize, bitmap->left,
+			                        bitmap->top, bitmap->data, bitmap->format, gdi->stride,
+			                        WINPR_ASSERTING_INT_CAST(UINT32, gdi->height), &invalidRegion);
+			region16_uninit(&invalidRegion);
+
+			if (!rc)
 			{
 				WLog_ERR(TAG, "rfx_process_message failed");
 				return FALSE;
@@ -200,11 +206,11 @@ static BOOL gdi_Bitmap_Decompress(rdpContext* context, rdpBitmap* bitmap, const 
 			const BOOL fidelity =
 			    freerdp_settings_get_bool(context->settings, FreeRDP_DrawAllowDynamicColorFidelity);
 			freerdp_planar_switch_bgr(context->codecs->planar, fidelity);
-			if (!planar_decompress(context->codecs->planar, pSrcData, SrcSize, DstWidth, DstHeight,
-			                       bitmap->data, bitmap->format, 0, 0, 0, DstWidth, DstHeight,
-			                       TRUE))
+			if (!freerdp_bitmap_decompress_planar(context->codecs->planar, pSrcData, SrcSize,
+			                                      DstWidth, DstHeight, bitmap->data, bitmap->format,
+			                                      0, 0, 0, DstWidth, DstHeight, TRUE))
 			{
-				WLog_ERR(TAG, "planar_decompress failed");
+				WLog_ERR(TAG, "freerdp_bitmap_decompress_planar failed");
 				return FALSE;
 			}
 		}
@@ -299,7 +305,7 @@ static BOOL gdi_Glyph_New(rdpContext* context, rdpGlyph* glyph)
 	return TRUE;
 }
 
-static void gdi_Glyph_Free(rdpContext* context, rdpGlyph* glyph)
+static void gdi_Glyph_Free(WINPR_ATTR_UNUSED rdpContext* context, rdpGlyph* glyph)
 {
 	gdiGlyph* gdi_glyph = NULL;
 	gdi_glyph = (gdiGlyph*)glyph;
@@ -422,8 +428,10 @@ static BOOL gdi_Glyph_BeginDraw(rdpContext* context, INT32 x, INT32 y, INT32 wid
 	return TRUE;
 }
 
-static BOOL gdi_Glyph_EndDraw(rdpContext* context, INT32 x, INT32 y, INT32 width, INT32 height,
-                              UINT32 bgcolor, UINT32 fgcolor)
+static BOOL gdi_Glyph_EndDraw(rdpContext* context, WINPR_ATTR_UNUSED INT32 x,
+                              WINPR_ATTR_UNUSED INT32 y, WINPR_ATTR_UNUSED INT32 width,
+                              WINPR_ATTR_UNUSED INT32 height, WINPR_ATTR_UNUSED UINT32 bgcolor,
+                              WINPR_ATTR_UNUSED UINT32 fgcolor)
 {
 	rdpGdi* gdi = NULL;
 

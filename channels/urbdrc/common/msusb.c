@@ -39,7 +39,7 @@ static void msusb_mspipes_free(MSUSB_PIPE_DESCRIPTOR** MsPipes, UINT32 NumberOfP
 		for (UINT32 pnum = 0; pnum < NumberOfPipes && MsPipes[pnum]; pnum++)
 			free(MsPipes[pnum]);
 
-		free(MsPipes);
+		free((void*)MsPipes);
 	}
 }
 
@@ -96,7 +96,7 @@ out_error:
 	for (UINT32 pnum = 0; pnum < NumberOfPipes; pnum++)
 		free(MsPipes[pnum]);
 
-	free(MsPipes);
+	free((void*)MsPipes);
 	return NULL;
 }
 
@@ -125,7 +125,7 @@ static void msusb_msinterface_free_list(MSUSB_INTERFACE_DESCRIPTOR** MsInterface
 			msusb_msinterface_free(MsInterfaces[inum]);
 		}
 
-		free(MsInterfaces);
+		free((void*)MsInterfaces);
 	}
 }
 
@@ -179,7 +179,7 @@ out_error:
 	return NULL;
 }
 
-BOOL msusb_msinterface_write(MSUSB_INTERFACE_DESCRIPTOR* MsInterface, wStream* out)
+BOOL msusb_msinterface_write(const MSUSB_INTERFACE_DESCRIPTOR* MsInterface, wStream* out)
 {
 	MSUSB_PIPE_DESCRIPTOR** MsPipes = NULL;
 	MSUSB_PIPE_DESCRIPTOR* MsPipe = NULL;
@@ -256,15 +256,12 @@ fail:
 	for (UINT32 inum = 0; inum < NumInterfaces; inum++)
 		msusb_msinterface_free(MsInterfaces[inum]);
 
-	free(MsInterfaces);
+	free((void*)MsInterfaces);
 	return NULL;
 }
 
-BOOL msusb_msconfig_write(MSUSB_CONFIG_DESCRIPTOR* MsConfg, wStream* out)
+BOOL msusb_msconfig_write(const MSUSB_CONFIG_DESCRIPTOR* MsConfg, wStream* out)
 {
-	MSUSB_INTERFACE_DESCRIPTOR** MsInterfaces = NULL;
-	MSUSB_INTERFACE_DESCRIPTOR* MsInterface = NULL;
-
 	if (!MsConfg)
 		return FALSE;
 
@@ -276,11 +273,11 @@ BOOL msusb_msconfig_write(MSUSB_CONFIG_DESCRIPTOR* MsConfg, wStream* out)
 	/* NumInterfaces*/
 	Stream_Write_UINT32(out, MsConfg->NumInterfaces);
 	/* Interfaces */
-	MsInterfaces = MsConfg->MsInterfaces;
+	MSUSB_INTERFACE_DESCRIPTOR** MsInterfaces = MsConfg->MsInterfaces;
 
 	for (UINT32 inum = 0; inum < MsConfg->NumInterfaces; inum++)
 	{
-		MsInterface = MsInterfaces[inum];
+		const MSUSB_INTERFACE_DESCRIPTOR* MsInterface = MsInterfaces[inum];
 
 		if (!msusb_msinterface_write(MsInterface, out))
 			return FALSE;
@@ -343,7 +340,7 @@ fail:
 	return NULL;
 }
 
-void msusb_msconfig_dump(MSUSB_CONFIG_DESCRIPTOR* MsConfig)
+void msusb_msconfig_dump(const MSUSB_CONFIG_DESCRIPTOR* MsConfig)
 {
 	MSUSB_INTERFACE_DESCRIPTOR** MsInterfaces = NULL;
 	MSUSB_INTERFACE_DESCRIPTOR* MsInterface = NULL;

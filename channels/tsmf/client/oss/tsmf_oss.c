@@ -31,7 +31,6 @@
 #include <fcntl.h>
 #include <libgen.h>
 #include <limits.h>
-#include <unistd.h>
 #if defined(__OpenBSD__)
 #include <soundcard.h>
 #else
@@ -93,20 +92,6 @@ static BOOL tsmf_oss_open(ITSMFAudioDevice* audio, const char* device)
 		return FALSE;
 	}
 
-#if 0 /* FreeBSD OSS implementation at this moment (2015.03) does not set PCM_CAP_OUTPUT flag. */
-	if (ioctl(oss->pcm_handle, SNDCTL_DSP_GETCAPS, &mask) == -1)
-	{
-		OSS_LOG_ERR("SNDCTL_DSP_GETCAPS failed, try ignored", errno);
-	}
-	else if ((mask & PCM_CAP_OUTPUT) == 0)
-	{
-		OSS_LOG_ERR("Device does not supports playback", EOPNOTSUPP);
-		close(oss->pcm_handle);
-		oss->pcm_handle = -1;
-		return FALSE;
-	}
-
-#endif
 	const int rc = ioctl(oss->pcm_handle, SNDCTL_DSP_GETFMTS, &tmp);
 	if (rc == -1)
 	{
@@ -145,17 +130,17 @@ static BOOL tsmf_oss_set_format(ITSMFAudioDevice* audio, UINT32 sample_rate, UIN
 	if (ioctl(oss->pcm_handle, SNDCTL_DSP_SETFMT, &tmp) == -1)
 		OSS_LOG_ERR("SNDCTL_DSP_SETFMT failed", errno);
 
-	tmp = channels;
+	tmp = WINPR_ASSERTING_INT_CAST(int, channels);
 
 	if (ioctl(oss->pcm_handle, SNDCTL_DSP_CHANNELS, &tmp) == -1)
 		OSS_LOG_ERR("SNDCTL_DSP_CHANNELS failed", errno);
 
-	tmp = sample_rate;
+	tmp = WINPR_ASSERTING_INT_CAST(int, sample_rate);
 
 	if (ioctl(oss->pcm_handle, SNDCTL_DSP_SPEED, &tmp) == -1)
 		OSS_LOG_ERR("SNDCTL_DSP_SPEED failed", errno);
 
-	tmp = ((bits_per_sample / 8) * channels * sample_rate);
+	tmp = WINPR_ASSERTING_INT_CAST(int, ((bits_per_sample / 8) * channels * sample_rate));
 
 	if (ioctl(oss->pcm_handle, SNDCTL_DSP_SETFRAGMENT, &tmp) == -1)
 		OSS_LOG_ERR("SNDCTL_DSP_SETFRAGMENT failed", errno);

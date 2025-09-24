@@ -18,16 +18,24 @@
 set(MODULE_NAME "winpr-hash")
 set(MODULE_PREFIX "WINPR_TOOLS_HASH")
 
-set(${MODULE_PREFIX}_SRCS
-	hash.c)
+set(${MODULE_PREFIX}_SRCS hash.c)
 
-AddTargetWithResourceFile(${MODULE_NAME} TRUE "${WINPR_VERSION}" ${MODULE_PREFIX}_SRCS)
+addtargetwithresourcefile(${MODULE_NAME} TRUE "${WINPR_VERSION}" ${MODULE_PREFIX}_SRCS)
 
 set(${MODULE_PREFIX}_LIBS winpr)
 
 target_link_libraries(${MODULE_NAME} ${${MODULE_PREFIX}_LIBS})
 
-install(TARGETS ${MODULE_NAME} DESTINATION ${CMAKE_INSTALL_BINDIR} COMPONENT tools EXPORT WinPRTargets)
+installwithrpath(
+  TARGETS
+  ${MODULE_NAME}
+  DESTINATION
+  ${CMAKE_INSTALL_BINDIR}
+  COMPONENT
+  tools
+  EXPORT
+  WinPRTargets
+)
 
 set_property(TARGET ${MODULE_NAME} PROPERTY FOLDER "WinPR/Tools")
 generate_and_install_freerdp_man_from_template(${MODULE_NAME} "1" "${WINPR_API_VERSION}")

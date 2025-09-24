@@ -27,48 +27,45 @@
 #include <winpr/path.h>
 #include <winpr/file.h>
 
+#if defined(WITH_RESOURCE_VERSIONING)
 #define STR(x) #x
+#endif
 
-#define PATH_SLASH_CHR '/'
-#define PATH_SLASH_STR "/"
+static const char PATH_SLASH_CHR = '/';
+static const char PATH_SLASH_STR[] = "/";
 
-#define PATH_BACKSLASH_CHR '\\'
-#define PATH_BACKSLASH_STR "\\"
+static const char PATH_BACKSLASH_CHR = '\\';
+static const char PATH_BACKSLASH_STR[] = "\\";
 
 #ifdef _WIN32
-#define PATH_SLASH_STR_W L"/"
-#define PATH_BACKSLASH_STR_W L"\\"
+static const WCHAR PATH_SLASH_CHR_W = L'/';
+static const WCHAR PATH_BACKSLASH_CHR_W = L'\\';
+static const WCHAR PATH_SLASH_STR_W[] = L"/";
+static const WCHAR PATH_BACKSLASH_STR_W[] = L"\\";
 #else
-#define PATH_SLASH_STR_W \
-	{                    \
-		'/', '\0'        \
-	}
-#define PATH_BACKSLASH_STR_W \
-	{                        \
-		'\\', '\0'           \
-	}
+#if defined(__BIG_ENDIAN__)
+static const WCHAR PATH_SLASH_CHR_W = 0x2f00;
+static const WCHAR PATH_BACKSLASH_CHR_W = 0x5c00;
+static const WCHAR PATH_SLASH_STR_W[] = { 0x2f00, '\0' };
+static const WCHAR PATH_BACKSLASH_STR_W[] = { 0x5c00, '\0' };
+#else
+static const WCHAR PATH_SLASH_CHR_W = '/';
+static const WCHAR PATH_BACKSLASH_CHR_W = '\\';
+static const WCHAR PATH_SLASH_STR_W[] = { '/', '\0' };
+static const WCHAR PATH_BACKSLASH_STR_W[] = { '\\', '\0' };
+#endif
 #endif
 
 #ifdef _WIN32
 #define PATH_SEPARATOR_CHR PATH_BACKSLASH_CHR
 #define PATH_SEPARATOR_STR PATH_BACKSLASH_STR
+#define PATH_SEPARATOR_CHR_W PATH_BACKSLASH_CHR_W
 #define PATH_SEPARATOR_STR_W PATH_BACKSLASH_STR_W
 #else
 #define PATH_SEPARATOR_CHR PATH_SLASH_CHR
 #define PATH_SEPARATOR_STR PATH_SLASH_STR
+#define PATH_SEPARATOR_CHR_W PATH_SLASH_CHR_W
 #define PATH_SEPARATOR_STR_W PATH_SLASH_STR_W
-#endif
-
-#define SHARED_LIBRARY_EXT_DLL "dll"
-#define SHARED_LIBRARY_EXT_SO "so"
-#define SHARED_LIBRARY_EXT_DYLIB "dylib"
-
-#ifdef _WIN32
-#define SHARED_LIBRARY_EXT SHARED_LIBRARY_EXT_DLL
-#elif defined(__APPLE__)
-#define SHARED_LIBRARY_EXT SHARED_LIBRARY_EXT_DYLIB
-#else
-#define SHARED_LIBRARY_EXT SHARED_LIBRARY_EXT_SO
 #endif
 
 #include "../log.h"
@@ -89,7 +86,7 @@
 #undef PATH_CCH_ADD_SEPARATOR
 
 #define DEFINE_UNICODE TRUE
-#define CUR_PATH_SEPARATOR_CHR PATH_BACKSLASH_CHR
+#define CUR_PATH_SEPARATOR_CHR PATH_BACKSLASH_CHR_W
 #define PATH_CCH_ADD_SEPARATOR PathCchAddBackslashW
 #include "include/PathCchAddSeparator.h"
 #undef DEFINE_UNICODE
@@ -107,7 +104,7 @@
 #undef PATH_CCH_ADD_SEPARATOR
 
 #define DEFINE_UNICODE TRUE
-#define CUR_PATH_SEPARATOR_CHR PATH_SLASH_CHR
+#define CUR_PATH_SEPARATOR_CHR PATH_SLASH_CHR_W
 #define PATH_CCH_ADD_SEPARATOR PathCchAddSlashW
 #include "include/PathCchAddSeparator.h"
 #undef DEFINE_UNICODE
@@ -125,7 +122,7 @@
 #undef PATH_CCH_ADD_SEPARATOR
 
 #define DEFINE_UNICODE TRUE
-#define CUR_PATH_SEPARATOR_CHR PATH_SEPARATOR_CHR
+#define CUR_PATH_SEPARATOR_CHR PATH_SEPARATOR_CHR_W
 #define PATH_CCH_ADD_SEPARATOR PathCchAddSeparatorW
 #include "include/PathCchAddSeparator.h"
 #undef DEFINE_UNICODE
@@ -136,13 +133,13 @@
  * PathCchRemoveBackslash
  */
 
-HRESULT PathCchRemoveBackslashA(PSTR pszPath, size_t cchPath)
+HRESULT PathCchRemoveBackslashA(WINPR_ATTR_UNUSED PSTR pszPath, WINPR_ATTR_UNUSED size_t cchPath)
 {
 	WLog_ERR(TAG, "not implemented");
 	return E_NOTIMPL;
 }
 
-HRESULT PathCchRemoveBackslashW(PWSTR pszPath, size_t cchPath)
+HRESULT PathCchRemoveBackslashW(WINPR_ATTR_UNUSED PWSTR pszPath, WINPR_ATTR_UNUSED size_t cchPath)
 {
 	WLog_ERR(TAG, "not implemented");
 	return E_NOTIMPL;
@@ -163,7 +160,7 @@ HRESULT PathCchRemoveBackslashW(PWSTR pszPath, size_t cchPath)
 #undef PATH_CCH_ADD_SEPARATOR_EX
 
 #define DEFINE_UNICODE TRUE
-#define CUR_PATH_SEPARATOR_CHR PATH_BACKSLASH_CHR
+#define CUR_PATH_SEPARATOR_CHR PATH_BACKSLASH_CHR_W
 #define PATH_CCH_ADD_SEPARATOR_EX PathCchAddBackslashExW
 #include "include/PathCchAddSeparatorEx.h"
 #undef DEFINE_UNICODE
@@ -181,7 +178,7 @@ HRESULT PathCchRemoveBackslashW(PWSTR pszPath, size_t cchPath)
 #undef PATH_CCH_ADD_SEPARATOR_EX
 
 #define DEFINE_UNICODE TRUE
-#define CUR_PATH_SEPARATOR_CHR PATH_SLASH_CHR
+#define CUR_PATH_SEPARATOR_CHR PATH_SLASH_CHR_W
 #define PATH_CCH_ADD_SEPARATOR_EX PathCchAddSlashExW
 #include "include/PathCchAddSeparatorEx.h"
 #undef DEFINE_UNICODE
@@ -199,22 +196,24 @@ HRESULT PathCchRemoveBackslashW(PWSTR pszPath, size_t cchPath)
 #undef PATH_CCH_ADD_SEPARATOR_EX
 
 #define DEFINE_UNICODE TRUE
-#define CUR_PATH_SEPARATOR_CHR PATH_SEPARATOR_CHR
+#define CUR_PATH_SEPARATOR_CHR PATH_SEPARATOR_CHR_W
 #define PATH_CCH_ADD_SEPARATOR_EX PathCchAddSeparatorExW
 #include "include/PathCchAddSeparatorEx.h"
 #undef DEFINE_UNICODE
 #undef CUR_PATH_SEPARATOR_CHR
 #undef PATH_CCH_ADD_SEPARATOR_EX
 
-HRESULT PathCchRemoveBackslashExA(PSTR pszPath, size_t cchPath, PSTR* ppszEnd,
-                                  size_t* pcchRemaining)
+HRESULT PathCchRemoveBackslashExA(WINPR_ATTR_UNUSED PSTR pszPath, WINPR_ATTR_UNUSED size_t cchPath,
+                                  WINPR_ATTR_UNUSED PSTR* ppszEnd,
+                                  WINPR_ATTR_UNUSED size_t* pcchRemaining)
 {
 	WLog_ERR(TAG, "not implemented");
 	return E_NOTIMPL;
 }
 
-HRESULT PathCchRemoveBackslashExW(PWSTR pszPath, size_t cchPath, PWSTR* ppszEnd,
-                                  size_t* pcchRemaining)
+HRESULT PathCchRemoveBackslashExW(WINPR_ATTR_UNUSED PWSTR pszPath, WINPR_ATTR_UNUSED size_t cchPath,
+                                  WINPR_ATTR_UNUSED PWSTR* ppszEnd,
+                                  WINPR_ATTR_UNUSED size_t* pcchRemaining)
 {
 	WLog_ERR(TAG, "not implemented");
 	return E_NOTIMPL;
@@ -235,7 +234,7 @@ HRESULT PathCchRemoveBackslashExW(PWSTR pszPath, size_t cchPath, PWSTR* ppszEnd,
 #undef PATH_CCH_ADD_EXTENSION
 
 #define DEFINE_UNICODE TRUE
-#define CUR_PATH_SEPARATOR_CHR PATH_BACKSLASH_CHR
+#define CUR_PATH_SEPARATOR_CHR PATH_BACKSLASH_CHR_W
 #define PATH_CCH_ADD_EXTENSION PathCchAddExtensionW
 #include "include/PathCchAddExtension.h"
 #undef DEFINE_UNICODE
@@ -253,7 +252,7 @@ HRESULT PathCchRemoveBackslashExW(PWSTR pszPath, size_t cchPath, PWSTR* ppszEnd,
 #undef PATH_CCH_ADD_EXTENSION
 
 #define DEFINE_UNICODE TRUE
-#define CUR_PATH_SEPARATOR_CHR PATH_SLASH_CHR
+#define CUR_PATH_SEPARATOR_CHR PATH_SLASH_CHR_W
 #define PATH_CCH_ADD_EXTENSION UnixPathCchAddExtensionW
 #include "include/PathCchAddExtension.h"
 #undef DEFINE_UNICODE
@@ -271,7 +270,7 @@ HRESULT PathCchRemoveBackslashExW(PWSTR pszPath, size_t cchPath, PWSTR* ppszEnd,
 #undef PATH_CCH_ADD_EXTENSION
 
 #define DEFINE_UNICODE TRUE
-#define CUR_PATH_SEPARATOR_CHR PATH_SEPARATOR_CHR
+#define CUR_PATH_SEPARATOR_CHR PATH_SEPARATOR_CHR_W
 #define PATH_CCH_ADD_EXTENSION NativePathCchAddExtensionW
 #include "include/PathCchAddExtension.h"
 #undef DEFINE_UNICODE
@@ -295,7 +294,7 @@ HRESULT PathCchRemoveBackslashExW(PWSTR pszPath, size_t cchPath, PWSTR* ppszEnd,
 #undef PATH_CCH_APPEND
 
 #define DEFINE_UNICODE TRUE
-#define CUR_PATH_SEPARATOR_CHR PATH_BACKSLASH_CHR
+#define CUR_PATH_SEPARATOR_CHR PATH_BACKSLASH_CHR_W
 #define CUR_PATH_SEPARATOR_STR PATH_BACKSLASH_STR_W
 #define PATH_CCH_APPEND PathCchAppendW
 #include "include/PathCchAppend.h"
@@ -317,7 +316,7 @@ HRESULT PathCchRemoveBackslashExW(PWSTR pszPath, size_t cchPath, PWSTR* ppszEnd,
 #undef PATH_CCH_APPEND
 
 #define DEFINE_UNICODE TRUE
-#define CUR_PATH_SEPARATOR_CHR PATH_SLASH_CHR
+#define CUR_PATH_SEPARATOR_CHR PATH_SLASH_CHR_W
 #define CUR_PATH_SEPARATOR_STR PATH_SLASH_STR_W
 #define PATH_CCH_APPEND UnixPathCchAppendW
 #include "include/PathCchAppend.h"
@@ -339,7 +338,7 @@ HRESULT PathCchRemoveBackslashExW(PWSTR pszPath, size_t cchPath, PWSTR* ppszEnd,
 #undef PATH_CCH_APPEND
 
 #define DEFINE_UNICODE TRUE
-#define CUR_PATH_SEPARATOR_CHR PATH_SEPARATOR_CHR
+#define CUR_PATH_SEPARATOR_CHR PATH_SEPARATOR_CHR_W
 #define CUR_PATH_SEPARATOR_STR PATH_SEPARATOR_STR_W
 #define PATH_CCH_APPEND NativePathCchAppendW
 #include "include/PathCchAppend.h"
@@ -352,13 +351,15 @@ HRESULT PathCchRemoveBackslashExW(PWSTR pszPath, size_t cchPath, PWSTR* ppszEnd,
  * PathCchAppendEx
  */
 
-HRESULT PathCchAppendExA(PSTR pszPath, size_t cchPath, PCSTR pszMore, unsigned long dwFlags)
+HRESULT PathCchAppendExA(WINPR_ATTR_UNUSED PSTR pszPath, WINPR_ATTR_UNUSED size_t cchPath,
+                         WINPR_ATTR_UNUSED PCSTR pszMore, WINPR_ATTR_UNUSED unsigned long dwFlags)
 {
 	WLog_ERR(TAG, "not implemented");
 	return E_NOTIMPL;
 }
 
-HRESULT PathCchAppendExW(PWSTR pszPath, size_t cchPath, PCWSTR pszMore, unsigned long dwFlags)
+HRESULT PathCchAppendExW(WINPR_ATTR_UNUSED PWSTR pszPath, WINPR_ATTR_UNUSED size_t cchPath,
+                         WINPR_ATTR_UNUSED PCWSTR pszMore, WINPR_ATTR_UNUSED unsigned long dwFlags)
 {
 	WLog_ERR(TAG, "not implemented");
 	return E_NOTIMPL;
@@ -368,13 +369,16 @@ HRESULT PathCchAppendExW(PWSTR pszPath, size_t cchPath, PCWSTR pszMore, unsigned
  * PathCchCanonicalize
  */
 
-HRESULT PathCchCanonicalizeA(PSTR pszPathOut, size_t cchPathOut, PCSTR pszPathIn)
+HRESULT PathCchCanonicalizeA(WINPR_ATTR_UNUSED PSTR pszPathOut, WINPR_ATTR_UNUSED size_t cchPathOut,
+                             WINPR_ATTR_UNUSED PCSTR pszPathIn)
 {
 	WLog_ERR(TAG, "not implemented");
 	return E_NOTIMPL;
 }
 
-HRESULT PathCchCanonicalizeW(PWSTR pszPathOut, size_t cchPathOut, PCWSTR pszPathIn)
+HRESULT PathCchCanonicalizeW(WINPR_ATTR_UNUSED PWSTR pszPathOut,
+                             WINPR_ATTR_UNUSED size_t cchPathOut,
+                             WINPR_ATTR_UNUSED PCWSTR pszPathIn)
 {
 	WLog_ERR(TAG, "not implemented");
 	return E_NOTIMPL;
@@ -384,15 +388,19 @@ HRESULT PathCchCanonicalizeW(PWSTR pszPathOut, size_t cchPathOut, PCWSTR pszPath
  * PathCchCanonicalizeEx
  */
 
-HRESULT PathCchCanonicalizeExA(PSTR pszPathOut, size_t cchPathOut, PCSTR pszPathIn,
-                               unsigned long dwFlags)
+HRESULT PathCchCanonicalizeExA(WINPR_ATTR_UNUSED PSTR pszPathOut,
+                               WINPR_ATTR_UNUSED size_t cchPathOut,
+                               WINPR_ATTR_UNUSED PCSTR pszPathIn,
+                               WINPR_ATTR_UNUSED unsigned long dwFlags)
 {
 	WLog_ERR(TAG, "not implemented");
 	return E_NOTIMPL;
 }
 
-HRESULT PathCchCanonicalizeExW(PWSTR pszPathOut, size_t cchPathOut, PCWSTR pszPathIn,
-                               unsigned long dwFlags)
+HRESULT PathCchCanonicalizeExW(WINPR_ATTR_UNUSED PWSTR pszPathOut,
+                               WINPR_ATTR_UNUSED size_t cchPathOut,
+                               WINPR_ATTR_UNUSED PCWSTR pszPathIn,
+                               WINPR_ATTR_UNUSED unsigned long dwFlags)
 {
 	WLog_ERR(TAG, "not implemented");
 	return E_NOTIMPL;
@@ -402,13 +410,17 @@ HRESULT PathCchCanonicalizeExW(PWSTR pszPathOut, size_t cchPathOut, PCWSTR pszPa
  * PathAllocCanonicalize
  */
 
-HRESULT PathAllocCanonicalizeA(PCSTR pszPathIn, unsigned long dwFlags, PSTR* ppszPathOut)
+HRESULT PathAllocCanonicalizeA(WINPR_ATTR_UNUSED PCSTR pszPathIn,
+                               WINPR_ATTR_UNUSED unsigned long dwFlags,
+                               WINPR_ATTR_UNUSED PSTR* ppszPathOut)
 {
 	WLog_ERR(TAG, "not implemented");
 	return E_NOTIMPL;
 }
 
-HRESULT PathAllocCanonicalizeW(PCWSTR pszPathIn, unsigned long dwFlags, PWSTR* ppszPathOut)
+HRESULT PathAllocCanonicalizeW(WINPR_ATTR_UNUSED PCWSTR pszPathIn,
+                               WINPR_ATTR_UNUSED unsigned long dwFlags,
+                               WINPR_ATTR_UNUSED PWSTR* ppszPathOut)
 {
 	WLog_ERR(TAG, "not implemented");
 	return E_NOTIMPL;
@@ -418,13 +430,15 @@ HRESULT PathAllocCanonicalizeW(PCWSTR pszPathIn, unsigned long dwFlags, PWSTR* p
  * PathCchCombine
  */
 
-HRESULT PathCchCombineA(PSTR pszPathOut, size_t cchPathOut, PCSTR pszPathIn, PCSTR pszMore)
+HRESULT PathCchCombineA(WINPR_ATTR_UNUSED PSTR pszPathOut, WINPR_ATTR_UNUSED size_t cchPathOut,
+                        WINPR_ATTR_UNUSED PCSTR pszPathIn, WINPR_ATTR_UNUSED PCSTR pszMore)
 {
 	WLog_ERR(TAG, "not implemented");
 	return E_NOTIMPL;
 }
 
-HRESULT PathCchCombineW(PWSTR pszPathOut, size_t cchPathOut, PCWSTR pszPathIn, PCWSTR pszMore)
+HRESULT PathCchCombineW(WINPR_ATTR_UNUSED PWSTR pszPathOut, WINPR_ATTR_UNUSED size_t cchPathOut,
+                        WINPR_ATTR_UNUSED PCWSTR pszPathIn, WINPR_ATTR_UNUSED PCWSTR pszMore)
 {
 	WLog_ERR(TAG, "not implemented");
 	return E_NOTIMPL;
@@ -434,15 +448,17 @@ HRESULT PathCchCombineW(PWSTR pszPathOut, size_t cchPathOut, PCWSTR pszPathIn, P
  * PathCchCombineEx
  */
 
-HRESULT PathCchCombineExA(PSTR pszPathOut, size_t cchPathOut, PCSTR pszPathIn, PCSTR pszMore,
-                          unsigned long dwFlags)
+HRESULT PathCchCombineExA(WINPR_ATTR_UNUSED PSTR pszPathOut, WINPR_ATTR_UNUSED size_t cchPathOut,
+                          WINPR_ATTR_UNUSED PCSTR pszPathIn, WINPR_ATTR_UNUSED PCSTR pszMore,
+                          WINPR_ATTR_UNUSED unsigned long dwFlags)
 {
 	WLog_ERR(TAG, "not implemented");
 	return E_NOTIMPL;
 }
 
-HRESULT PathCchCombineExW(PWSTR pszPathOut, size_t cchPathOut, PCWSTR pszPathIn, PCWSTR pszMore,
-                          unsigned long dwFlags)
+HRESULT PathCchCombineExW(WINPR_ATTR_UNUSED PWSTR pszPathOut, WINPR_ATTR_UNUSED size_t cchPathOut,
+                          WINPR_ATTR_UNUSED PCWSTR pszPathIn, WINPR_ATTR_UNUSED PCWSTR pszMore,
+                          WINPR_ATTR_UNUSED unsigned long dwFlags)
 {
 	WLog_ERR(TAG, "not implemented");
 	return E_NOTIMPL;
@@ -465,7 +481,7 @@ HRESULT PathCchCombineExW(PWSTR pszPathOut, size_t cchPathOut, PCWSTR pszPathIn,
 #undef PATH_ALLOC_COMBINE
 
 #define DEFINE_UNICODE TRUE
-#define CUR_PATH_SEPARATOR_CHR PATH_BACKSLASH_CHR
+#define CUR_PATH_SEPARATOR_CHR PATH_BACKSLASH_CHR_W
 #define CUR_PATH_SEPARATOR_STR PATH_BACKSLASH_STR_W
 #define PATH_ALLOC_COMBINE PathAllocCombineW
 #include "include/PathAllocCombine.h"
@@ -487,7 +503,7 @@ HRESULT PathCchCombineExW(PWSTR pszPathOut, size_t cchPathOut, PCWSTR pszPathIn,
 #undef PATH_ALLOC_COMBINE
 
 #define DEFINE_UNICODE TRUE
-#define CUR_PATH_SEPARATOR_CHR PATH_SLASH_CHR
+#define CUR_PATH_SEPARATOR_CHR PATH_SLASH_CHR_W
 #define CUR_PATH_SEPARATOR_STR PATH_SLASH_STR_W
 #define PATH_ALLOC_COMBINE UnixPathAllocCombineW
 #include "include/PathAllocCombine.h"
@@ -509,7 +525,7 @@ HRESULT PathCchCombineExW(PWSTR pszPathOut, size_t cchPathOut, PCWSTR pszPathIn,
 #undef PATH_ALLOC_COMBINE
 
 #define DEFINE_UNICODE TRUE
-#define CUR_PATH_SEPARATOR_CHR PATH_SEPARATOR_CHR
+#define CUR_PATH_SEPARATOR_CHR PATH_SEPARATOR_CHR_W
 #define CUR_PATH_SEPARATOR_STR PATH_SEPARATOR_STR_W
 #define PATH_ALLOC_COMBINE NativePathAllocCombineW
 #include "include/PathAllocCombine.h"
@@ -564,7 +580,8 @@ HRESULT PathCchFindExtensionA(PCSTR pszPath, size_t cchPath, PCSTR* ppszExt)
 	return S_OK;
 }
 
-HRESULT PathCchFindExtensionW(PCWSTR pszPath, size_t cchPath, PCWSTR* ppszExt)
+HRESULT PathCchFindExtensionW(WINPR_ATTR_UNUSED PCWSTR pszPath, WINPR_ATTR_UNUSED size_t cchPath,
+                              WINPR_ATTR_UNUSED PCWSTR* ppszExt)
 {
 	WLog_ERR(TAG, "not implemented");
 	return E_NOTIMPL;
@@ -574,13 +591,15 @@ HRESULT PathCchFindExtensionW(PCWSTR pszPath, size_t cchPath, PCWSTR* ppszExt)
  * PathCchRenameExtension
  */
 
-HRESULT PathCchRenameExtensionA(PSTR pszPath, size_t cchPath, PCSTR pszExt)
+HRESULT PathCchRenameExtensionA(WINPR_ATTR_UNUSED PSTR pszPath, WINPR_ATTR_UNUSED size_t cchPath,
+                                WINPR_ATTR_UNUSED PCSTR pszExt)
 {
 	WLog_ERR(TAG, "not implemented");
 	return E_NOTIMPL;
 }
 
-HRESULT PathCchRenameExtensionW(PWSTR pszPath, size_t cchPath, PCWSTR pszExt)
+HRESULT PathCchRenameExtensionW(WINPR_ATTR_UNUSED PWSTR pszPath, WINPR_ATTR_UNUSED size_t cchPath,
+                                WINPR_ATTR_UNUSED PCWSTR pszExt)
 {
 	WLog_ERR(TAG, "not implemented");
 	return E_NOTIMPL;
@@ -590,13 +609,13 @@ HRESULT PathCchRenameExtensionW(PWSTR pszPath, size_t cchPath, PCWSTR pszExt)
  * PathCchRemoveExtension
  */
 
-HRESULT PathCchRemoveExtensionA(PSTR pszPath, size_t cchPath)
+HRESULT PathCchRemoveExtensionA(WINPR_ATTR_UNUSED PSTR pszPath, WINPR_ATTR_UNUSED size_t cchPath)
 {
 	WLog_ERR(TAG, "not implemented");
 	return E_NOTIMPL;
 }
 
-HRESULT PathCchRemoveExtensionW(PWSTR pszPath, size_t cchPath)
+HRESULT PathCchRemoveExtensionW(WINPR_ATTR_UNUSED PWSTR pszPath, WINPR_ATTR_UNUSED size_t cchPath)
 {
 	WLog_ERR(TAG, "not implemented");
 	return E_NOTIMPL;
@@ -606,13 +625,13 @@ HRESULT PathCchRemoveExtensionW(PWSTR pszPath, size_t cchPath)
  * PathCchIsRoot
  */
 
-BOOL PathCchIsRootA(PCSTR pszPath)
+BOOL PathCchIsRootA(WINPR_ATTR_UNUSED PCSTR pszPath)
 {
 	WLog_ERR(TAG, "not implemented");
 	return FALSE;
 }
 
-BOOL PathCchIsRootW(PCWSTR pszPath)
+BOOL PathCchIsRootW(WINPR_ATTR_UNUSED PCWSTR pszPath)
 {
 	WLog_ERR(TAG, "not implemented");
 	return FALSE;
@@ -654,13 +673,13 @@ BOOL PathIsUNCExW(PCWSTR pszPath, PCWSTR* ppszServer)
  * PathCchSkipRoot
  */
 
-HRESULT PathCchSkipRootA(PCSTR pszPath, PCSTR* ppszRootEnd)
+HRESULT PathCchSkipRootA(WINPR_ATTR_UNUSED PCSTR pszPath, WINPR_ATTR_UNUSED PCSTR* ppszRootEnd)
 {
 	WLog_ERR(TAG, "not implemented");
 	return E_NOTIMPL;
 }
 
-HRESULT PathCchSkipRootW(PCWSTR pszPath, PCWSTR* ppszRootEnd)
+HRESULT PathCchSkipRootW(WINPR_ATTR_UNUSED PCWSTR pszPath, WINPR_ATTR_UNUSED PCWSTR* ppszRootEnd)
 {
 	WLog_ERR(TAG, "not implemented");
 	return E_NOTIMPL;
@@ -670,13 +689,13 @@ HRESULT PathCchSkipRootW(PCWSTR pszPath, PCWSTR* ppszRootEnd)
  * PathCchStripToRoot
  */
 
-HRESULT PathCchStripToRootA(PSTR pszPath, size_t cchPath)
+HRESULT PathCchStripToRootA(WINPR_ATTR_UNUSED PSTR pszPath, WINPR_ATTR_UNUSED size_t cchPath)
 {
 	WLog_ERR(TAG, "not implemented");
 	return E_NOTIMPL;
 }
 
-HRESULT PathCchStripToRootW(PWSTR pszPath, size_t cchPath)
+HRESULT PathCchStripToRootW(WINPR_ATTR_UNUSED PWSTR pszPath, WINPR_ATTR_UNUSED size_t cchPath)
 {
 	WLog_ERR(TAG, "not implemented");
 	return E_NOTIMPL;
@@ -764,13 +783,13 @@ HRESULT PathCchStripPrefixW(PWSTR pszPath, size_t cchPath)
  * PathCchRemoveFileSpec
  */
 
-HRESULT PathCchRemoveFileSpecA(PSTR pszPath, size_t cchPath)
+HRESULT PathCchRemoveFileSpecA(WINPR_ATTR_UNUSED PSTR pszPath, WINPR_ATTR_UNUSED size_t cchPath)
 {
 	WLog_ERR(TAG, "not implemented");
 	return E_NOTIMPL;
 }
 
-HRESULT PathCchRemoveFileSpecW(PWSTR pszPath, size_t cchPath)
+HRESULT PathCchRemoveFileSpecW(WINPR_ATTR_UNUSED PWSTR pszPath, WINPR_ATTR_UNUSED size_t cchPath)
 {
 	WLog_ERR(TAG, "not implemented");
 	return E_NOTIMPL;
@@ -804,26 +823,31 @@ HRESULT PathCchConvertStyleA(PSTR pszPath, size_t cchPath, unsigned long dwFlags
 	}
 	else if (dwFlags == PATH_STYLE_NATIVE)
 	{
-#if (PATH_SEPARATOR_CHR == PATH_BACKSLASH_CHR)
-		/* Unix-style to Windows-style */
-
-		for (size_t index = 0; index < cchPath; index++)
+		if (PATH_SEPARATOR_CHR == PATH_BACKSLASH_CHR)
 		{
-			if (pszPath[index] == PATH_SLASH_CHR)
-				pszPath[index] = PATH_BACKSLASH_CHR;
-		}
-#elif (PATH_SEPARATOR_CHR == PATH_SLASH_CHR)
-		/* Windows-style to Unix-style */
+			/* Unix-style to Windows-style */
 
-		for (size_t index = 0; index < cchPath; index++)
-		{
-			if (pszPath[index] == PATH_BACKSLASH_CHR)
-				pszPath[index] = PATH_SLASH_CHR;
+			for (size_t index = 0; index < cchPath; index++)
+			{
+				if (pszPath[index] == PATH_SLASH_CHR)
+					pszPath[index] = PATH_BACKSLASH_CHR;
+			}
 		}
-#else
-		/* Unexpected error */
-		return E_FAIL;
-#endif
+		else if (PATH_SEPARATOR_CHR == PATH_SLASH_CHR)
+		{
+			/* Windows-style to Unix-style */
+
+			for (size_t index = 0; index < cchPath; index++)
+			{
+				if (pszPath[index] == PATH_BACKSLASH_CHR)
+					pszPath[index] = PATH_SLASH_CHR;
+			}
+		}
+		else
+		{
+			/* Unexpected error */
+			return E_FAIL;
+		}
 	}
 	else
 	{
@@ -840,46 +864,45 @@ HRESULT PathCchConvertStyleW(PWSTR pszPath, size_t cchPath, unsigned long dwFlag
 	{
 		for (size_t index = 0; index < cchPath; index++)
 		{
-			if (pszPath[index] == PATH_SLASH_CHR)
-				pszPath[index] = PATH_BACKSLASH_CHR;
+			if (pszPath[index] == PATH_SLASH_CHR_W)
+				pszPath[index] = PATH_BACKSLASH_CHR_W;
 		}
 	}
 	else if (dwFlags == PATH_STYLE_UNIX)
 	{
 		for (size_t index = 0; index < cchPath; index++)
 		{
-			if (pszPath[index] == PATH_BACKSLASH_CHR)
-				pszPath[index] = PATH_SLASH_CHR;
+			if (pszPath[index] == PATH_BACKSLASH_CHR_W)
+				pszPath[index] = PATH_SLASH_CHR_W;
 		}
 	}
 	else if (dwFlags == PATH_STYLE_NATIVE)
 	{
-#if (PATH_SEPARATOR_CHR == PATH_BACKSLASH_CHR)
+		if (PATH_SEPARATOR_CHR == PATH_BACKSLASH_CHR_W)
 		{
 			/* Unix-style to Windows-style */
 
 			for (size_t index = 0; index < cchPath; index++)
 			{
-				if (pszPath[index] == PATH_SLASH_CHR)
-					pszPath[index] = PATH_BACKSLASH_CHR;
+				if (pszPath[index] == PATH_SLASH_CHR_W)
+					pszPath[index] = PATH_BACKSLASH_CHR_W;
 			}
 		}
-#elif (PATH_SEPARATOR_CHR == PATH_SLASH_CHR)
+		else if (PATH_SEPARATOR_CHR == PATH_SLASH_CHR_W)
 		{
 			/* Windows-style to Unix-style */
 
 			for (size_t index = 0; index < cchPath; index++)
 			{
-				if (pszPath[index] == PATH_BACKSLASH_CHR)
-					pszPath[index] = PATH_SLASH_CHR;
+				if (pszPath[index] == PATH_BACKSLASH_CHR_W)
+					pszPath[index] = PATH_SLASH_CHR_W;
 			}
 		}
-#else
+		else
 		{
 			/* Unexpected error */
 			return E_FAIL;
 		}
-#endif
 	}
 	else
 	{
@@ -1098,50 +1121,40 @@ const char* GetKnownPathIdString(int id)
 	}
 }
 
-static WCHAR* concat(const WCHAR* path, size_t pathlen, const WCHAR* name, size_t namelen)
+static char* concat(const char* path, size_t pathlen, const char* name, size_t namelen)
 {
-	WCHAR* str = calloc(pathlen + namelen + 1, sizeof(WCHAR));
+	const size_t strsize = pathlen + namelen + 2;
+	char* str = calloc(strsize, sizeof(char));
 	if (!str)
 		return NULL;
 
-	_wcsncat(str, path, pathlen);
-	_wcsncat(str, name, namelen);
+	winpr_str_append(path, str, strsize, "");
+	winpr_str_append(name, str, strsize, "");
 	return str;
 }
 
 BOOL winpr_RemoveDirectory_RecursiveA(LPCSTR lpPathName)
-{
-	WCHAR* name = ConvertUtf8ToWCharAlloc(lpPathName, NULL);
-	if (!name)
-		return FALSE;
-	const BOOL rc = winpr_RemoveDirectory_RecursiveW(name);
-	free(name);
-	return rc;
-}
-
-BOOL winpr_RemoveDirectory_RecursiveW(LPCWSTR lpPathName)
 {
 	BOOL ret = FALSE;
 
 	if (!lpPathName)
 		return FALSE;
 
-	const size_t pathnamelen = _wcslen(lpPathName);
+	const size_t pathnamelen = strlen(lpPathName);
 	const size_t path_slash_len = pathnamelen + 3;
-	WCHAR* path_slash = calloc(pathnamelen + 4, sizeof(WCHAR));
+	char* path_slash = calloc(pathnamelen + 4, sizeof(char));
 	if (!path_slash)
 		return FALSE;
-	_wcsncat(path_slash, lpPathName, pathnamelen);
+	strncat(path_slash, lpPathName, pathnamelen);
 
-	WCHAR starbuffer[8] = { 0 };
-	const WCHAR* star = InitializeConstWCharFromUtf8("*", starbuffer, ARRAYSIZE(starbuffer));
-	const HRESULT hr = NativePathCchAppendW(path_slash, path_slash_len, star);
+	const char star[] = "*";
+	const HRESULT hr = NativePathCchAppendA(path_slash, path_slash_len, star);
 	HANDLE dir = INVALID_HANDLE_VALUE;
 	if (FAILED(hr))
 		goto fail;
 
-	WIN32_FIND_DATAW findFileData = { 0 };
-	dir = FindFirstFileW(path_slash, &findFileData);
+	WIN32_FIND_DATAA findFileData = { 0 };
+	dir = FindFirstFileA(path_slash, &findFileData);
 
 	if (dir == INVALID_HANDLE_VALUE)
 		goto fail;
@@ -1150,7 +1163,7 @@ BOOL winpr_RemoveDirectory_RecursiveW(LPCWSTR lpPathName)
 	path_slash[path_slash_len - 1] = '\0'; /* remove trailing '*' */
 	do
 	{
-		const size_t len = _wcsnlen(findFileData.cFileName, ARRAYSIZE(findFileData.cFileName));
+		const size_t len = strnlen(findFileData.cFileName, ARRAYSIZE(findFileData.cFileName));
 
 		if ((len == 1 && findFileData.cFileName[0] == '.') ||
 		    (len == 2 && findFileData.cFileName[0] == '.' && findFileData.cFileName[1] == '.'))
@@ -1158,31 +1171,49 @@ BOOL winpr_RemoveDirectory_RecursiveW(LPCWSTR lpPathName)
 			continue;
 		}
 
-		WCHAR* fullpath = concat(path_slash, path_slash_len, findFileData.cFileName, len);
+		char* fullpath = concat(path_slash, path_slash_len, findFileData.cFileName, len);
 		if (!fullpath)
 			goto fail;
 
 		if (findFileData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
-			ret = winpr_RemoveDirectory_RecursiveW(fullpath);
+			ret = winpr_RemoveDirectory_RecursiveA(fullpath);
 		else
-			ret = DeleteFileW(fullpath);
+		{
+			WINPR_PRAGMA_DIAG_PUSH
+			WINPR_PRAGMA_DIAG_IGNORED_DEPRECATED_DECL
+			ret = DeleteFileA(fullpath);
+			WINPR_PRAGMA_DIAG_POP
+		}
 
 		free(fullpath);
 
 		if (!ret)
 			break;
-	} while (ret && FindNextFileW(dir, &findFileData) != 0);
+	} while (ret && FindNextFileA(dir, &findFileData) != 0);
 
 	if (ret)
 	{
-		if (!RemoveDirectoryW(lpPathName))
+		WINPR_PRAGMA_DIAG_PUSH
+		WINPR_PRAGMA_DIAG_IGNORED_DEPRECATED_DECL
+		if (!RemoveDirectoryA(lpPathName))
 			ret = FALSE;
+		WINPR_PRAGMA_DIAG_POP
 	}
 
 fail:
 	FindClose(dir);
 	free(path_slash);
 	return ret;
+}
+
+BOOL winpr_RemoveDirectory_RecursiveW(LPCWSTR lpPathName)
+{
+	char* name = ConvertWCharToUtf8Alloc(lpPathName, NULL);
+	if (!name)
+		return FALSE;
+	const BOOL rc = winpr_RemoveDirectory_RecursiveA(name);
+	free(name);
+	return rc;
 }
 
 char* winpr_GetConfigFilePath(BOOL system, const char* filename)

@@ -172,7 +172,7 @@ static BOOL check_transition(wLog* log, RDSTLS_STATE current, RDSTLS_STATE expec
 	if (requested != expected)
 	{
 		WLog_Print(log, WLOG_ERROR,
-		           "Unexpected rdstls state transition from %s [%d] to %s [%d], expected %s [%d]",
+		           "Unexpected rdstls state transition from %s [%u] to %s [%u], expected %s [%u]",
 		           rdstls_get_state_str(current), current, rdstls_get_state_str(requested),
 		           requested, rdstls_get_state_str(expected), expected);
 		return FALSE;
@@ -207,7 +207,7 @@ static BOOL rdstls_set_state(rdpRdstls* rdstls, RDSTLS_STATE state)
 			break;
 		default:
 			WLog_Print(rdstls->log, WLOG_ERROR,
-			           "Invalid rdstls state %s [%d], requested transition to %s [%d]",
+			           "Invalid rdstls state %s [%u], requested transition to %s [%u]",
 			           rdstls_get_state_str(rdstls->state), rdstls->state,
 			           rdstls_get_state_str(state), state);
 			break;
@@ -218,7 +218,7 @@ static BOOL rdstls_set_state(rdpRdstls* rdstls, RDSTLS_STATE state)
 	return rc;
 }
 
-static BOOL rdstls_write_capabilities(rdpRdstls* rdstls, wStream* s)
+static BOOL rdstls_write_capabilities(WINPR_ATTR_UNUSED rdpRdstls* rdstls, wStream* s)
 {
 	if (!Stream_EnsureRemainingCapacity(s, 6))
 		return FALSE;
@@ -304,7 +304,8 @@ static BOOL rdstls_write_authentication_request_with_password(rdpRdstls* rdstls,
 	return TRUE;
 }
 
-static BOOL rdstls_write_authentication_request_with_cookie(rdpRdstls* rdstls, wStream* s)
+static BOOL rdstls_write_authentication_request_with_cookie(WINPR_ATTR_UNUSED rdpRdstls* rdstls,
+                                                            WINPR_ATTR_UNUSED wStream* s)
 {
 	// TODO
 	return FALSE;
@@ -334,8 +335,8 @@ static BOOL rdstls_process_capabilities(rdpRdstls* rdstls, wStream* s)
 	if (dataType != RDSTLS_DATA_CAPABILITIES)
 	{
 		WLog_Print(rdstls->log, WLOG_ERROR,
-		           "received invalid DataType=0x%04" PRIX16 ", expected 0x%04" PRIX16, dataType,
-		           RDSTLS_DATA_CAPABILITIES);
+		           "received invalid DataType=0x%04" PRIX16 ", expected 0x%04" PRIX32, dataType,
+		           WINPR_CXX_COMPAT_CAST(UINT32, RDSTLS_DATA_CAPABILITIES));
 		return FALSE;
 	}
 
@@ -343,15 +344,15 @@ static BOOL rdstls_process_capabilities(rdpRdstls* rdstls, wStream* s)
 	if ((supportedVersions & RDSTLS_VERSION_1) == 0)
 	{
 		WLog_Print(rdstls->log, WLOG_ERROR,
-		           "received invalid supportedVersions=0x%04" PRIX16 ", expected 0x%04" PRIX16,
-		           supportedVersions, RDSTLS_VERSION_1);
+		           "received invalid supportedVersions=0x%04" PRIX16 ", expected 0x%04" PRIX32,
+		           supportedVersions, WINPR_CXX_COMPAT_CAST(UINT32, RDSTLS_VERSION_1));
 		return FALSE;
 	}
 
 	return TRUE;
 }
 
-static BOOL rdstls_read_unicode_string(wLog* log, wStream* s, char** str)
+static BOOL rdstls_read_unicode_string(WINPR_ATTR_UNUSED wLog* log, wStream* s, char** str)
 {
 	UINT16 length = 0;
 
@@ -378,7 +379,8 @@ static BOOL rdstls_read_unicode_string(wLog* log, wStream* s, char** str)
 	return TRUE;
 }
 
-static BOOL rdstls_read_data(wLog* log, wStream* s, UINT16* pLength, const BYTE** pData)
+static BOOL rdstls_read_data(WINPR_ATTR_UNUSED wLog* log, wStream* s, UINT16* pLength,
+                             const BYTE** pData)
 {
 	UINT16 length = 0;
 
@@ -511,7 +513,8 @@ fail:
 	return rc;
 }
 
-static BOOL rdstls_process_authentication_request_with_cookie(rdpRdstls* rdstls, wStream* s)
+static BOOL rdstls_process_authentication_request_with_cookie(WINPR_ATTR_UNUSED rdpRdstls* rdstls,
+                                                              WINPR_ATTR_UNUSED wStream* s)
 {
 	// TODO
 	return FALSE;
@@ -537,9 +540,10 @@ static BOOL rdstls_process_authentication_request(rdpRdstls* rdstls, wStream* s)
 			break;
 		default:
 			WLog_Print(rdstls->log, WLOG_ERROR,
-			           "received invalid DataType=0x%04" PRIX16 ", expected 0x%04" PRIX16
-			           " or 0x%04" PRIX16,
-			           dataType, RDSTLS_DATA_PASSWORD_CREDS, RDSTLS_DATA_AUTORECONNECT_COOKIE);
+			           "received invalid DataType=0x%04" PRIX16 ", expected 0x%04" PRIX32
+			           " or 0x%04" PRIX32,
+			           dataType, WINPR_CXX_COMPAT_CAST(UINT32, RDSTLS_DATA_PASSWORD_CREDS),
+			           WINPR_CXX_COMPAT_CAST(UINT32, RDSTLS_DATA_AUTORECONNECT_COOKIE));
 			return FALSE;
 	}
 
@@ -558,8 +562,8 @@ static BOOL rdstls_process_authentication_response(rdpRdstls* rdstls, wStream* s
 	if (dataType != RDSTLS_DATA_RESULT_CODE)
 	{
 		WLog_Print(rdstls->log, WLOG_ERROR,
-		           "received invalid DataType=0x%04" PRIX16 ", expected 0x%04" PRIX16, dataType,
-		           RDSTLS_DATA_RESULT_CODE);
+		           "received invalid DataType=0x%04" PRIX16 ", expected 0x%04" PRIX32, dataType,
+		           WINPR_CXX_COMPAT_CAST(UINT32, RDSTLS_DATA_RESULT_CODE));
 		return FALSE;
 	}
 
@@ -605,7 +609,7 @@ static BOOL rdstls_process_authentication_response(rdpRdstls* rdstls, wStream* s
 	return TRUE;
 }
 
-static BOOL rdstls_send(rdpTransport* transport, wStream* s, void* extra)
+static BOOL rdstls_send(WINPR_ATTR_UNUSED rdpTransport* transport, wStream* s, void* extra)
 {
 	rdpRdstls* rdstls = (rdpRdstls*)extra;
 	rdpSettings* settings = NULL;
@@ -652,7 +656,7 @@ static BOOL rdstls_send(rdpTransport* transport, wStream* s, void* extra)
 				return FALSE;
 			break;
 		default:
-			WLog_Print(rdstls->log, WLOG_ERROR, "Invalid rdstls state %s [%d]",
+			WLog_Print(rdstls->log, WLOG_ERROR, "Invalid rdstls state %s [%" PRIu32 "]",
 			           rdstls_get_state_str(state), state);
 			return FALSE;
 	}
@@ -663,7 +667,7 @@ static BOOL rdstls_send(rdpTransport* transport, wStream* s, void* extra)
 	return TRUE;
 }
 
-static int rdstls_recv(rdpTransport* transport, wStream* s, void* extra)
+static int rdstls_recv(WINPR_ATTR_UNUSED rdpTransport* transport, wStream* s, void* extra)
 {
 	UINT16 version = 0;
 	UINT16 pduType = 0;
@@ -681,7 +685,7 @@ static int rdstls_recv(rdpTransport* transport, wStream* s, void* extra)
 	{
 		WLog_Print(rdstls->log, WLOG_ERROR,
 		           "received invalid RDSTLS Version=0x%04" PRIX16 ", expected 0x%04" PRIX16,
-		           version, RDSTLS_VERSION_1);
+		           version, WINPR_CXX_COMPAT_CAST(UINT32, RDSTLS_VERSION_1));
 		return -1;
 	}
 
@@ -720,10 +724,10 @@ static BOOL rdstls_check_state_requirements_(rdpRdstls* rdstls, RDSTLS_STATE exp
 
 	const DWORD log_level = WLOG_ERROR;
 	if (WLog_IsLevelActive(rdstls->log, log_level))
-		WLog_PrintMessage(rdstls->log, WLOG_MESSAGE_TEXT, log_level, line, file, fkt,
-		                  "Unexpected rdstls state %s [%d], expected %s [%d]",
-		                  rdstls_get_state_str(current), current, rdstls_get_state_str(expected),
-		                  expected);
+		WLog_PrintTextMessage(rdstls->log, log_level, line, file, fkt,
+		                      "Unexpected rdstls state %s [%u], expected %s [%u]",
+		                      rdstls_get_state_str(current), current,
+		                      rdstls_get_state_str(expected), expected);
 
 	return FALSE;
 }
@@ -936,6 +940,8 @@ int rdstls_authenticate(rdpRdstls* rdstls)
 
 static SSIZE_T rdstls_parse_pdu_data_type(wLog* log, UINT16 dataType, wStream* s)
 {
+	size_t pduLength = 0;
+
 	switch (dataType)
 	{
 		case RDSTLS_DATA_PASSWORD_CREDS:
@@ -972,9 +978,7 @@ static SSIZE_T rdstls_parse_pdu_data_type(wLog* log, UINT16 dataType, wStream* s
 				return 0;
 			Stream_Read_UINT16(s, passwordLength);
 
-			if (Stream_GetRemainingLength(s) < passwordLength)
-				return 0;
-			Stream_Seek(s, passwordLength);
+			pduLength = Stream_GetPosition(s) + passwordLength;
 		}
 		break;
 		case RDSTLS_DATA_AUTORECONNECT_COOKIE:
@@ -987,8 +991,8 @@ static SSIZE_T rdstls_parse_pdu_data_type(wLog* log, UINT16 dataType, wStream* s
 			if (Stream_GetRemainingLength(s) < 2)
 				return 0;
 			Stream_Read_UINT16(s, cookieLength);
-			if (!Stream_SafeSeek(s, cookieLength))
-				return 0;
+
+			pduLength = Stream_GetPosition(s) + cookieLength;
 		}
 		break;
 		default:
@@ -996,10 +1000,9 @@ static SSIZE_T rdstls_parse_pdu_data_type(wLog* log, UINT16 dataType, wStream* s
 			return -1;
 	}
 
-	const size_t len = Stream_GetPosition(s);
-	if (len > SSIZE_MAX)
+	if (pduLength > SSIZE_MAX)
 		return 0;
-	return (SSIZE_T)len;
+	return (SSIZE_T)pduLength;
 }
 
 SSIZE_T rdstls_parse_pdu(wLog* log, wStream* stream)

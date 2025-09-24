@@ -123,10 +123,6 @@ static UINT encomsp_virtual_channel_write(encomspPlugin* encomsp, wStream* s)
 		return ERROR_INVALID_HANDLE;
 	}
 
-#if 0
-	WLog_INFO(TAG, "EncomspWrite (%"PRIuz")", Stream_Length(s));
-	winpr_HexDump(Stream_Buffer(s), Stream_Length(s));
-#endif
 	const UINT status = encomsp->channelEntryPoints.pVirtualChannelWriteEx(
 	    encomsp->InitHandle, encomsp->OpenHandle, Stream_Buffer(s), (UINT32)Stream_Length(s), s);
 
@@ -1090,8 +1086,9 @@ static DWORD WINAPI encomsp_virtual_channel_client_thread(LPVOID arg)
  *
  * @return 0 on success, otherwise a Win32 error code
  */
-static UINT encomsp_virtual_channel_event_connected(encomspPlugin* encomsp, LPVOID pData,
-                                                    UINT32 dataLength)
+static UINT encomsp_virtual_channel_event_connected(encomspPlugin* encomsp,
+                                                    WINPR_ATTR_UNUSED LPVOID pData,
+                                                    WINPR_ATTR_UNUSED UINT32 dataLength)
 {
 	WINPR_ASSERT(encomsp);
 

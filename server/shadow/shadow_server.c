@@ -53,41 +53,73 @@ static int fail_at_(const COMMAND_LINE_ARGUMENT_A* arg, int rc, const char* file
 	const DWORD level = WLOG_ERROR;
 	wLog* log = WLog_Get(TAG);
 	if (WLog_IsLevelActive(log, level))
-		WLog_PrintMessage(log, WLOG_MESSAGE_TEXT, level, line, file, fkt,
-		                  "Command line parsing failed at '%s' value '%s' [%d]", arg->Name,
-		                  arg->Value, rc);
+		WLog_PrintTextMessage(log, level, line, file, fkt,
+		                      "Command line parsing failed at '%s' value '%s' [%d]", arg->Name,
+		                      arg->Value, rc);
 	return rc;
 }
 
-static int shadow_server_print_command_line_help(int argc, char** argv,
-                                                 COMMAND_LINE_ARGUMENT_A* largs)
+static int command_line_compare(const void* pa, const void* pb)
 {
-	char* str = NULL;
-	size_t length = 0;
-	const COMMAND_LINE_ARGUMENT_A* arg = NULL;
+	const COMMAND_LINE_ARGUMENT_A* a = pa;
+	const COMMAND_LINE_ARGUMENT_A* b = pb;
+
+	if (!a && !b)
+		return 0;
+	if (!a)
+		return -1;
+	if (!b)
+		return 1;
+
+	return strcmp(a->Name, b->Name);
+}
+
+static int shadow_server_print_command_line_help(int argc, char** argv,
+                                                 const COMMAND_LINE_ARGUMENT_A* largs)
+{
 	if ((argc < 1) || !largs || !argv)
 		return -1;
 
-	char* path = winpr_GetConfigFilePath(TRUE, "SAM");
-	printf("Usage: %s [options]\n", argv[0]);
-	printf("\n");
-	printf("Notes: By default NLA security is active.\n");
-	printf("\tIn this mode a SAM database is required.\n");
-	printf("\tProvide one with /sam-file:<file with path>\n");
-	printf("\telse the default path %s is used.\n", path);
-	printf("\tIf there is no existing SAM file authentication for all users will fail.\n");
-	printf(
-	    "\n\tIf authentication against PAM is desired, start with -sec-nla (requires compiled in "
-	    "support for PAM)\n\n");
-	printf("Syntax:\n");
-	printf("    /flag (enables flag)\n");
-	printf("    /option:<value> (specifies option with value)\n");
-	printf("    +toggle -toggle (enables or disables toggle, where '/' is a synonym of '+')\n");
-	printf("\n");
-	free(path);
+	{
+		char* path = winpr_GetConfigFilePath(TRUE, "SAM");
+		printf("Usage: %s [options]\n", argv[0]);
+		printf("\n");
+		printf("Notes: By default NLA security is active.\n");
+		printf("\tIn this mode a SAM database is required.\n");
+		printf("\tProvide one with /sam-file:<file with path>\n");
+		printf("\telse the default path %s is used.\n", path);
+		printf("\tIf there is no existing SAM file authentication for all users will fail.\n");
+		printf("\n\tIf authentication against PAM is desired, start with -sec-nla (requires "
+		       "compiled in "
+		       "support for PAM)\n\n");
+		printf("Syntax:\n");
+		printf("    /flag (enables flag)\n");
+		printf("    /option:<value> (specifies option with value)\n");
+		printf("    +toggle -toggle (enables or disables toggle, where '/' is a synonym of '+')\n");
+		printf("\n");
+		free(path);
+	}
 
-	arg = largs;
+	// TODO: Sort arguments
+	size_t nrArgs = 0;
+	{
+		const COMMAND_LINE_ARGUMENT_A* arg = largs;
+		while (arg->Name != NULL)
+		{
+			nrArgs++;
+			arg++;
+		}
+		nrArgs++;
+	}
+	COMMAND_LINE_ARGUMENT_A* args_copy = calloc(nrArgs, sizeof(COMMAND_LINE_ARGUMENT_A));
+	if (!args_copy)
+		return -1;
+	memcpy(args_copy, largs, nrArgs * sizeof(COMMAND_LINE_ARGUMENT_A));
+	qsort(args_copy, nrArgs - 1, sizeof(COMMAND_LINE_ARGUMENT_A), command_line_compare);
 
+	const COMMAND_LINE_ARGUMENT_A* arg = args_copy;
+
+	int rc = -1;
 	do
 	{
 		if (arg->Flags & COMMAND_LINE_VALUE_FLAG)
@@ -103,11 +135,11 @@ static int shadow_server_print_command_line_help(int argc, char** argv,
 
 			if (arg->Format)
 			{
-				length = (strlen(arg->Name) + strlen(arg->Format) + 2);
-				str = (char*)malloc(length + 1);
+				const size_t length = (strlen(arg->Name) + strlen(arg->Format) + 2);
+				char* str = (char*)calloc(length + 1, sizeof(char));
 
 				if (!str)
-					return -1;
+					goto fail;
 
 				(void)sprintf_s(str, length + 1, "%s:%s", arg->Name, arg->Format);
 				(void)printf("%-20s\n", str);
@@ -122,26 +154,30 @@ static int shadow_server_print_command_line_help(int argc, char** argv,
 		}
 		else if (arg->Flags & COMMAND_LINE_VALUE_BOOL)
 		{
-			length = strlen(arg->Name) + 32;
-			str = (char*)malloc(length + 1);
+			const size_t length = strlen(arg->Name) + 32;
+			char* str = calloc(length + 1, sizeof(char));
 
 			if (!str)
-				return -1;
+				goto fail;
 
 			(void)sprintf_s(str, length + 1, "%s (default:%s)", arg->Name,
 			                arg->Default ? "on" : "off");
 			(void)printf("    %s", arg->Default ? "-" : "+");
 			(void)printf("%-20s\n", str);
-			free(str);
 			(void)printf("\t%s\n", arg->Text);
+
+			free(str);
 		}
 	} while ((arg = CommandLineFindNextArgumentA(arg)) != NULL);
 
-	return 1;
+	rc = 1;
+fail:
+	free(args_copy);
+	return rc;
 }
 
 int shadow_server_command_line_status_print(rdpShadowServer* server, int argc, char** argv,
-                                            int status, COMMAND_LINE_ARGUMENT_A* cargs)
+                                            int status, const COMMAND_LINE_ARGUMENT_A* cargs)
 {
 	WINPR_UNUSED(server);
 
@@ -236,9 +272,24 @@ int shadow_server_parse_command_line(rdpShadowServer* server, int argc, char** a
 		{
 			server->mayView = arg->Value ? TRUE : FALSE;
 		}
+		CommandLineSwitchCase(arg, "bitmap-compat")
+		{
+			server->SupportMultiRectBitmapUpdates = arg->Value ? FALSE : TRUE;
+		}
 		CommandLineSwitchCase(arg, "may-interact")
 		{
 			server->mayInteract = arg->Value ? TRUE : FALSE;
+		}
+		CommandLineSwitchCase(arg, "server-side-cursor")
+		{
+			server->ShowMouseCursor = arg->Value ? TRUE : FALSE;
+		}
+		CommandLineSwitchCase(arg, "mouse-relative")
+		{
+			const BOOL val = arg->Value ? TRUE : FALSE;
+			if (!freerdp_settings_set_bool(settings, FreeRDP_MouseUseRelativeMove, val) ||
+			    !freerdp_settings_set_bool(settings, FreeRDP_HasRelativeMouseEvent, val))
+				return fail_at(arg, COMMAND_LINE_ERROR);
 		}
 		CommandLineSwitchCase(arg, "max-connections")
 		{
@@ -335,6 +386,18 @@ int shadow_server_parse_command_line(rdpShadowServer* server, int argc, char** a
 		CommandLineSwitchCase(arg, "remote-guard")
 		{
 			if (!freerdp_settings_set_bool(settings, FreeRDP_RemoteCredentialGuard,
+			                               arg->Value ? TRUE : FALSE))
+				return fail_at(arg, COMMAND_LINE_ERROR);
+		}
+		CommandLineSwitchCase(arg, "restricted-admin")
+		{
+			if (!freerdp_settings_set_bool(settings, FreeRDP_RestrictedAdminModeSupported,
+			                               arg->Value ? TRUE : FALSE))
+				return fail_at(arg, COMMAND_LINE_ERROR);
+		}
+		CommandLineSwitchCase(arg, "vmconnect")
+		{
+			if (!freerdp_settings_set_bool(settings, FreeRDP_VmConnectMode,
 			                               arg->Value ? TRUE : FALSE))
 				return fail_at(arg, COMMAND_LINE_ERROR);
 		}
@@ -540,7 +603,7 @@ int shadow_server_parse_command_line(rdpShadowServer* server, int argc, char** a
 	/* If we want to disable authentication we need to ensure that NLA security
 	 * is not activated. Only TLS and RDP security allow anonymous login.
 	 */
-	if (!server->authentication)
+	if (!server->authentication && !freerdp_settings_get_bool(settings, FreeRDP_VmConnectMode))
 	{
 		if (!freerdp_settings_set_bool(settings, FreeRDP_NlaSecurity, FALSE))
 			return COMMAND_LINE_ERROR;
@@ -851,7 +914,7 @@ static BOOL shadow_server_init_certificate(rdpShadowServer* server)
 
 	if (!winpr_PathFileExists(filepath) && !winpr_PathMakePath(filepath, 0))
 	{
-		if (!CreateDirectoryA(filepath, 0))
+		if (!winpr_PathMakePath(filepath, NULL))
 		{
 			WLog_ERR(TAG, "Failed to create directory '%s'", filepath);
 			goto out_fail;
@@ -874,7 +937,7 @@ static BOOL shadow_server_init_certificate(rdpShadowServer* server)
 	rdpSettings* settings = server->settings;
 	WINPR_ASSERT(settings);
 
-	rdpPrivateKey* key = freerdp_key_new_from_file(server->PrivateKeyFile);
+	rdpPrivateKey* key = freerdp_key_new_from_file_enc(server->PrivateKeyFile, NULL);
 	if (!key)
 		goto out_fail;
 	if (!freerdp_settings_set_pointer_len(settings, FreeRDP_RdpServerRsaKey, key, 1))
@@ -1001,6 +1064,7 @@ rdpShadowServer* shadow_server_new(void)
 	if (!server)
 		return NULL;
 
+	server->SupportMultiRectBitmapUpdates = TRUE;
 	server->port = 3389;
 	server->mayView = TRUE;
 	server->mayInteract = TRUE;

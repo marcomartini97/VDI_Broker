@@ -49,6 +49,7 @@
 #include <freerdp/constants.h>
 #include <freerdp/settings.h>
 
+#include <freerdp/locale/locale.h>
 #include <freerdp/locale/keyboard.h>
 #include <freerdp/codec/region.h>
 #include <freerdp/client/cmdline.h>
@@ -82,17 +83,30 @@ static BOOL wf_has_console(void)
 
 static BOOL wf_end_paint(rdpContext* context)
 {
-	rdpGdi* gdi;
-	int ninvalid;
-	RECT updateRect;
-	HGDI_RGN cinvalid;
-	REGION16 invalidRegion;
-	RECTANGLE_16 invalidRect;
-	const RECTANGLE_16* extents;
+	RECT updateRect = { 0 };
+	REGION16 invalidRegion = { 0 };
+	RECTANGLE_16 invalidRect = { 0 };
+	const RECTANGLE_16* extents = NULL;
+
+	WINPR_ASSERT(context);
+
 	wfContext* wfc = (wfContext*)context;
-	gdi = context->gdi;
-	ninvalid = gdi->primary->hdc->hwnd->ninvalid;
-	cinvalid = gdi->primary->hdc->hwnd->cinvalid;
+	rdpGdi* gdi = context->gdi;
+	WINPR_ASSERT(gdi);
+
+	HGDI_DC hdc = gdi->primary->hdc;
+	WINPR_ASSERT(hdc);
+	if (!hdc->hwnd)
+		return TRUE;
+
+	HGDI_WND hwnd = hdc->hwnd;
+	WINPR_ASSERT(hwnd->invalid || (hwnd->ninvalid == 0));
+
+	if (hwnd->invalid->null)
+		return TRUE;
+
+	const int ninvalid = hwnd->ninvalid;
+	const HGDI_RGN cinvalid = hwnd->cinvalid;
 
 	if (ninvalid < 1)
 		return TRUE;
@@ -211,28 +225,21 @@ static BOOL wf_desktop_resize(rdpContext* context)
 
 static BOOL wf_pre_connect(freerdp* instance)
 {
-	UINT32 rc;
-	wfContext* wfc;
-	UINT32 desktopWidth;
-	UINT32 desktopHeight;
-	rdpContext* context;
-	rdpSettings* settings;
-
 	WINPR_ASSERT(instance);
 	WINPR_ASSERT(instance->context);
 	WINPR_ASSERT(instance->context->settings);
 
-	context = instance->context;
-	wfc = (wfContext*)instance->context;
-	settings = context->settings;
+	rdpContext* context = instance->context;
+	wfContext* wfc = (wfContext*)instance->context;
+	rdpSettings* settings = context->settings;
 	if (!freerdp_settings_set_uint32(settings, FreeRDP_OsMajorType, OSMAJORTYPE_WINDOWS))
 		return FALSE;
 	if (!freerdp_settings_set_uint32(settings, FreeRDP_OsMinorType, OSMINORTYPE_WINDOWS_NT))
 		return FALSE;
 	wfc->fullscreen = freerdp_settings_get_bool(settings, FreeRDP_Fullscreen);
 	wfc->fullscreen_toggle = freerdp_settings_get_bool(settings, FreeRDP_ToggleFullscreen);
-	desktopWidth = freerdp_settings_get_uint32(settings, FreeRDP_DesktopWidth);
-	desktopHeight = freerdp_settings_get_uint32(settings, FreeRDP_DesktopHeight);
+	UINT32 desktopWidth = freerdp_settings_get_uint32(settings, FreeRDP_DesktopWidth);
+	UINT32 desktopHeight = freerdp_settings_get_uint32(settings, FreeRDP_DesktopHeight);
 
 	if (wfc->percentscreen > 0)
 	{
@@ -274,8 +281,33 @@ static BOOL wf_pre_connect(freerdp* instance)
 			return FALSE;
 	}
 
-	rc = freerdp_keyboard_init(freerdp_settings_get_uint32(settings, FreeRDP_KeyboardLayout));
-	if (!freerdp_settings_set_uint32(settings, FreeRDP_KeyboardLayout, rc))
+	uint32_t keyboardLayoutId = freerdp_settings_get_uint32(settings, FreeRDP_KeyboardLayout);
+
+	{
+		CHAR name[KL_NAMELENGTH + 1] = { 0 };
+		if (GetKeyboardLayoutNameA(name))
+		{
+			ULONG rc = 0;
+
+			errno = 0;
+			rc = strtoul(name, NULL, 16);
+			if (errno == 0)
+				keyboardLayoutId = rc;
+		}
+
+		if (keyboardLayoutId == 0)
+		{
+			const HKL layout = GetKeyboardLayout(0);
+			const uint32_t masked = (uint32_t)(((uintptr_t)layout >> 16) & 0xFFFF);
+			keyboardLayoutId = masked;
+		}
+	}
+
+	if (keyboardLayoutId == 0)
+		freerdp_detect_keyboard_layout_from_system_locale(&keyboardLayoutId);
+	if (keyboardLayoutId == 0)
+		keyboardLayoutId = ENGLISH_UNITED_STATES;
+	if (!freerdp_settings_set_uint32(settings, FreeRDP_KeyboardLayout, keyboardLayoutId))
 		return FALSE;
 	PubSub_SubscribeChannelConnected(instance->context->pubSub, wf_OnChannelConnectedEventHandler);
 	PubSub_SubscribeChannelDisconnected(instance->context->pubSub,
@@ -699,7 +731,7 @@ static DWORD wf_is_x509_certificate_trusted(const char* common_name, const char*
 	CERT_CHAIN_POLICY_STATUS PolicyStatus = { 0 };
 	CERT_CHAIN_ENGINE_CONFIG EngineConfig = { 0 };
 
-	DWORD derPubKeyLen = strlen(fingerprint);
+	DWORD derPubKeyLen = WINPR_ASSERTING_INT_CAST(uint32_t, strlen(fingerprint));
 	char* derPubKey = calloc(derPubKeyLen, sizeof(char));
 	if (NULL == derPubKey)
 	{

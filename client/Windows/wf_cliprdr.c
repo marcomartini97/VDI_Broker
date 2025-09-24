@@ -150,8 +150,8 @@ static UINT cliprdr_send_data_request(wfClipboard* clipboard, UINT32 format);
 static UINT cliprdr_send_lock(wfClipboard* clipboard);
 static UINT cliprdr_send_unlock(wfClipboard* clipboard);
 static UINT cliprdr_send_request_filecontents(wfClipboard* clipboard, const void* streamid,
-                                              ULONG index, UINT32 flag, DWORD positionhigh,
-                                              DWORD positionlow, ULONG request);
+                                              ULONG index, UINT32 flag, UINT64 position,
+                                              ULONG request);
 
 static void CliprdrDataObject_Delete(CliprdrDataObject* instance);
 
@@ -239,8 +239,7 @@ static HRESULT STDMETHODCALLTYPE CliprdrStream_Read(IStream* This, void* pv, ULO
 		return S_FALSE;
 
 	ret = cliprdr_send_request_filecontents(clipboard, (void*)This, instance->m_lIndex,
-	                                        FILECONTENTS_RANGE, instance->m_lOffset.HighPart,
-	                                        instance->m_lOffset.LowPart, cb);
+	                                        FILECONTENTS_RANGE, instance->m_lOffset.QuadPart, cb);
 
 	if (ret < 0)
 		return E_FAIL;
@@ -451,7 +450,7 @@ static CliprdrStream* CliprdrStream_New(ULONG index, void* pData, const FILEDESC
 			{
 				/* get content size of this stream */
 				if (cliprdr_send_request_filecontents(clipboard, (void*)instance,
-				                                      instance->m_lIndex, FILECONTENTS_SIZE, 0, 0,
+				                                      instance->m_lIndex, FILECONTENTS_SIZE, 0,
 				                                      8) == CHANNEL_RC_OK)
 				{
 					success = TRUE;
@@ -462,8 +461,8 @@ static CliprdrStream* CliprdrStream_New(ULONG index, void* pData, const FILEDESC
 			}
 			else
 			{
-				instance->m_lSize.LowPart = instance->m_Dsc.nFileSizeLow;
-				instance->m_lSize.HighPart = instance->m_Dsc.nFileSizeHigh;
+				instance->m_lSize.QuadPart =
+				    ((UINT64)instance->m_Dsc.nFileSizeHigh << 32) | instance->m_Dsc.nFileSizeLow;
 				success = TRUE;
 			}
 		}
@@ -588,7 +587,8 @@ static HRESULT STDMETHODCALLTYPE CliprdrDataObject_GetData(IDataObject* This, FO
 		if (cliprdr_send_data_request(clipboard, remote) != 0)
 			return E_UNEXPECTED;
 
-		pMedium->hGlobal = clipboard->hmem; /* points to a FILEGROUPDESCRIPTOR structure */
+		pMedium->u.hGlobal = clipboard->hmem;
+		/* points to a FILEGROUPDESCRIPTOR structure */
 		/* GlobalLock returns a pointer to the first byte of the memory block,
 		 * in which is a FILEGROUPDESCRIPTOR structure, whose first UINT member
 		 * is the number of FILEDESCRIPTOR's */
@@ -624,7 +624,7 @@ static HRESULT STDMETHODCALLTYPE CliprdrDataObject_GetData(IDataObject* This, FO
 				clipboard->hmem = NULL;
 			}
 
-			pMedium->hGlobal = NULL;
+			pMedium->u.hGlobal = NULL;
 			return E_OUTOFMEMORY;
 		}
 	}
@@ -632,7 +632,7 @@ static HRESULT STDMETHODCALLTYPE CliprdrDataObject_GetData(IDataObject* This, FO
 	{
 		if ((pFormatEtc->lindex >= 0) && ((ULONG)pFormatEtc->lindex < instance->m_nStreams))
 		{
-			pMedium->pstm = instance->m_pStream[pFormatEtc->lindex];
+			pMedium->u.pstm = instance->m_pStream[pFormatEtc->lindex];
 			IDataObject_AddRef(instance->m_pStream[pFormatEtc->lindex]);
 		}
 		else
@@ -821,28 +821,24 @@ void CliprdrDataObject_Delete(CliprdrDataObject* instance)
 
 static BOOL wf_create_file_obj(wfClipboard* clipboard, IDataObject** ppDataObject)
 {
-	FORMATETC fmtetc[2];
-	STGMEDIUM stgmeds[2];
+	FORMATETC fmtetc[2] = { 0 };
+	STGMEDIUM stgmeds[2] = { 0 };
 
 	if (!ppDataObject)
 		return FALSE;
 
 	fmtetc[0].cfFormat = RegisterClipboardFormat(CFSTR_FILEDESCRIPTORW);
 	fmtetc[0].dwAspect = DVASPECT_CONTENT;
-	fmtetc[0].lindex = 0;
-	fmtetc[0].ptd = NULL;
+
 	fmtetc[0].tymed = TYMED_HGLOBAL;
 	stgmeds[0].tymed = TYMED_HGLOBAL;
-	stgmeds[0].hGlobal = NULL;
-	stgmeds[0].pUnkForRelease = NULL;
+
 	fmtetc[1].cfFormat = RegisterClipboardFormat(CFSTR_FILECONTENTS);
 	fmtetc[1].dwAspect = DVASPECT_CONTENT;
-	fmtetc[1].lindex = 0;
-	fmtetc[1].ptd = NULL;
+
 	fmtetc[1].tymed = TYMED_ISTREAM;
 	stgmeds[1].tymed = TYMED_ISTREAM;
-	stgmeds[1].pstm = NULL;
-	stgmeds[1].pUnkForRelease = NULL;
+
 	*ppDataObject = (IDataObject*)CliprdrDataObject_New(fmtetc, stgmeds, 2, clipboard);
 	return (*ppDataObject) ? TRUE : FALSE;
 }
@@ -1305,8 +1301,7 @@ static UINT cliprdr_send_data_request(wfClipboard* clipboard, UINT32 formatId)
 }
 
 UINT cliprdr_send_request_filecontents(wfClipboard* clipboard, const void* streamid, ULONG index,
-                                       UINT32 flag, DWORD positionhigh, DWORD positionlow,
-                                       ULONG nreq)
+                                       UINT32 flag, UINT64 position, ULONG nreq)
 {
 	UINT rc;
 	CLIPRDR_FILE_CONTENTS_REQUEST fileContentsRequest;
@@ -1317,8 +1312,8 @@ UINT cliprdr_send_request_filecontents(wfClipboard* clipboard, const void* strea
 	fileContentsRequest.streamId = (UINT32)(ULONG_PTR)streamid;
 	fileContentsRequest.listIndex = index;
 	fileContentsRequest.dwFlags = flag;
-	fileContentsRequest.nPositionLow = positionlow;
-	fileContentsRequest.nPositionHigh = positionhigh;
+	fileContentsRequest.nPositionLow = position & 0xFFFFFFFF;
+	fileContentsRequest.nPositionHigh = (position >> 32) & 0xFFFFFFFF;
 	fileContentsRequest.cbRequested = nreq;
 	fileContentsRequest.clipDataId = 0;
 	fileContentsRequest.common.msgFlags = 0;
@@ -1940,7 +1935,7 @@ wf_cliprdr_server_format_list_response(CliprdrClientContext* context,
 	(void)formatListResponse;
 
 	if (formatListResponse->common.msgFlags != CB_RESPONSE_OK)
-		return E_FAIL;
+		WLog_WARN(TAG, "format list update failed");
 
 	return CHANNEL_RC_OK;
 }
@@ -2073,7 +2068,8 @@ static SSIZE_T wf_cliprdr_get_filedescriptor(wfClipboard* clipboard, BYTE** pDat
 		goto exit;
 	}
 
-	DROPFILES* dropFiles = (DROPFILES*)GlobalLock(stg_medium.hGlobal);
+	HGLOBAL hdl = stg_medium.u.hGlobal;
+	DROPFILES* dropFiles = (DROPFILES*)GlobalLock(hdl);
 
 	if (!dropFiles)
 	{
@@ -2100,15 +2096,16 @@ static SSIZE_T wf_cliprdr_get_filedescriptor(wfClipboard* clipboard, BYTE** pDat
 		for (char* p = (char*)((char*)dropFiles + dropFiles->pFiles); (len = strlen(p)) > 0;
 		     p += len + 1, clipboard->nFiles++)
 		{
-			const int cchWideChar = MultiByteToWideChar(CP_ACP, MB_COMPOSITE, p, len, NULL, 0);
+			const int ilen = WINPR_ASSERTING_INT_CAST(int, len);
+			const int cchWideChar = MultiByteToWideChar(CP_ACP, MB_COMPOSITE, p, ilen, NULL, 0);
 			WCHAR* wFileName = (LPWSTR)calloc(cchWideChar, sizeof(WCHAR));
-			MultiByteToWideChar(CP_ACP, MB_COMPOSITE, p, len, wFileName, cchWideChar);
+			MultiByteToWideChar(CP_ACP, MB_COMPOSITE, p, ilen, wFileName, cchWideChar);
 			wf_cliprdr_process_filename(clipboard, wFileName, cchWideChar);
 			free(wFileName);
 		}
 	}
 
-	GlobalUnlock(stg_medium.hGlobal);
+	GlobalUnlock(hdl);
 	ReleaseStgMedium(&stg_medium);
 exit:
 {
@@ -2117,7 +2114,7 @@ exit:
 
 	if (groupDsc)
 	{
-		groupDsc->cItems = clipboard->nFiles;
+		groupDsc->cItems = WINPR_ASSERTING_INT_CAST(UINT, clipboard->nFiles);
 
 		for (size_t i = 0; i < clipboard->nFiles; i++)
 		{
@@ -2143,8 +2140,6 @@ static UINT
 wf_cliprdr_server_format_data_request(CliprdrClientContext* context,
                                       const CLIPRDR_FORMAT_DATA_REQUEST* formatDataRequest)
 {
-	CLIPRDR_FORMAT_DATA_RESPONSE response = { 0 };
-
 	if (!context || !formatDataRequest)
 		return ERROR_INTERNAL_ERROR;
 
@@ -2154,25 +2149,41 @@ wf_cliprdr_server_format_data_request(CliprdrClientContext* context,
 		return ERROR_INTERNAL_ERROR;
 
 	const UINT32 requestedFormatId = formatDataRequest->requestedFormatId;
-
+	BYTE* requestedFormatData = NULL;
+	SSIZE_T res = 0;
 	if (requestedFormatId == RegisterClipboardFormat(CFSTR_FILEDESCRIPTORW))
 	{
-		const SSIZE_T res = wf_cliprdr_get_filedescriptor(clipboard, &response.requestedFormatData);
-		if (res > 0)
-			response.common.dataLen = (UINT32)res;
+		res = wf_cliprdr_get_filedescriptor(clipboard, &requestedFormatData);
 	}
 	else
 	{
-		const SSIZE_T res =
-		    wf_cliprdr_tryopen(clipboard, requestedFormatId, &response.requestedFormatData);
-		if (res > 0)
-			response.common.dataLen = (UINT32)res;
+		res = wf_cliprdr_tryopen(clipboard, requestedFormatId, &requestedFormatData);
 	}
 
-	response.common.msgFlags = CB_RESPONSE_OK;
+	UINT rc = ERROR_INTERNAL_ERROR;
+	if (res >= 0)
+	{
+		const CLIPRDR_FORMAT_DATA_RESPONSE response = {
+			.common = { .msgType = CB_FORMAT_DATA_RESPONSE,
+			            .msgFlags = CB_RESPONSE_OK,
+			            .dataLen = (uint32_t)res },
+			.requestedFormatData = requestedFormatData
+		};
 
-	const UINT rc = clipboard->context->ClientFormatDataResponse(clipboard->context, &response);
-	free(response.requestedFormatData);
+		rc = clipboard->context->ClientFormatDataResponse(clipboard->context, &response);
+	}
+	else
+	{
+		const CLIPRDR_FORMAT_DATA_RESPONSE response = { .common = { .msgType =
+			                                                            CB_FORMAT_DATA_RESPONSE,
+			                                                        .msgFlags = CB_RESPONSE_FAIL,
+			                                                        .dataLen = 0 },
+			                                            .requestedFormatData = NULL };
+
+		rc = clipboard->context->ClientFormatDataResponse(clipboard->context, &response);
+	}
+
+	free(requestedFormatData);
 	return rc;
 }
 
@@ -2319,7 +2330,7 @@ wf_cliprdr_server_file_contents_request(CliprdrClientContext* context,
 
 						if (hRet == S_OK)
 						{
-							pStreamStc = vStgMedium.pstm;
+							pStreamStc = vStgMedium.u.pstm;
 							uStreamIdStc = fileContentsRequest->streamId;
 							bIsStreamFile = TRUE;
 						}
@@ -2340,8 +2351,8 @@ wf_cliprdr_server_file_contents_request(CliprdrClientContext* context,
 
 			if (hRet == S_OK)
 			{
-				*((UINT32*)&pData[0]) = vStatStg.cbSize.LowPart;
-				*((UINT32*)&pData[4]) = vStatStg.cbSize.HighPart;
+				*((UINT32*)&pData[0]) = vStatStg.cbSize.QuadPart & 0xFFFFFFFF;
+				*((UINT32*)&pData[4]) = (vStatStg.cbSize.QuadPart >> 32) & 0xFFFFFFFF;
 				uSize = cbRequested;
 			}
 		}
@@ -2349,8 +2360,8 @@ wf_cliprdr_server_file_contents_request(CliprdrClientContext* context,
 		{
 			LARGE_INTEGER dlibMove;
 			ULARGE_INTEGER dlibNewPosition;
-			dlibMove.HighPart = fileContentsRequest->nPositionHigh;
-			dlibMove.LowPart = fileContentsRequest->nPositionLow;
+			dlibMove.QuadPart = (INT64)(((UINT64)fileContentsRequest->nPositionHigh << 32) |
+			                            fileContentsRequest->nPositionLow);
 			hRet = IStream_Seek(pStreamStc, dlibMove, STREAM_SEEK_SET, &dlibNewPosition);
 
 			if (SUCCEEDED(hRet))

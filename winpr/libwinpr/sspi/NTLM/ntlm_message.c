@@ -448,7 +448,7 @@ static BOOL ntlm_write_negotiate_flags(wStream* s, UINT32 flags, const char* nam
 }
 
 static BOOL ntlm_read_message_integrity_check(wStream* s, size_t* offset, BYTE* data, size_t size,
-                                              const char* name)
+                                              WINPR_ATTR_UNUSED const char* name)
 {
 	WINPR_ASSERT(s);
 	WINPR_ASSERT(offset);
@@ -466,7 +466,7 @@ static BOOL ntlm_read_message_integrity_check(wStream* s, size_t* offset, BYTE* 
 }
 
 static BOOL ntlm_write_message_integrity_check(wStream* s, size_t offset, const BYTE* data,
-                                               size_t size, const char* name)
+                                               size_t size, WINPR_ATTR_UNUSED const char* name)
 {
 	size_t pos = 0;
 
@@ -563,7 +563,7 @@ SECURITY_STATUS ntlm_read_NegotiateMessage(NTLM_CONTEXT* context, PSecBuffer buf
 	return SEC_I_CONTINUE_NEEDED;
 }
 
-SECURITY_STATUS ntlm_write_NegotiateMessage(NTLM_CONTEXT* context, const PSecBuffer buffer)
+SECURITY_STATUS ntlm_write_NegotiateMessage(NTLM_CONTEXT* context, SecBuffer* buffer)
 {
 	wStream sbuffer;
 	wStream* s = NULL;
@@ -813,7 +813,7 @@ fail:
 	return status;
 }
 
-SECURITY_STATUS ntlm_write_ChallengeMessage(NTLM_CONTEXT* context, const PSecBuffer buffer)
+SECURITY_STATUS ntlm_write_ChallengeMessage(NTLM_CONTEXT* context, SecBuffer* buffer)
 {
 	wStream sbuffer;
 	wStream* s = NULL;
@@ -1040,7 +1040,7 @@ SECURITY_STATUS ntlm_read_AuthenticateMessage(NTLM_CONTEXT* context, PSecBuffer 
 		                     context->NTLMv2Response.Challenge.cbAvPairs, MsvAvFlags, &cbAvFlags);
 
 		if (AvFlags)
-			Data_Read_UINT32(ntlm_av_pair_get_value_pointer(AvFlags), flags);
+			flags = winpr_Data_Get_UINT32(ntlm_av_pair_get_value_pointer(AvFlags));
 	}
 
 	if (!ntlm_read_message_fields_buffer(
@@ -1212,7 +1212,7 @@ fail:
  * @param buffer The buffer to write
  */
 
-SECURITY_STATUS ntlm_write_AuthenticateMessage(NTLM_CONTEXT* context, const PSecBuffer buffer)
+SECURITY_STATUS ntlm_write_AuthenticateMessage(NTLM_CONTEXT* context, SecBuffer* buffer)
 {
 	wStream sbuffer;
 	wStream* s = NULL;

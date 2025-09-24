@@ -82,9 +82,9 @@ void* freerdp_channels_client_find_static_entry(const char* name, const char* id
 
 extern const STATIC_ADDIN_TABLE CLIENT_STATIC_ADDIN_TABLE[];
 
-static FREERDP_ADDIN** freerdp_channels_list_client_static_addins(LPCSTR pszName,
-                                                                  LPCSTR pszSubsystem,
-                                                                  LPCSTR pszType, DWORD dwFlags)
+static FREERDP_ADDIN** freerdp_channels_list_client_static_addins(
+    WINPR_ATTR_UNUSED LPCSTR pszName, WINPR_ATTR_UNUSED LPCSTR pszSubsystem,
+    WINPR_ATTR_UNUSED LPCSTR pszType, WINPR_ATTR_UNUSED DWORD dwFlags)
 {
 	DWORD nAddins = 0;
 	FREERDP_ADDIN** ppAddins = NULL;
@@ -160,7 +160,8 @@ static HANDLE FindFirstFileUTF8(LPCSTR pszSearchPath, WIN32_FIND_DATAW* FindData
 }
 
 static FREERDP_ADDIN** freerdp_channels_list_dynamic_addins(LPCSTR pszName, LPCSTR pszSubsystem,
-                                                            LPCSTR pszType, DWORD dwFlags)
+                                                            LPCSTR pszType,
+                                                            WINPR_ATTR_UNUSED DWORD dwFlags)
 {
 	int nDashes = 0;
 	HANDLE hFind = NULL;
@@ -430,7 +431,7 @@ void freerdp_channels_addin_list_free(FREERDP_ADDIN** ppAddins)
 	for (size_t index = 0; ppAddins[index] != NULL; index++)
 		free(ppAddins[index]);
 
-	free(ppAddins);
+	free((void*)ppAddins);
 }
 
 extern const STATIC_ENTRY CLIENT_VirtualChannelEntryEx_TABLE[];

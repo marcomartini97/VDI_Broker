@@ -38,10 +38,6 @@
 #include "../log.h"
 #define TAG WINPR_TAG("crt")
 
-#ifndef MIN
-#define MIN(x, y) (((x) < (y)) ? (x) : (y))
-#endif
-
 #if defined(WITH_URIPARSER)
 char* winpr_str_url_decode(const char* str, size_t len)
 {
@@ -361,7 +357,7 @@ WCHAR* _wcsstr(const WCHAR* str, const WCHAR* strSearch)
 
 /* _wcschr -> wcschr */
 
-WCHAR* _wcschr(const WCHAR* str, WCHAR value)
+WCHAR* _wcschr(const WCHAR* str, WCHAR c)
 {
 	union
 	{
@@ -370,10 +366,10 @@ WCHAR* _wcschr(const WCHAR* str, WCHAR value)
 	} cnv;
 	const WCHAR* p = str;
 
-	while (*p && (*p != value))
+	while (*p && (*p != c))
 		p++;
 
-	cnv.cc = (*p == value) ? p : NULL;
+	cnv.cc = (*p == c) ? p : NULL;
 	return cnv.c;
 }
 
@@ -532,13 +528,11 @@ DWORD CharUpperBuffA(LPSTR lpsz, DWORD cchLength)
 
 DWORD CharUpperBuffW(LPWSTR lpsz, DWORD cchLength)
 {
-	WCHAR value = 0;
-
 	for (DWORD i = 0; i < cchLength; i++)
 	{
-		Data_Read_UINT16(&lpsz[i], value);
+		WCHAR value = winpr_Data_Get_UINT16(&lpsz[i]);
 		value = WINPR_TOUPPERW(value);
-		Data_Write_UINT16(&lpsz[i], value);
+		winpr_Data_Write_UINT16(&lpsz[i], value);
 	}
 
 	return cchLength;
@@ -601,13 +595,11 @@ DWORD CharLowerBuffA(LPSTR lpsz, DWORD cchLength)
 
 DWORD CharLowerBuffW(LPWSTR lpsz, DWORD cchLength)
 {
-	WCHAR value = 0;
-
 	for (DWORD i = 0; i < cchLength; i++)
 	{
-		Data_Read_UINT16(&lpsz[i], value);
+		WCHAR value = winpr_Data_Get_UINT16(&lpsz[i]);
 		value = WINPR_TOLOWERW(value);
-		Data_Write_UINT16(&lpsz[i], value);
+		winpr_Data_Write_UINT16(&lpsz[i], value);
 	}
 
 	return cchLength;

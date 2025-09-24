@@ -50,7 +50,8 @@
 
 #define MIN_FINGER_DIST 5
 
-static int xf_input_event(xfContext* xfc, const XEvent* xevent, XIDeviceEvent* event, int evtype);
+static int xf_input_event(xfContext* xfc, WINPR_ATTR_UNUSED const XEvent* xevent,
+                          XIDeviceEvent* event, int evtype);
 
 #ifdef DEBUG_XINPUT
 static const char* xf_input_get_class_string(int class)
@@ -223,14 +224,10 @@ static BOOL register_raw_events(xfContext* xfc, Window window)
 
 static BOOL register_device_events(xfContext* xfc, Window window)
 {
-	XIEventMask mask;
+	XIEventMask mask = { 0 };
 	unsigned char mask_bytes[XIMaskLen(XI_LASTEVENT)] = { 0 };
-	rdpSettings* settings = NULL;
 
 	WINPR_ASSERT(xfc);
-
-	settings = xfc->common.context.settings;
-	WINPR_ASSERT(settings);
 
 	XISetMask(mask_bytes, XI_DeviceChanged);
 	XISetMask(mask_bytes, XI_HierarchyChanged);
@@ -748,26 +745,21 @@ static int xf_input_pens_unhover(xfContext* xfc)
 	return 0;
 }
 
-int xf_input_event(xfContext* xfc, const XEvent* xevent, XIDeviceEvent* event, int evtype)
+static bool xf_use_rel_mouse(xfContext* xfc)
 {
-	const rdpSettings* settings = NULL;
+	if (!freerdp_client_use_relative_mouse_events(&xfc->common))
+		return false;
+	if (!xfc->isCursorHidden)
+		return false;
+	return true;
+}
 
+int xf_input_event(xfContext* xfc, WINPR_ATTR_UNUSED const XEvent* xevent, XIDeviceEvent* event,
+                   int evtype)
+{
 	WINPR_ASSERT(xfc);
 	WINPR_ASSERT(xevent);
 	WINPR_ASSERT(event);
-
-	/* When not running RAILS we only care about events for this window.
-	 * filter out anything else, like floatbar window events
-	 */
-	const Window w = xevent->xany.window;
-	if (w != xfc->window)
-	{
-		if (!xfc->remote_app)
-			return 0;
-	}
-
-	settings = xfc->common.context.settings;
-	WINPR_ASSERT(settings);
 
 	xfWindow* window = xfc->window;
 	if (window)
@@ -782,30 +774,31 @@ int xf_input_event(xfContext* xfc, const XEvent* xevent, XIDeviceEvent* event, i
 	{
 		case XI_ButtonPress:
 		case XI_ButtonRelease:
-			xfc->xi_event = !xfc->common.mouse_grabbed ||
-			                !freerdp_client_use_relative_mouse_events(&xfc->common);
+			xfc->xi_event = !xfc->common.mouse_grabbed || !xf_use_rel_mouse(xfc);
 
 			if (xfc->xi_event)
 			{
-				xf_generic_ButtonEvent(xfc, (int)event->event_x, (int)event->event_y, event->detail,
-				                       event->event, xfc->remote_app, evtype == XI_ButtonPress);
+				if (!xfc_is_floatbar_window(xfc, event->event) || (evtype != XI_ButtonPress))
+				{
+					xf_generic_ButtonEvent(xfc, (int)event->event_x, (int)event->event_y,
+					                       event->detail, event->event, xfc->remote_app,
+					                       evtype == XI_ButtonPress);
+				}
 			}
 			break;
 
 		case XI_Motion:
-			xfc->xi_event = !xfc->common.mouse_grabbed ||
-			                !freerdp_client_use_relative_mouse_events(&xfc->common);
+			xfc->xi_event = !xfc->common.mouse_grabbed || !xf_use_rel_mouse(xfc);
 
 			if (xfc->xi_event)
 			{
-				xf_generic_MotionNotify(xfc, (int)event->event_x, (int)event->event_y,
-				                        event->detail, event->event, xfc->remote_app);
+				xf_generic_MotionNotify(xfc, (int)event->event_x, (int)event->event_y, event->event,
+				                        xfc->remote_app);
 			}
 			break;
 		case XI_RawButtonPress:
 		case XI_RawButtonRelease:
-			xfc->xi_rawevent =
-			    xfc->common.mouse_grabbed && freerdp_client_use_relative_mouse_events(&xfc->common);
+			xfc->xi_rawevent = xfc->common.mouse_grabbed && xf_use_rel_mouse(xfc);
 
 			if (xfc->xi_rawevent)
 			{
@@ -815,8 +808,7 @@ int xf_input_event(xfContext* xfc, const XEvent* xevent, XIDeviceEvent* event, i
 			}
 			break;
 		case XI_RawMotion:
-			xfc->xi_rawevent =
-			    xfc->common.mouse_grabbed && freerdp_client_use_relative_mouse_events(&xfc->common);
+			xfc->xi_rawevent = xfc->common.mouse_grabbed && xf_use_rel_mouse(xfc);
 
 			if (xfc->xi_rawevent)
 			{

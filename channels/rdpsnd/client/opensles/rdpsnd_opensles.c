@@ -285,11 +285,8 @@ static void rdpsnd_opensles_start(rdpsndDevicePlugin* device)
 	DEBUG_SND("opensles=%p", (void*)opensles);
 }
 
-static int rdpsnd_opensles_parse_addin_args(rdpsndDevicePlugin* device, ADDIN_ARGV* args)
+static int rdpsnd_opensles_parse_addin_args(rdpsndDevicePlugin* device, const ADDIN_ARGV* args)
 {
-	int status;
-	DWORD flags;
-	const COMMAND_LINE_ARGUMENT_A* arg;
 	rdpsndopenslesPlugin* opensles = (rdpsndopenslesPlugin*)device;
 	COMMAND_LINE_ARGUMENT_A rdpsnd_opensles_args[] = {
 		{ "dev", COMMAND_LINE_VALUE_REQUIRED, "<device>", NULL, NULL, -1, NULL, "device" },
@@ -299,15 +296,15 @@ static int rdpsnd_opensles_parse_addin_args(rdpsndDevicePlugin* device, ADDIN_AR
 	WINPR_ASSERT(opensles);
 	WINPR_ASSERT(args);
 	DEBUG_SND("opensles=%p, args=%p", (void*)opensles, (void*)args);
-	flags =
+	const DWORD flags =
 	    COMMAND_LINE_SIGIL_NONE | COMMAND_LINE_SEPARATOR_COLON | COMMAND_LINE_IGN_UNKNOWN_KEYWORD;
-	status = CommandLineParseArgumentsA(args->argc, args->argv, rdpsnd_opensles_args, flags,
-	                                    opensles, NULL, NULL);
+	const int status = CommandLineParseArgumentsA(args->argc, args->argv, rdpsnd_opensles_args,
+	                                              flags, opensles, NULL, NULL);
 
 	if (status < 0)
 		return status;
 
-	arg = rdpsnd_opensles_args;
+	const COMMAND_LINE_ARGUMENT_A* arg = rdpsnd_opensles_args;
 
 	do
 	{
@@ -335,11 +332,9 @@ static int rdpsnd_opensles_parse_addin_args(rdpsndDevicePlugin* device, ADDIN_AR
 FREERDP_ENTRY_POINT(UINT VCAPITYPE opensles_freerdp_rdpsnd_client_subsystem_entry(
     PFREERDP_RDPSND_DEVICE_ENTRY_POINTS pEntryPoints))
 {
-	ADDIN_ARGV* args;
-	rdpsndopenslesPlugin* opensles;
-	UINT error;
+	UINT error = ERROR_INTERNAL_ERROR;
 	DEBUG_SND("pEntryPoints=%p", (void*)pEntryPoints);
-	opensles = (rdpsndopenslesPlugin*)calloc(1, sizeof(rdpsndopenslesPlugin));
+	rdpsndopenslesPlugin* opensles = (rdpsndopenslesPlugin*)calloc(1, sizeof(rdpsndopenslesPlugin));
 
 	if (!opensles)
 		return CHANNEL_RC_NO_MEMORY;
@@ -352,7 +347,7 @@ FREERDP_ENTRY_POINT(UINT VCAPITYPE opensles_freerdp_rdpsnd_client_subsystem_entr
 	opensles->device.Play = rdpsnd_opensles_play;
 	opensles->device.Close = rdpsnd_opensles_close;
 	opensles->device.Free = rdpsnd_opensles_free;
-	args = pEntryPoints->args;
+	const ADDIN_ARGV* args = pEntryPoints->args;
 	rdpsnd_opensles_parse_addin_args((rdpsndDevicePlugin*)opensles, args);
 
 	if (!opensles->device_name)

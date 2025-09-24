@@ -98,7 +98,7 @@ wStream* Stream_New(BYTE* buffer, size_t size)
 	if (!buffer && !size)
 		return NULL;
 
-	s = malloc(sizeof(wStream));
+	s = calloc(1, sizeof(wStream));
 	if (!s)
 		return NULL;
 
@@ -118,7 +118,7 @@ wStream* Stream_New(BYTE* buffer, size_t size)
 	s->length = size;
 
 	s->pool = NULL;
-	s->count = 0;
+	s->count = 1;
 	s->isAllocatedStream = TRUE;
 	s->isOwner = TRUE;
 	return s;
@@ -147,7 +147,7 @@ wStream* Stream_StaticInit(wStream* s, BYTE* buffer, size_t size)
 	s->buffer = s->pointer = buffer;
 	s->capacity = s->length = size;
 	s->pool = NULL;
-	s->count = 0;
+	s->count = 1;
 	s->isAllocatedStream = FALSE;
 	s->isOwner = FALSE;
 	return s;
@@ -358,7 +358,7 @@ BOOL Stream_CheckAndLogRequiredCapacityWLogExVa(wLog* log, DWORD level, wStream*
 		(void)vsnprintf(prefix, sizeof(prefix), fmt, args);
 
 		WLog_Print(log, level,
-		           "[%s] invalid remaining capacity, got %" PRIuz ", require at least %" PRIu64
+		           "[%s] invalid remaining capacity, got %" PRIuz ", require at least %" PRIuz
 		           " [element size=%" PRIuz "]",
 		           prefix, actual, nmemb, size);
 		winpr_log_backtrace_ex(log, level, 20);
@@ -463,39 +463,40 @@ BOOL Stream_CheckAndLogRequiredLengthWLogExVa(wLog* log, DWORD level, wStream* s
 	return TRUE;
 }
 
-SSIZE_T Stream_Write_UTF16_String_From_UTF8(wStream* s, size_t dlen, const char* src, size_t length,
-                                            BOOL fill)
+SSIZE_T Stream_Write_UTF16_String_From_UTF8(wStream* s, size_t wcharLength, const char* src,
+                                            size_t length, BOOL fill)
 {
+	SSIZE_T rc = 0;
 	WCHAR* str = Stream_PointerAs(s, WCHAR);
 
-	if (length == 0)
-		return 0;
+	if (length != 0)
+	{
+		if (!Stream_CheckAndLogRequiredCapacityOfSize(STREAM_TAG, s, wcharLength, sizeof(WCHAR)))
+			return -1;
 
-	if (!Stream_CheckAndLogRequiredCapacityOfSize(STREAM_TAG, s, dlen, sizeof(WCHAR)))
-		return -1;
+		rc = ConvertUtf8NToWChar(src, length, str, wcharLength);
+		if (rc < 0)
+			return -1;
 
-	SSIZE_T rc = ConvertUtf8NToWChar(src, length, str, dlen);
-	if (rc < 0)
-		return -1;
-
-	Stream_Seek(s, (size_t)rc * sizeof(WCHAR));
+		Stream_Seek(s, (size_t)rc * sizeof(WCHAR));
+	}
 
 	if (fill)
-		Stream_Zero(s, (dlen - (size_t)rc) * sizeof(WCHAR));
+		Stream_Zero(s, (wcharLength - (size_t)rc) * sizeof(WCHAR));
 	return rc;
 }
 
-char* Stream_Read_UTF16_String_As_UTF8(wStream* s, size_t dlen, size_t* psize)
+char* Stream_Read_UTF16_String_As_UTF8(wStream* s, size_t wcharLength, size_t* pUtfCharLength)
 {
 	const WCHAR* str = Stream_ConstPointer(s);
-	if (dlen > SIZE_MAX / sizeof(WCHAR))
+	if (wcharLength > SIZE_MAX / sizeof(WCHAR))
 		return NULL;
 
-	if (!Stream_CheckAndLogRequiredLength(STREAM_TAG, s, dlen * sizeof(WCHAR)))
+	if (!Stream_CheckAndLogRequiredLength(STREAM_TAG, s, wcharLength * sizeof(WCHAR)))
 		return NULL;
 
-	Stream_Seek(s, dlen * sizeof(WCHAR));
-	return ConvertWCharNToUtf8Alloc(str, dlen, psize);
+	Stream_Seek(s, wcharLength * sizeof(WCHAR));
+	return ConvertWCharNToUtf8Alloc(str, wcharLength, pUtfCharLength);
 }
 
 SSIZE_T Stream_Read_UTF16_String_As_UTF8_Buffer(wStream* s, size_t wcharLength, char* utfBuffer,

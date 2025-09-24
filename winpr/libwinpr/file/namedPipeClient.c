@@ -116,11 +116,12 @@ static HANDLE_OPS ops = {
 	NULL, /* FileGetFileInformationByHandle */
 };
 
-static HANDLE NamedPipeClientCreateFileA(LPCSTR lpFileName, DWORD dwDesiredAccess,
-                                         DWORD dwShareMode,
-                                         LPSECURITY_ATTRIBUTES lpSecurityAttributes,
-                                         DWORD dwCreationDisposition, DWORD dwFlagsAndAttributes,
-                                         HANDLE hTemplateFile)
+static HANDLE
+NamedPipeClientCreateFileA(LPCSTR lpFileName, WINPR_ATTR_UNUSED DWORD dwDesiredAccess,
+                           WINPR_ATTR_UNUSED DWORD dwShareMode,
+                           WINPR_ATTR_UNUSED LPSECURITY_ATTRIBUTES lpSecurityAttributes,
+                           WINPR_ATTR_UNUSED DWORD dwCreationDisposition,
+                           DWORD dwFlagsAndAttributes, WINPR_ATTR_UNUSED HANDLE hTemplateFile)
 {
 	int status = 0;
 	struct sockaddr_un s = { 0 };
@@ -189,13 +190,8 @@ static HANDLE NamedPipeClientCreateFileA(LPCSTR lpFileName, DWORD dwDesiredAcces
 
 	if (dwFlagsAndAttributes & FILE_FLAG_OVERLAPPED)
 	{
-#if 0
-		int flags = fcntl(pNamedPipe->clientfd, F_GETFL);
-
-		if (flags != -1)
-            (void)fcntl(pNamedPipe->clientfd, F_SETFL, flags | O_NONBLOCK);
-
-#endif
+		// TODO: Implement
+		WLog_ERR(TAG, "TODO: implement this");
 	}
 
 	return hNamedPipe;

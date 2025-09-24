@@ -21,7 +21,7 @@
 #include "sdl_utils.hpp"
 
 SdlWindow::SdlWindow(const std::string& title, Sint32 startupX, Sint32 startupY, Sint32 width,
-                     Sint32 height, Uint32 flags)
+                     Sint32 height, [[maybe_unused]] Uint32 flags)
 {
 	auto props = SDL_CreateProperties();
 	SDL_SetStringProperty(props, SDL_PROP_WINDOW_CREATE_TITLE_STRING, title.c_str());
@@ -29,9 +29,25 @@ SdlWindow::SdlWindow(const std::string& title, Sint32 startupX, Sint32 startupY,
 	SDL_SetNumberProperty(props, SDL_PROP_WINDOW_CREATE_Y_NUMBER, startupY);
 	SDL_SetNumberProperty(props, SDL_PROP_WINDOW_CREATE_WIDTH_NUMBER, width);
 	SDL_SetNumberProperty(props, SDL_PROP_WINDOW_CREATE_HEIGHT_NUMBER, height);
-	// SDL_SetProperty(props, SDL_PROP_WINDOW_CREATE_FL);
+
+	if (flags & SDL_WINDOW_HIGH_PIXEL_DENSITY)
+		SDL_SetBooleanProperty(props, SDL_PROP_WINDOW_CREATE_HIGH_PIXEL_DENSITY_BOOLEAN, true);
+
+	if (flags & SDL_WINDOW_FULLSCREEN)
+		SDL_SetBooleanProperty(props, SDL_PROP_WINDOW_CREATE_FULLSCREEN_BOOLEAN, true);
+
+	if (flags & SDL_WINDOW_BORDERLESS)
+		SDL_SetBooleanProperty(props, SDL_PROP_WINDOW_CREATE_BORDERLESS_BOOLEAN, true);
+
 	_window = SDL_CreateWindowWithProperties(props);
 	SDL_DestroyProperties(props);
+
+	auto scale = SDL_GetWindowPixelDensity(_window);
+	const int iscale = static_cast<int>(scale * 100.0f);
+	auto w = 100 * width / iscale;
+	auto h = 100 * height / iscale;
+	(void)SDL_SetWindowSize(_window, w, h);
+	(void)SDL_SyncWindow(_window);
 }
 
 SdlWindow::SdlWindow(SdlWindow&& other) noexcept
@@ -52,7 +68,7 @@ Uint32 SdlWindow::id() const
 	return SDL_GetWindowID(_window);
 }
 
-int SdlWindow::displayIndex() const
+SDL_DisplayID SdlWindow::displayIndex() const
 {
 	if (!_window)
 		return 0;
@@ -65,7 +81,7 @@ SDL_Rect SdlWindow::rect() const
 	if (_window)
 	{
 		SDL_GetWindowPosition(_window, &rect.x, &rect.y);
-		SDL_GetWindowSize(_window, &rect.w, &rect.h);
+		SDL_GetWindowSizeInPixels(_window, &rect.w, &rect.h);
 	}
 	return rect;
 }
@@ -95,6 +111,47 @@ Sint32 SdlWindow::offsetY() const
 	return _offset_y;
 }
 
+rdpMonitor SdlWindow::monitor() const
+{
+	rdpMonitor mon{};
+
+	const auto factor = SDL_GetWindowDisplayScale(_window);
+	const auto dsf = static_cast<UINT32>(100 * factor);
+	mon.attributes.desktopScaleFactor = dsf;
+	mon.attributes.deviceScaleFactor = 100;
+
+	int pixelWidth = 0;
+	int pixelHeight = 0;
+	auto prc = SDL_GetWindowSizeInPixels(_window, &pixelWidth, &pixelHeight);
+
+	if (prc)
+	{
+		mon.width = pixelWidth;
+		mon.height = pixelHeight;
+
+		mon.attributes.physicalWidth = WINPR_ASSERTING_INT_CAST(uint32_t, pixelWidth);
+		mon.attributes.physicalHeight = WINPR_ASSERTING_INT_CAST(uint32_t, pixelHeight);
+	}
+
+	SDL_Rect rect = {};
+	auto did = SDL_GetDisplayForWindow(_window);
+	auto rc = SDL_GetDisplayBounds(did, &rect);
+
+	if (rc)
+	{
+		mon.x = rect.x;
+		mon.y = rect.y;
+	}
+
+	auto orientation = SDL_GetCurrentDisplayOrientation(did);
+	mon.attributes.orientation = sdl::utils::orientaion_to_rdp(orientation);
+
+	auto primary = SDL_GetPrimaryDisplay();
+	mon.is_primary = SDL_GetWindowID(_window) == primary;
+	mon.orig_screen = did;
+	return mon;
+}
+
 bool SdlWindow::grabKeyboard(bool enable)
 {
 	if (!_window)
@@ -115,56 +172,31 @@ void SdlWindow::setBordered(bool bordered)
 {
 	if (_window)
 		SDL_SetWindowBordered(_window, bordered);
+	(void)SDL_SyncWindow(_window);
 }
 
 void SdlWindow::raise()
 {
 	SDL_RaiseWindow(_window);
+	(void)SDL_SyncWindow(_window);
 }
 
 void SdlWindow::resizeable(bool use)
 {
 	SDL_SetWindowResizable(_window, use);
+	(void)SDL_SyncWindow(_window);
 }
 
 void SdlWindow::fullscreen(bool enter)
 {
-	auto curFlags = SDL_GetWindowFlags(_window);
-
-	if (enter)
-	{
-		if (!(curFlags & SDL_WINDOW_BORDERLESS))
-		{
-			auto idx = SDL_GetDisplayForWindow(_window);
-			auto mode = SDL_GetCurrentDisplayMode(idx);
-
-			SDL_RestoreWindow(_window); // Maximize so we can see the caption and
-			                            // bits
-			SDL_SetWindowBordered(_window, false);
-			SDL_SetWindowPosition(_window, 0, 0);
-			SDL_SetWindowAlwaysOnTop(_window, true);
-			SDL_RaiseWindow(_window);
-			if (mode)
-				SDL_SetWindowSize(_window, mode->w, mode->h);
-		}
-	}
-	else
-	{
-		if (curFlags & SDL_WINDOW_BORDERLESS)
-		{
-
-			SDL_SetWindowBordered(_window, true);
-			SDL_SetWindowAlwaysOnTop(_window, false);
-			SDL_RaiseWindow(_window);
-			SDL_MinimizeWindow(_window); // Maximize so we can see the caption and bits
-			SDL_MaximizeWindow(_window); // Maximize so we can see the caption and bits
-		}
-	}
+	(void)SDL_SetWindowFullscreen(_window, enter);
+	(void)SDL_SyncWindow(_window);
 }
 
 void SdlWindow::minimize()
 {
 	SDL_MinimizeWindow(_window);
+	(void)SDL_SyncWindow(_window);
 }
 
 bool SdlWindow::fill(Uint8 r, Uint8 g, Uint8 b, Uint8 a)

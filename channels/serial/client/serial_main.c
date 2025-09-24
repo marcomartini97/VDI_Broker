@@ -50,7 +50,7 @@ typedef struct
 	DEVICE device;
 	BOOL permissive;
 	SERIAL_DRIVER_ID ServerSerialDriverId;
-	HANDLE* hComm;
+	HANDLE hComm;
 
 	wLog* log;
 	HANDLE MainThread;
@@ -69,7 +69,7 @@ typedef struct
 } IRP_THREAD_DATA;
 
 static void close_terminated_irp_thread_handles(SERIAL_DEVICE* serial, BOOL forceClose);
-static UINT32 GetLastErrorToIoStatus(SERIAL_DEVICE* serial)
+static NTSTATUS GetLastErrorToIoStatus(SERIAL_DEVICE* serial)
 {
 	/* http://msdn.microsoft.com/en-us/library/ff547466%28v=vs.85%29.aspx#generic_status_values_for_serial_device_control_requests
 	 */
@@ -165,10 +165,10 @@ static UINT serial_process_irp_create(SERIAL_DEVICE* serial, IRP* irp)
 	SharedAccess = 0;
 	CreateDisposition = OPEN_EXISTING;
 #endif
-	serial->hComm =
-	    CreateFile(serial->device.name, DesiredAccess, SharedAccess, NULL, /* SecurityAttributes */
-	               CreateDisposition, 0,                                   /* FlagsAndAttributes */
-	               NULL);                                                  /* TemplateFile */
+	serial->hComm = winpr_CreateFile(serial->device.name, DesiredAccess, SharedAccess,
+	                                 NULL,                 /* SecurityAttributes */
+	                                 CreateDisposition, 0, /* FlagsAndAttributes */
+	                                 NULL);                /* TemplateFile */
 
 	if (!serial->hComm || (serial->hComm == INVALID_HANDLE_VALUE))
 	{
@@ -193,6 +193,12 @@ static UINT serial_process_irp_create(SERIAL_DEVICE* serial, IRP* irp)
 	irp->IoStatus = STATUS_SUCCESS;
 	WLog_Print(serial->log, WLOG_DEBUG, "%s (DeviceId: %" PRIu32 ", FileId: %" PRIu32 ") created.",
 	           serial->device.name, irp->device->id, irp->FileId);
+
+	DWORD BytesReturned = 0;
+	if (!CommDeviceIoControl(serial->hComm, IOCTL_SERIAL_RESET_DEVICE, NULL, 0, NULL, 0,
+	                         &BytesReturned, NULL))
+		goto error_handle;
+
 error_handle:
 	Stream_Write_UINT32(irp->output, irp->FileId); /* FileId (4 bytes) */
 	Stream_Write_UINT8(irp->output, 0);            /* Information (1 byte) */
@@ -500,7 +506,7 @@ static UINT serial_process_irp(SERIAL_DEVICE* serial, IRP* irp)
 	           "[%s|0x%08" PRIx32 "] completed with %s [0x%08" PRIx32 "] (IoStatus %s [0x%08" PRIx32
 	           "])",
 	           rdpdr_irp_string(irp->MajorFunction), irp->MajorFunction, WTSErrorToString(error),
-	           error, NtStatus2Tag(irp->IoStatus), irp->IoStatus);
+	           error, NtStatus2Tag(irp->IoStatus), WINPR_CXX_COMPAT_CAST(UINT32, irp->IoStatus));
 
 	return error;
 }
@@ -523,12 +529,16 @@ static DWORD WINAPI irp_thread_func(LPVOID arg)
 	}
 
 	EnterCriticalSection(&data->serial->TerminatingIrpThreadsLock);
+	WINPR_ASSERT(data->irp->Complete);
 	error = data->irp->Complete(data->irp);
 	LeaveCriticalSection(&data->serial->TerminatingIrpThreadsLock);
 error_out:
 
 	if (error && data->serial->rdpcontext)
 		setChannelError(data->serial->rdpcontext, error, "irp_thread_func reported an error");
+
+	if (error)
+		data->irp->Discard(data->irp);
 
 	/* NB: At this point, the server might already being reusing
 	 * the CompletionId whereas the thread is not yet
@@ -688,6 +698,7 @@ error_handle:
 	if (irpThread)
 		(void)CloseHandle(irpThread);
 	irp->IoStatus = STATUS_NO_MEMORY;
+	WINPR_ASSERT(irp->Complete);
 	irp->Complete(irp);
 	free(data);
 }
@@ -790,7 +801,7 @@ static UINT serial_free(DEVICE* device)
 	}
 
 	if (serial->hComm)
-		(void)CloseHandle(*serial->hComm);
+		(void)CloseHandle(serial->hComm);
 
 	/* Clean up resources */
 	Stream_Free(serial->device.data, TRUE);
@@ -899,7 +910,7 @@ FREERDP_ENTRY_POINT(
 		}
 
 		for (size_t i = 0; i <= len; i++)
-			Stream_Write_UINT8(serial->device.data, name[i] < 0 ? '_' : name[i]);
+			Stream_Write_INT8(serial->device.data, name[i] < 0 ? '_' : name[i]);
 
 		if (driver != NULL)
 		{
@@ -936,7 +947,7 @@ FREERDP_ENTRY_POINT(
 			}
 		}
 
-		WLog_Print(serial->log, WLOG_DEBUG, "Server's serial driver: %s (id: %d)", driver,
+		WLog_Print(serial->log, WLOG_DEBUG, "Server's serial driver: %s (id: %u)", driver,
 		           serial->ServerSerialDriverId);
 
 		serial->MainIrpQueue = MessageQueue_New(NULL);

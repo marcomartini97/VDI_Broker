@@ -62,6 +62,44 @@ struct s_rdpdr_server_private
 	wLog* log;
 };
 
+static const char* fileInformation2str(uint8_t val)
+{
+	switch (val)
+	{
+		case FILE_SUPERSEDED:
+			return "FILE_DOES_NOT_EXIST";
+		case FILE_OPENED:
+			return "FILE_EXISTS";
+		case FILE_CREATED:
+			return "FILE_OVERWRITTEN";
+		case FILE_OVERWRITTEN:
+			return "FILE_CREATED";
+		case FILE_EXISTS:
+			return "FILE_OPENED";
+		case FILE_DOES_NOT_EXIST:
+			return "FILE_SUPERSEDED";
+		default:
+			return "FILE_UNKNOWN";
+	}
+}
+
+static const char* DR_DRIVE_LOCK_REQ2str(uint32_t op)
+{
+	switch (op)
+	{
+		case RDP_LOWIO_OP_SHAREDLOCK:
+			return "RDP_LOWIO_OP_UNLOCK_MULTIPLE";
+		case RDP_LOWIO_OP_EXCLUSIVELOCK:
+			return "RDP_LOWIO_OP_UNLOCK";
+		case RDP_LOWIO_OP_UNLOCK:
+			return "RDP_LOWIO_OP_EXCLUSIVELOCK";
+		case RDP_LOWIO_OP_UNLOCK_MULTIPLE:
+			return "RDP_LOWIO_OP_SHAREDLOCK";
+		default:
+			return "RDP_LOWIO_OP_UNKNOWN";
+	}
+}
+
 static void rdpdr_device_free(RdpdrDevice* device)
 {
 	if (!device)
@@ -86,6 +124,10 @@ static BOOL rdpdr_device_equal(const void* v1, const void* v2)
 {
 	const UINT32* p1 = (const UINT32*)v1;
 	const UINT32* p2 = (const UINT32*)v2;
+	if (!p1 && !p2)
+		return TRUE;
+	if (!p1 || !p2)
+		return FALSE;
 	return *p1 == *p2;
 }
 
@@ -120,10 +162,27 @@ fail:
 	return NULL;
 }
 
+static void* rdpdr_device_key_clone(const void* pvval)
+{
+	const UINT32* val = pvval;
+	if (!val)
+		return NULL;
+
+	UINT32* ptr = calloc(1, sizeof(UINT32));
+	if (!ptr)
+		return NULL;
+	*ptr = *val;
+	return ptr;
+}
+
+static void rdpdr_device_key_free(void* obj)
+{
+	free(obj);
+}
+
 static RdpdrDevice* rdpdr_get_device_by_id(RdpdrServerPrivate* priv, UINT32 DeviceId)
 {
 	WINPR_ASSERT(priv);
-
 	return HashTable_GetItemValue(priv->devicelist, &DeviceId);
 }
 
@@ -166,7 +225,7 @@ static const WCHAR* rdpdr_read_ustring(wLog* log, wStream* s, size_t bytelen)
 		return NULL;
 	if (_wcsnlen(str, charlen) == charlen)
 	{
-		WLog_Print(log, WLOG_WARN, "[rdpdr] unicode string not '\0' terminated");
+		WLog_Print(log, WLOG_WARN, "[rdpdr] unicode string not '\\0' terminated");
 		return NULL;
 	}
 	Stream_Seek(s, bytelen);
@@ -1161,8 +1220,9 @@ static UINT rdpdr_server_receive_device_list_remove_request(RdpdrServerContext* 
 }
 
 static UINT rdpdr_server_receive_io_create_request(RdpdrServerContext* context, wStream* s,
-                                                   UINT32 DeviceId, UINT32 FileId,
-                                                   UINT32 CompletionId)
+                                                   WINPR_ATTR_UNUSED UINT32 DeviceId,
+                                                   WINPR_ATTR_UNUSED UINT32 FileId,
+                                                   WINPR_ATTR_UNUSED UINT32 CompletionId)
 {
 	const WCHAR* path = NULL;
 	UINT32 DesiredAccess = 0;
@@ -1197,8 +1257,9 @@ static UINT rdpdr_server_receive_io_create_request(RdpdrServerContext* context, 
 }
 
 static UINT rdpdr_server_receive_io_close_request(RdpdrServerContext* context, wStream* s,
-                                                  UINT32 DeviceId, UINT32 FileId,
-                                                  UINT32 CompletionId)
+                                                  WINPR_ATTR_UNUSED UINT32 DeviceId,
+                                                  WINPR_ATTR_UNUSED UINT32 FileId,
+                                                  WINPR_ATTR_UNUSED UINT32 CompletionId)
 {
 	WINPR_ASSERT(context);
 	WINPR_ASSERT(context->priv);
@@ -1216,8 +1277,9 @@ static UINT rdpdr_server_receive_io_close_request(RdpdrServerContext* context, w
 }
 
 static UINT rdpdr_server_receive_io_read_request(RdpdrServerContext* context, wStream* s,
-                                                 UINT32 DeviceId, UINT32 FileId,
-                                                 UINT32 CompletionId)
+                                                 WINPR_ATTR_UNUSED UINT32 DeviceId,
+                                                 WINPR_ATTR_UNUSED UINT32 FileId,
+                                                 WINPR_ATTR_UNUSED UINT32 CompletionId)
 {
 	UINT32 Length = 0;
 	UINT64 Offset = 0;
@@ -1230,6 +1292,9 @@ static UINT rdpdr_server_receive_io_read_request(RdpdrServerContext* context, wS
 	Stream_Read_UINT32(s, Length);
 	Stream_Read_UINT64(s, Offset);
 	Stream_Seek(s, 20); /* Padding */
+
+	WLog_Print(context->priv->log, WLOG_DEBUG, "Got Offset [0x%016" PRIx64 "], Length %" PRIu32,
+	           Offset, Length);
 
 	WLog_Print(context->priv->log, WLOG_WARN,
 	           "[MS-RDPEFS] 2.2.1.4.3 Device Read Request (DR_READ_REQ) not implemented");
@@ -1239,8 +1304,9 @@ static UINT rdpdr_server_receive_io_read_request(RdpdrServerContext* context, wS
 }
 
 static UINT rdpdr_server_receive_io_write_request(RdpdrServerContext* context, wStream* s,
-                                                  UINT32 DeviceId, UINT32 FileId,
-                                                  UINT32 CompletionId)
+                                                  WINPR_ATTR_UNUSED UINT32 DeviceId,
+                                                  WINPR_ATTR_UNUSED UINT32 FileId,
+                                                  WINPR_ATTR_UNUSED UINT32 CompletionId)
 {
 	UINT32 Length = 0;
 	UINT64 Offset = 0;
@@ -1255,6 +1321,9 @@ static UINT rdpdr_server_receive_io_write_request(RdpdrServerContext* context, w
 	Stream_Read_UINT64(s, Offset);
 	Stream_Seek(s, 20); /* Padding */
 
+	WLog_Print(context->priv->log, WLOG_DEBUG, "Got Offset [0x%016" PRIx64 "], Length %" PRIu32,
+	           Offset, Length);
+
 	const BYTE* data = Stream_ConstPointer(s);
 	if (!Stream_CheckAndLogRequiredLengthWLog(context->priv->log, s, Length))
 		return ERROR_INVALID_DATA;
@@ -1262,14 +1331,15 @@ static UINT rdpdr_server_receive_io_write_request(RdpdrServerContext* context, w
 
 	WLog_Print(context->priv->log, WLOG_WARN,
 	           "[MS-RDPEFS] 2.2.1.4.4 Device Write Request (DR_WRITE_REQ) not implemented");
-	WLog_Print(context->priv->log, WLOG_WARN, "TODO: parse %p", data);
+	WLog_Print(context->priv->log, WLOG_WARN, "TODO: parse %p", (const void*)data);
 
 	return CHANNEL_RC_OK;
 }
 
 static UINT rdpdr_server_receive_io_device_control_request(RdpdrServerContext* context, wStream* s,
-                                                           UINT32 DeviceId, UINT32 FileId,
-                                                           UINT32 CompletionId)
+                                                           WINPR_ATTR_UNUSED UINT32 DeviceId,
+                                                           WINPR_ATTR_UNUSED UINT32 FileId,
+                                                           WINPR_ATTR_UNUSED UINT32 CompletionId)
 {
 	UINT32 OutputBufferLength = 0;
 	UINT32 InputBufferLength = 0;
@@ -1293,15 +1363,16 @@ static UINT rdpdr_server_receive_io_device_control_request(RdpdrServerContext* c
 
 	WLog_Print(context->priv->log, WLOG_WARN,
 	           "[MS-RDPEFS] 2.2.1.4.5 Device Control Request (DR_CONTROL_REQ) not implemented");
-	WLog_Print(context->priv->log, WLOG_WARN, "TODO: parse %p", InputBuffer);
+	WLog_Print(context->priv->log, WLOG_WARN,
+	           "TODO: parse %p [%" PRIu32 "], OutputBufferLength=%" PRIu32,
+	           (const void*)InputBuffer, InputBufferLength, OutputBufferLength);
 
 	return CHANNEL_RC_OK;
 }
 
-static UINT rdpdr_server_receive_io_query_volume_information_request(RdpdrServerContext* context,
-                                                                     wStream* s, UINT32 DeviceId,
-                                                                     UINT32 FileId,
-                                                                     UINT32 CompletionId)
+static UINT rdpdr_server_receive_io_query_volume_information_request(
+    RdpdrServerContext* context, wStream* s, WINPR_ATTR_UNUSED UINT32 DeviceId,
+    WINPR_ATTR_UNUSED UINT32 FileId, WINPR_ATTR_UNUSED UINT32 CompletionId)
 {
 	UINT32 FsInformationClass = 0;
 	UINT32 Length = 0;
@@ -1313,6 +1384,10 @@ static UINT rdpdr_server_receive_io_query_volume_information_request(RdpdrServer
 	Stream_Read_UINT32(s, FsInformationClass);
 	Stream_Read_UINT32(s, Length);
 	Stream_Seek(s, 24); /* Padding */
+
+	WLog_Print(context->priv->log, WLOG_DEBUG,
+	           "Got FSInformationClass %s [0x%08" PRIx32 "], Length %" PRIu32,
+	           FSInformationClass2Tag(FsInformationClass), FsInformationClass, Length);
 
 	const BYTE* QueryVolumeBuffer = Stream_ConstPointer(s);
 	if (!Stream_CheckAndLogRequiredLengthWLog(context->priv->log, s, Length))
@@ -1322,15 +1397,14 @@ static UINT rdpdr_server_receive_io_query_volume_information_request(RdpdrServer
 	WLog_Print(context->priv->log, WLOG_WARN,
 	           "[MS-RDPEFS] 2.2.3.3.6 Server Drive Query Volume Information Request "
 	           "(DR_DRIVE_QUERY_VOLUME_INFORMATION_REQ) not implemented");
-	WLog_Print(context->priv->log, WLOG_WARN, "TODO: parse %p", QueryVolumeBuffer);
+	WLog_Print(context->priv->log, WLOG_WARN, "TODO: parse %p", (const void*)QueryVolumeBuffer);
 
 	return CHANNEL_RC_OK;
 }
 
-static UINT rdpdr_server_receive_io_set_volume_information_request(RdpdrServerContext* context,
-                                                                   wStream* s, UINT32 DeviceId,
-                                                                   UINT32 FileId,
-                                                                   UINT32 CompletionId)
+static UINT rdpdr_server_receive_io_set_volume_information_request(
+    RdpdrServerContext* context, wStream* s, WINPR_ATTR_UNUSED UINT32 DeviceId,
+    WINPR_ATTR_UNUSED UINT32 FileId, WINPR_ATTR_UNUSED UINT32 CompletionId)
 {
 	UINT32 FsInformationClass = 0;
 	UINT32 Length = 0;
@@ -1344,6 +1418,10 @@ static UINT rdpdr_server_receive_io_set_volume_information_request(RdpdrServerCo
 	Stream_Read_UINT32(s, FsInformationClass);
 	Stream_Read_UINT32(s, Length);
 	Stream_Seek(s, 24); /* Padding */
+
+	WLog_Print(context->priv->log, WLOG_DEBUG,
+	           "Got FSInformationClass %s [0x%08" PRIx32 "], Length %" PRIu32,
+	           FSInformationClass2Tag(FsInformationClass), FsInformationClass, Length);
 
 	const BYTE* SetVolumeBuffer = Stream_ConstPointer(s);
 	if (!Stream_CheckAndLogRequiredLengthWLog(context->priv->log, s, Length))
@@ -1353,14 +1431,16 @@ static UINT rdpdr_server_receive_io_set_volume_information_request(RdpdrServerCo
 	WLog_Print(context->priv->log, WLOG_WARN,
 	           "[MS-RDPEFS] 2.2.3.3.7 Server Drive Set Volume Information Request "
 	           "(DR_DRIVE_SET_VOLUME_INFORMATION_REQ) not implemented");
-	WLog_Print(context->priv->log, WLOG_WARN, "TODO: parse %p", SetVolumeBuffer);
+	WLog_Print(context->priv->log, WLOG_WARN, "TODO: parse %p", (const void*)SetVolumeBuffer);
 
 	return CHANNEL_RC_OK;
 }
 
 static UINT rdpdr_server_receive_io_query_information_request(RdpdrServerContext* context,
-                                                              wStream* s, UINT32 DeviceId,
-                                                              UINT32 FileId, UINT32 CompletionId)
+                                                              wStream* s,
+                                                              WINPR_ATTR_UNUSED UINT32 DeviceId,
+                                                              WINPR_ATTR_UNUSED UINT32 FileId,
+                                                              WINPR_ATTR_UNUSED UINT32 CompletionId)
 {
 	UINT32 FsInformationClass = 0;
 	UINT32 Length = 0;
@@ -1374,6 +1454,10 @@ static UINT rdpdr_server_receive_io_query_information_request(RdpdrServerContext
 	Stream_Read_UINT32(s, FsInformationClass);
 	Stream_Read_UINT32(s, Length);
 	Stream_Seek(s, 24); /* Padding */
+
+	WLog_Print(context->priv->log, WLOG_DEBUG,
+	           "Got FSInformationClass %s [0x%08" PRIx32 "], Length %" PRIu32,
+	           FSInformationClass2Tag(FsInformationClass), FsInformationClass, Length);
 
 	const BYTE* QueryBuffer = Stream_ConstPointer(s);
 	if (!Stream_CheckAndLogRequiredLengthWLog(context->priv->log, s, Length))
@@ -1383,14 +1467,15 @@ static UINT rdpdr_server_receive_io_query_information_request(RdpdrServerContext
 	WLog_Print(context->priv->log, WLOG_WARN,
 	           "[MS-RDPEFS] 2.2.3.3.8 Server Drive Query Information Request "
 	           "(DR_DRIVE_QUERY_INFORMATION_REQ) not implemented");
-	WLog_Print(context->priv->log, WLOG_WARN, "TODO: parse %p", QueryBuffer);
+	WLog_Print(context->priv->log, WLOG_WARN, "TODO: parse %p", (const void*)QueryBuffer);
 
 	return CHANNEL_RC_OK;
 }
 
 static UINT rdpdr_server_receive_io_set_information_request(RdpdrServerContext* context, wStream* s,
-                                                            UINT32 DeviceId, UINT32 FileId,
-                                                            UINT32 CompletionId)
+                                                            WINPR_ATTR_UNUSED UINT32 DeviceId,
+                                                            WINPR_ATTR_UNUSED UINT32 FileId,
+                                                            WINPR_ATTR_UNUSED UINT32 CompletionId)
 {
 	UINT32 FsInformationClass = 0;
 	UINT32 Length = 0;
@@ -1405,6 +1490,10 @@ static UINT rdpdr_server_receive_io_set_information_request(RdpdrServerContext* 
 	Stream_Read_UINT32(s, Length);
 	Stream_Seek(s, 24); /* Padding */
 
+	WLog_Print(context->priv->log, WLOG_DEBUG,
+	           "Got FSInformationClass %s [0x%08" PRIx32 "], Length %" PRIu32,
+	           FSInformationClass2Tag(FsInformationClass), FsInformationClass, Length);
+
 	const BYTE* SetBuffer = Stream_ConstPointer(s);
 	if (!Stream_CheckAndLogRequiredLengthWLog(context->priv->log, s, Length))
 		return ERROR_INVALID_DATA;
@@ -1413,19 +1502,19 @@ static UINT rdpdr_server_receive_io_set_information_request(RdpdrServerContext* 
 	WLog_Print(context->priv->log, WLOG_WARN,
 	           "[MS-RDPEFS] 2.2.3.3.9 Server Drive Set Information Request "
 	           "(DR_DRIVE_SET_INFORMATION_REQ) not implemented");
-	WLog_Print(context->priv->log, WLOG_WARN, "TODO: parse %p", SetBuffer);
+	WLog_Print(context->priv->log, WLOG_WARN, "TODO: parse %p", (const void*)SetBuffer);
 
 	return CHANNEL_RC_OK;
 }
 
 static UINT rdpdr_server_receive_io_query_directory_request(RdpdrServerContext* context, wStream* s,
-                                                            UINT32 DeviceId, UINT32 FileId,
-                                                            UINT32 CompletionId)
+                                                            WINPR_ATTR_UNUSED UINT32 DeviceId,
+                                                            WINPR_ATTR_UNUSED UINT32 FileId,
+                                                            WINPR_ATTR_UNUSED UINT32 CompletionId)
 {
 	BYTE InitialQuery = 0;
 	UINT32 FsInformationClass = 0;
 	UINT32 PathLength = 0;
-	const WCHAR* Path = NULL;
 
 	WINPR_ASSERT(context);
 	WINPR_ASSERT(context->priv);
@@ -1438,9 +1527,17 @@ static UINT rdpdr_server_receive_io_query_directory_request(RdpdrServerContext* 
 	Stream_Read_UINT32(s, PathLength);
 	Stream_Seek(s, 23); /* Padding */
 
-	Path = rdpdr_read_ustring(context->priv->log, s, PathLength);
-	if (!Path && (PathLength > 0))
+	const WCHAR* wPath = rdpdr_read_ustring(context->priv->log, s, PathLength);
+	if (!wPath && (PathLength > 0))
 		return ERROR_INVALID_DATA;
+
+	char* Path = ConvertWCharNToUtf8Alloc(wPath, PathLength / sizeof(WCHAR), NULL);
+	WLog_Print(context->priv->log, WLOG_DEBUG,
+	           "Got FSInformationClass %s [0x%08" PRIx32 "], InitialQuery [%" PRIu8
+	           "] Path[%" PRIu32 "] %s",
+	           FSInformationClass2Tag(FsInformationClass), FsInformationClass, InitialQuery,
+	           PathLength, Path);
+	free(Path);
 
 	WLog_Print(context->priv->log, WLOG_WARN,
 	           "[MS-RDPEFS] 2.2.3.3.10 Server Drive Query Directory Request "
@@ -1451,8 +1548,10 @@ static UINT rdpdr_server_receive_io_query_directory_request(RdpdrServerContext* 
 }
 
 static UINT rdpdr_server_receive_io_change_directory_request(RdpdrServerContext* context,
-                                                             wStream* s, UINT32 DeviceId,
-                                                             UINT32 FileId, UINT32 CompletionId)
+                                                             wStream* s,
+                                                             WINPR_ATTR_UNUSED UINT32 DeviceId,
+                                                             WINPR_ATTR_UNUSED UINT32 FileId,
+                                                             WINPR_ATTR_UNUSED UINT32 CompletionId)
 {
 	BYTE WatchTree = 0;
 	UINT32 CompletionFilter = 0;
@@ -1501,25 +1600,26 @@ static UINT rdpdr_server_receive_io_directory_control_request(RdpdrServerContext
 }
 
 static UINT rdpdr_server_receive_io_lock_control_request(RdpdrServerContext* context, wStream* s,
-                                                         UINT32 DeviceId, UINT32 FileId,
-                                                         UINT32 CompletionId)
+                                                         WINPR_ATTR_UNUSED UINT32 DeviceId,
+                                                         WINPR_ATTR_UNUSED UINT32 FileId,
+                                                         WINPR_ATTR_UNUSED UINT32 CompletionId)
 {
-	UINT32 Operation = 0;
-	UINT32 Lock = 0;
-	UINT32 NumLocks = 0;
-
 	WINPR_ASSERT(context);
 	WINPR_ASSERT(context->priv);
 
 	if (!Stream_CheckAndLogRequiredLengthWLog(context->priv->log, s, 32))
 		return ERROR_INVALID_DATA;
 
-	Stream_Read_UINT32(s, Operation);
-	Stream_Read_UINT32(s, Lock);
-	Stream_Read_UINT32(s, NumLocks);
+	const uint32_t Operation = Stream_Get_UINT32(s);
+	uint32_t Lock = Stream_Get_UINT32(s);
+	const uint32_t NumLocks = Stream_Get_UINT32(s);
 	Stream_Seek(s, 20); /* Padding */
 
-	Lock &= 0x01; /* Only byte 0 is of importance */
+	WLog_Print(context->priv->log, WLOG_DEBUG,
+	           "IRP_MJ_LOCK_CONTROL, Operation=%s, Lock=0x%08" PRIx32 ", NumLocks=%" PRIu32,
+	           DR_DRIVE_LOCK_REQ2str(Operation), Lock, NumLocks);
+
+	Lock &= 0x01; /* Only bit 0 is of importance */
 
 	for (UINT32 x = 0; x < NumLocks; x++)
 	{
@@ -1531,6 +1631,9 @@ static UINT rdpdr_server_receive_io_lock_control_request(RdpdrServerContext* con
 
 		Stream_Read_UINT64(s, Length);
 		Stream_Read_UINT64(s, Offset);
+
+		WLog_Print(context->priv->log, WLOG_DEBUG,
+		           "Locking at Offset=0x%08" PRIx64 " [Length %" PRIu64 "]", Offset, Length);
 	}
 
 	WLog_Print(context->priv->log, WLOG_WARN,
@@ -1544,7 +1647,7 @@ static UINT rdpdr_server_receive_io_lock_control_request(RdpdrServerContext* con
 }
 
 static UINT rdpdr_server_receive_device_io_request(RdpdrServerContext* context, wStream* s,
-                                                   const RDPDR_HEADER* header)
+                                                   WINPR_ATTR_UNUSED const RDPDR_HEADER* header)
 {
 	UINT32 DeviceId = 0;
 	UINT32 FileId = 0;
@@ -1601,6 +1704,10 @@ static UINT rdpdr_server_receive_device_io_request(RdpdrServerContext* context, 
 		case IRP_MJ_LOCK_CONTROL:
 			return rdpdr_server_receive_io_lock_control_request(context, s, DeviceId, FileId,
 			                                                    CompletionId);
+		case IRP_MJ_SET_VOLUME_INFORMATION:
+			return rdpdr_server_receive_io_set_volume_information_request(context, s, DeviceId,
+			                                                              FileId, CompletionId);
+
 		default:
 			WLog_Print(
 			    context->priv->log, WLOG_WARN,
@@ -1758,7 +1865,7 @@ static UINT rdpdr_server_receive_prn_cache_update_printer(RdpdrServerContext* co
 	WLog_Print(
 	    context->priv->log, WLOG_WARN,
 	    "[MS-RDPEPC] 2.2.2.4 Update Printer Cachedata (DR_PRN_UPDATE_CACHEDATA) not implemented");
-	WLog_Print(context->priv->log, WLOG_WARN, "TODO: parse %p", config);
+	WLog_Print(context->priv->log, WLOG_WARN, "TODO: parse %p", (const void*)config);
 	return CHANNEL_RC_OK;
 }
 
@@ -1816,8 +1923,9 @@ static UINT rdpdr_server_receive_prn_cache_rename_cachedata(RdpdrServerContext* 
 	return CHANNEL_RC_OK;
 }
 
-static UINT rdpdr_server_receive_prn_cache_data_request(RdpdrServerContext* context, wStream* s,
-                                                        const RDPDR_HEADER* header)
+static UINT
+rdpdr_server_receive_prn_cache_data_request(RdpdrServerContext* context, wStream* s,
+                                            WINPR_ATTR_UNUSED const RDPDR_HEADER* header)
 {
 	UINT32 EventId = 0;
 
@@ -1847,7 +1955,7 @@ static UINT rdpdr_server_receive_prn_cache_data_request(RdpdrServerContext* cont
 }
 
 static UINT rdpdr_server_receive_prn_using_xps_request(RdpdrServerContext* context, wStream* s,
-                                                       const RDPDR_HEADER* header)
+                                                       WINPR_ATTR_UNUSED const RDPDR_HEADER* header)
 {
 	UINT32 PrinterId = 0;
 	UINT32 Flags = 0;
@@ -2020,7 +2128,7 @@ static DWORD WINAPI rdpdr_server_thread(LPVOID arg)
 	                           &BytesReturned) == TRUE)
 	{
 		if (BytesReturned == sizeof(HANDLE))
-			CopyMemory(&ChannelEvent, buffer, sizeof(HANDLE));
+			ChannelEvent = *(HANDLE*)buffer;
 
 		WTSFreeMemory(buffer);
 	}
@@ -2537,8 +2645,6 @@ static UINT rdpdr_server_drive_create_directory_callback1(RdpdrServerContext* co
                                                           RDPDR_IRP* irp, UINT32 deviceId,
                                                           UINT32 completionId, UINT32 ioStatus)
 {
-	UINT32 fileId = 0;
-	UINT8 information = 0;
 	WINPR_ASSERT(context);
 	WINPR_ASSERT(context->priv);
 	WINPR_ASSERT(s);
@@ -2560,8 +2666,11 @@ static UINT rdpdr_server_drive_create_directory_callback1(RdpdrServerContext* co
 	if (!Stream_CheckAndLogRequiredLengthWLog(context->priv->log, s, 5))
 		return ERROR_INVALID_DATA;
 
-	Stream_Read_UINT32(s, fileId);     /* FileId (4 bytes) */
-	Stream_Read_UINT8(s, information); /* Information (1 byte) */
+	const uint32_t fileId = Stream_Get_UINT32(s);    /* FileId (4 bytes) */
+	const uint8_t information = Stream_Get_UINT8(s); /* Information (1 byte) */
+	WLog_Print(context->priv->log, WLOG_DEBUG, "fileId [0x%08" PRIx32 "], information %s", fileId,
+	           fileInformation2str(information));
+
 	/* Setup the IRP. */
 	irp->CompletionId = context->priv->NextCompletionId++;
 	irp->Callback = rdpdr_server_drive_create_directory_callback2;
@@ -2658,8 +2767,6 @@ static UINT rdpdr_server_drive_delete_directory_callback1(RdpdrServerContext* co
                                                           RDPDR_IRP* irp, UINT32 deviceId,
                                                           UINT32 completionId, UINT32 ioStatus)
 {
-	UINT32 fileId = 0;
-	UINT8 information = 0;
 	WINPR_ASSERT(context);
 	WINPR_ASSERT(context->priv);
 	WINPR_ASSERT(irp);
@@ -2680,8 +2787,11 @@ static UINT rdpdr_server_drive_delete_directory_callback1(RdpdrServerContext* co
 	if (!Stream_CheckAndLogRequiredLengthWLog(context->priv->log, s, 5))
 		return ERROR_INVALID_DATA;
 
-	Stream_Read_UINT32(s, fileId);     /* FileId (4 bytes) */
-	Stream_Read_UINT8(s, information); /* Information (1 byte) */
+	const uint32_t fileId = Stream_Get_UINT32(s);    /* FileId (4 bytes) */
+	const uint8_t information = Stream_Get_UINT8(s); /* Information (1 byte) */
+	WLog_Print(context->priv->log, WLOG_DEBUG, "fileId [0x%08" PRIx32 "], information %s", fileId,
+	           fileInformation2str(information));
+
 	/* Setup the IRP. */
 	irp->CompletionId = context->priv->NextCompletionId++;
 	irp->Callback = rdpdr_server_drive_delete_directory_callback2;
@@ -2827,7 +2937,6 @@ static UINT rdpdr_server_drive_query_directory_callback1(RdpdrServerContext* con
                                                          RDPDR_IRP* irp, UINT32 deviceId,
                                                          UINT32 completionId, UINT32 ioStatus)
 {
-	UINT32 fileId = 0;
 	WINPR_ASSERT(context);
 	WINPR_ASSERT(context->priv);
 	WINPR_ASSERT(irp);
@@ -2848,7 +2957,7 @@ static UINT rdpdr_server_drive_query_directory_callback1(RdpdrServerContext* con
 	if (!Stream_CheckAndLogRequiredLengthWLog(context->priv->log, s, 4))
 		return ERROR_INVALID_DATA;
 
-	Stream_Read_UINT32(s, fileId);
+	const uint32_t fileId = Stream_Get_UINT32(s);
 	/* Setup the IRP. */
 	irp->CompletionId = context->priv->NextCompletionId++;
 	irp->Callback = rdpdr_server_drive_query_directory_callback2;
@@ -2920,8 +3029,6 @@ static UINT rdpdr_server_drive_open_file_callback(RdpdrServerContext* context, w
                                                   RDPDR_IRP* irp, UINT32 deviceId,
                                                   UINT32 completionId, UINT32 ioStatus)
 {
-	UINT32 fileId = 0;
-	UINT8 information = 0;
 	WINPR_ASSERT(context);
 	WINPR_ASSERT(context->priv);
 	WINPR_ASSERT(irp);
@@ -2933,8 +3040,11 @@ static UINT rdpdr_server_drive_open_file_callback(RdpdrServerContext* context, w
 	if (!Stream_CheckAndLogRequiredLengthWLog(context->priv->log, s, 5))
 		return ERROR_INVALID_DATA;
 
-	Stream_Read_UINT32(s, fileId);     /* FileId (4 bytes) */
-	Stream_Read_UINT8(s, information); /* Information (1 byte) */
+	const uint32_t fileId = Stream_Get_UINT32(s);    /* FileId (4 bytes) */
+	const uint8_t information = Stream_Get_UINT8(s); /* Information (1 byte) */
+	WLog_Print(context->priv->log, WLOG_DEBUG, "fileId [0x%08" PRIx32 "], information %s", fileId,
+	           fileInformation2str(information));
+
 	/* Invoke the open file completion routine. */
 	context->OnDriveOpenFileComplete(context, irp->CallbackData, ioStatus, deviceId, fileId);
 	/* Destroy the IRP. */
@@ -3253,8 +3363,6 @@ static UINT rdpdr_server_drive_delete_file_callback1(RdpdrServerContext* context
                                                      RDPDR_IRP* irp, UINT32 deviceId,
                                                      UINT32 completionId, UINT32 ioStatus)
 {
-	UINT32 fileId = 0;
-	UINT8 information = 0;
 	WINPR_ASSERT(context);
 	WINPR_ASSERT(context->priv);
 	WINPR_ASSERT(irp);
@@ -3275,8 +3383,11 @@ static UINT rdpdr_server_drive_delete_file_callback1(RdpdrServerContext* context
 	if (!Stream_CheckAndLogRequiredLengthWLog(context->priv->log, s, 5))
 		return ERROR_INVALID_DATA;
 
-	Stream_Read_UINT32(s, fileId);     /* FileId (4 bytes) */
-	Stream_Read_UINT8(s, information); /* Information (1 byte) */
+	const uint32_t fileId = Stream_Get_UINT32(s);    /* FileId (4 bytes) */
+	const uint8_t information = Stream_Get_UINT8(s); /* Information (1 byte) */
+
+	WLog_Print(context->priv->log, WLOG_DEBUG, "fileId [0x%08" PRIx32 "], information %s", fileId,
+	           fileInformation2str(information));
 	/* Setup the IRP. */
 	irp->CompletionId = context->priv->NextCompletionId++;
 	irp->Callback = rdpdr_server_drive_delete_file_callback2;
@@ -3412,8 +3523,6 @@ static UINT rdpdr_server_drive_rename_file_callback1(RdpdrServerContext* context
                                                      RDPDR_IRP* irp, UINT32 deviceId,
                                                      UINT32 completionId, UINT32 ioStatus)
 {
-	UINT32 fileId = 0;
-	UINT8 information = 0;
 	WINPR_ASSERT(context);
 	WINPR_ASSERT(context->priv);
 	WINPR_ASSERT(irp);
@@ -3434,8 +3543,11 @@ static UINT rdpdr_server_drive_rename_file_callback1(RdpdrServerContext* context
 	if (!Stream_CheckAndLogRequiredLengthWLog(context->priv->log, s, 5))
 		return ERROR_INVALID_DATA;
 
-	Stream_Read_UINT32(s, fileId);     /* FileId (4 bytes) */
-	Stream_Read_UINT8(s, information); /* Information (1 byte) */
+	const uint32_t fileId = Stream_Get_UINT32(s);    /* FileId (4 bytes) */
+	const uint8_t information = Stream_Get_UINT8(s); /* Information (1 byte) */
+	WLog_Print(context->priv->log, WLOG_DEBUG, "fileId [0x%08" PRIx32 "], information %s", fileId,
+	           fileInformation2str(information));
+
 	/* Setup the IRP. */
 	irp->CompletionId = context->priv->NextCompletionId++;
 	irp->Callback = rdpdr_server_drive_rename_file_callback2;
@@ -3538,6 +3650,8 @@ static RdpdrServerPrivate* rdpdr_server_private_new(void)
 
 	obj = HashTable_KeyObject(priv->devicelist);
 	obj->fnObjectEquals = rdpdr_device_equal;
+	obj->fnObjectFree = rdpdr_device_key_free;
+	obj->fnObjectNew = rdpdr_device_key_clone;
 
 	return priv;
 fail:

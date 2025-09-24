@@ -38,6 +38,8 @@
 
 #define TAG MODULE_TAG("persist-bitmap-filter")
 
+// #define REPLY_WITH_EMPTY_OFFER
+
 static constexpr char plugin_name[] = "bitmap-filter";
 static constexpr char plugin_desc[] =
     "this plugin deactivates and filters persistent bitmap cache.";
@@ -118,7 +120,9 @@ class DynChannelState
 	uint32_t _channelId = 0;
 };
 
-static BOOL filter_client_pre_connect(proxyPlugin* plugin, proxyData* pdata, void* custom)
+static BOOL filter_client_pre_connect([[maybe_unused]] proxyPlugin* plugin,
+                                      [[maybe_unused]] proxyData* pdata,
+                                      [[maybe_unused]] void* custom)
 {
 	WINPR_ASSERT(plugin);
 	WINPR_ASSERT(pdata);
@@ -131,7 +135,9 @@ static BOOL filter_client_pre_connect(proxyPlugin* plugin, proxyData* pdata, voi
 	return freerdp_settings_set_bool(settings, FreeRDP_BitmapCachePersistEnabled, FALSE);
 }
 
-static BOOL filter_dyn_channel_intercept_list(proxyPlugin* plugin, proxyData* pdata, void* arg)
+static BOOL filter_dyn_channel_intercept_list([[maybe_unused]] proxyPlugin* plugin,
+                                              [[maybe_unused]] proxyData* pdata,
+                                              [[maybe_unused]] void* arg)
 {
 	auto data = static_cast<proxyChannelToInterceptData*>(arg);
 
@@ -146,7 +152,9 @@ static BOOL filter_dyn_channel_intercept_list(proxyPlugin* plugin, proxyData* pd
 	return TRUE;
 }
 
-static BOOL filter_static_channel_intercept_list(proxyPlugin* plugin, proxyData* pdata, void* arg)
+static BOOL filter_static_channel_intercept_list([[maybe_unused]] proxyPlugin* plugin,
+                                                 [[maybe_unused]] proxyData* pdata,
+                                                 [[maybe_unused]] void* arg)
 {
 	auto data = static_cast<proxyChannelToInterceptData*>(arg);
 
@@ -261,6 +269,7 @@ static BOOL filter_set_plugin_data(proxyPlugin* plugin, proxyData* pdata, DynCha
 	return mgr->SetPluginData(mgr, plugin_name, pdata, data);
 }
 
+#if defined(REPLY_WITH_EMPTY_OFFER)
 static UINT8 drdynvc_value_to_cblen(UINT32 value)
 {
 	if (value <= 0xFF)
@@ -322,6 +331,7 @@ static BOOL filter_forward_empty_offer(const char* sessionID, proxyDynChannelInt
 	data->rewritten = TRUE;
 	return TRUE;
 }
+#endif
 
 static BOOL filter_dyn_channel_intercept(proxyPlugin* plugin, proxyData* pdata, void* arg)
 {
@@ -377,8 +387,12 @@ static BOOL filter_dyn_channel_intercept(proxyPlugin* plugin, proxyData* pdata, 
 
 		if (state->skip())
 		{
-			if (!state->skip(inputDataLength))
-				return FALSE;
+			if (state->skip(inputDataLength))
+			{
+				WLog_DBG(TAG,
+				         "skipping data, but %" PRIuz " bytes left [stream has %" PRIuz " bytes]",
+				         state->remaining(), inputDataLength);
+			}
 
 			if (state->drop())
 			{
@@ -390,7 +404,8 @@ static BOOL filter_dyn_channel_intercept(proxyPlugin* plugin, proxyData* pdata, 
 				          inputDataLength, state->remaining());
 				data->result = PF_CHANNEL_RESULT_DROP;
 
-#if 0 // TODO: Sending this does screw up some windows RDP server versions :/
+#if defined(REPLY_WITH_EMPTY_OFFER) // TODO: Sending this does screw up some windows RDP server
+                                    // versions :/
 				if (state->remaining() == 0)
 				{
 					if (!filter_forward_empty_offer(pdata->session_id, data, pos,
@@ -434,16 +449,7 @@ static BOOL filter_server_session_end(proxyPlugin* plugin, proxyData* pdata, voi
 	return TRUE;
 }
 
-#ifdef __cplusplus
-extern "C"
-{
-#endif
-	FREERDP_API BOOL proxy_module_entry_point(proxyPluginsManager* plugins_manager, void* userdata);
-#ifdef __cplusplus
-}
-#endif
-
-BOOL proxy_module_entry_point(proxyPluginsManager* plugins_manager, void* userdata)
+static BOOL int_proxy_module_entry_point(proxyPluginsManager* plugins_manager, void* userdata)
 {
 	proxyPlugin plugin = {};
 
@@ -466,3 +472,26 @@ BOOL proxy_module_entry_point(proxyPluginsManager* plugins_manager, void* userda
 
 	return plugins_manager->RegisterPlugin(plugins_manager, &plugin);
 }
+
+#ifdef __cplusplus
+extern "C"
+{
+#endif
+#if defined(BUILD_SHARED_LIBS)
+	FREERDP_API BOOL proxy_module_entry_point(proxyPluginsManager* plugins_manager, void* userdata);
+
+	BOOL proxy_module_entry_point(proxyPluginsManager* plugins_manager, void* userdata)
+	{
+		return int_proxy_module_entry_point(plugins_manager, userdata);
+	}
+#else
+FREERDP_API BOOL bitmap_filter_proxy_module_entry_point(proxyPluginsManager* plugins_manager,
+                                                        void* userdata);
+BOOL bitmap_filter_proxy_module_entry_point(proxyPluginsManager* plugins_manager, void* userdata)
+{
+	return int_proxy_module_entry_point(plugins_manager, userdata);
+}
+#endif
+#ifdef __cplusplus
+}
+#endif

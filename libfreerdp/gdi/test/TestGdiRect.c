@@ -17,13 +17,15 @@
 static int test_gdi_PtInRect(void)
 {
 	int rc = -1;
-	HGDI_RECT hRect = NULL;
+	GDI_RECT* hRect = NULL;
 	UINT32 left = 20;
 	UINT32 top = 40;
 	UINT32 right = 60;
 	UINT32 bottom = 80;
 
-	if (!(hRect = gdi_CreateRect(left, top, right, bottom)))
+	if (!(hRect = gdi_CreateRect(
+	          WINPR_ASSERTING_INT_CAST(int, left), WINPR_ASSERTING_INT_CAST(int, top),
+	          WINPR_ASSERTING_INT_CAST(int, right), WINPR_ASSERTING_INT_CAST(int, bottom))))
 	{
 		printf("gdi_CreateRect failed\n");
 		return rc;
@@ -44,16 +46,18 @@ static int test_gdi_PtInRect(void)
 	if (!gdi_PtInRect(hRect, 30, 50))
 		goto fail;
 
-	if (!gdi_PtInRect(hRect, left, top))
+	if (!gdi_PtInRect(hRect, WINPR_ASSERTING_INT_CAST(int, left),
+	                  WINPR_ASSERTING_INT_CAST(int, top)))
 		goto fail;
 
-	if (!gdi_PtInRect(hRect, right, bottom))
+	if (!gdi_PtInRect(hRect, WINPR_ASSERTING_INT_CAST(int, right),
+	                  WINPR_ASSERTING_INT_CAST(int, bottom)))
 		goto fail;
 
-	if (!gdi_PtInRect(hRect, right, 60))
+	if (!gdi_PtInRect(hRect, WINPR_ASSERTING_INT_CAST(int, right), 60))
 		goto fail;
 
-	if (!gdi_PtInRect(hRect, 40, bottom))
+	if (!gdi_PtInRect(hRect, 40, WINPR_ASSERTING_INT_CAST(int, bottom)))
 		goto fail;
 
 	rc = 0;
@@ -66,7 +70,7 @@ static int test_gdi_FillRect(void)
 {
 	int rc = -1;
 	HGDI_DC hdc = NULL;
-	HGDI_RECT hRect = NULL;
+	GDI_RECT* hRect = NULL;
 	HGDI_BRUSH hBrush = NULL;
 	HGDI_BITMAP hBitmap = NULL;
 	UINT32 color = 0;
@@ -89,7 +93,9 @@ static int test_gdi_FillRect(void)
 
 	hdc->format = PIXEL_FORMAT_XRGB32;
 
-	if (!(hRect = gdi_CreateRect(left, top, right, bottom)))
+	if (!(hRect = gdi_CreateRect(
+	          WINPR_ASSERTING_INT_CAST(int, left), WINPR_ASSERTING_INT_CAST(int, top),
+	          WINPR_ASSERTING_INT_CAST(int, right), WINPR_ASSERTING_INT_CAST(int, bottom))))
 	{
 		printf("gdi_CreateRect failed\n");
 		goto fail;
@@ -111,7 +117,8 @@ static int test_gdi_FillRect(void)
 			rawPixel = gdi_GetPixel(hdc, x, y);
 			pixel = FreeRDPConvertColor(rawPixel, hdc->format, PIXEL_FORMAT_ARGB32, NULL);
 
-			if (gdi_PtInRect(hRect, x, y))
+			if (gdi_PtInRect(hRect, WINPR_ASSERTING_INT_CAST(int, x),
+			                 WINPR_ASSERTING_INT_CAST(int, y)))
 			{
 				if (pixel == color)
 				{

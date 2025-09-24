@@ -8,7 +8,7 @@
 #include <winpr/thread.h>
 #include <winpr/interlocked.h>
 
-#define TEST_SYNC_CRITICAL_TEST1_RUNTIME_MS 50
+#define TEST_SYNC_CRITICAL_TEST1_RUNTIME_MS 100
 #define TEST_SYNC_CRITICAL_TEST1_RUNS 4
 
 static CRITICAL_SECTION critical;
@@ -277,7 +277,7 @@ static DWORD WINAPI TestSynchCritical_Main(LPVOID arg)
 		DeleteCriticalSection(&critical);
 	}
 
-	free(hThreads);
+	free((void*)hThreads);
 
 	/**
 	 * TryEnterCriticalSection in thread must fail if we hold the lock in the main thread

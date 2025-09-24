@@ -23,6 +23,8 @@
 #include <thread>
 #include <map>
 #include <atomic>
+#include <queue>
+#include <mutex>
 
 #include <freerdp/freerdp.h>
 #include <freerdp/client/rdpei.h>
@@ -39,7 +41,7 @@
 #include "sdl_clip.hpp"
 #include "sdl_utils.hpp"
 #include "sdl_window.hpp"
-#include "dialogs/sdl_connection_dialog.hpp"
+#include "dialogs/sdl_connection_dialog_wrapper.hpp"
 
 using SDLSurfacePtr = std::unique_ptr<SDL_Surface, decltype(&SDL_DestroySurface)>;
 
@@ -49,12 +51,44 @@ class SdlContext
 	explicit SdlContext(rdpContext* context);
 	SdlContext(const SdlContext& other) = delete;
 	SdlContext(SdlContext&& other) = delete;
+	~SdlContext() = default;
 
 	SdlContext& operator=(const SdlContext& other) = delete;
 	SdlContext& operator=(SdlContext&& other) = delete;
 
+	[[nodiscard]] bool redraw(bool suppress = false) const;
+
+	void setConnected(bool val);
+	[[nodiscard]] bool isConnected() const;
+
+	[[nodiscard]] bool update_resizeable(bool enable);
+	[[nodiscard]] bool update_fullscreen(bool enter);
+	[[nodiscard]] bool update_minimize();
+
+	[[nodiscard]] rdpContext* context() const;
+	[[nodiscard]] rdpClientContext* common() const;
+
+	void setCursor(rdpPointer* cursor);
+	[[nodiscard]] rdpPointer* cursor() const;
+
+	void setMonitorIds(const std::vector<SDL_DisplayID>& ids);
+	const std::vector<SDL_DisplayID>& monitorIds() const;
+	int64_t monitorId(uint32_t index) const;
+
+	void push(std::vector<SDL_Rect>&& rects);
+	std::vector<SDL_Rect> pop();
+
+	void setHasCursor(bool val);
+	[[nodiscard]] bool hasCursor() const;
+
   private:
 	rdpContext* _context;
+	std::atomic<bool> _connected = false;
+	bool _cursor_visible = true;
+	rdpPointer* _cursor = nullptr;
+	std::vector<SDL_DisplayID> _monitorIds;
+	std::mutex _queue_mux;
+	std::queue<std::vector<SDL_Rect>> _queue;
 
   public:
 	wLog* log;
@@ -64,7 +98,6 @@ class SdlContext
 	bool resizeable = false;
 	bool grab_mouse = false;
 	bool grab_kbd = false;
-	bool grab_kbd_enabled = true;
 
 	std::map<Uint32, SdlWindow> windows;
 
@@ -72,7 +105,6 @@ class SdlContext
 	std::thread thread;
 	WinPREvent initialize;
 	WinPREvent initialized;
-	WinPREvent update_complete;
 	WinPREvent windows_created;
 	int exit_code = -1;
 
@@ -84,14 +116,6 @@ class SdlContext
 
 	SDL_PixelFormat sdl_pixel_format = SDL_PIXELFORMAT_UNKNOWN;
 
-	std::unique_ptr<SDLConnectionDialog> connection_dialog;
-
 	std::atomic<bool> rdp_thread_running;
-
-	BOOL update_resizeable(BOOL enable);
-	BOOL update_fullscreen(BOOL enter);
-	BOOL update_minimize();
-
-	[[nodiscard]] rdpContext* context() const;
-	[[nodiscard]] rdpClientContext* common() const;
+	SdlConnectionDialogWrapper dialog;
 };

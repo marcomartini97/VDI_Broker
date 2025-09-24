@@ -22,15 +22,16 @@
 #include <string.h>
 
 #include <winpr/wtypes.h>
+#include <winpr/string.h>
 #include <winpr/error.h>
 #include <winpr/wlog.h>
 
 #if DEFINE_UNICODE
 
-HRESULT PATH_ALLOC_COMBINE(PCWSTR pszPathIn, PCWSTR pszMore, unsigned long dwFlags,
-                           PWSTR* ppszPathOut)
+HRESULT PATH_ALLOC_COMBINE(PCWSTR pszPathIn, PCWSTR pszMore,
+                           WINPR_ATTR_UNUSED unsigned long dwFlags, PWSTR* ppszPathOut)
 {
-	WLog_WARN(TAG, "has known bugs and needs fixing.");
+	WLog_WARN("TODO", "has known bugs and needs fixing.");
 
 	if (!ppszPathOut)
 		return E_INVALIDARG;
@@ -76,7 +77,6 @@ HRESULT PATH_ALLOC_COMBINE(PCWSTR pszPathIn, PCWSTR pszMore, unsigned long dwFla
 	}
 	else
 	{
-		const WCHAR sep[] = CUR_PATH_SEPARATOR_STR;
 		const size_t pszPathOutLength = pszPathInLength + pszMoreLength;
 		const size_t sizeOfBuffer = (pszPathOutLength + 1) * 2;
 		PWSTR pszPathOut = (PWSTR)calloc(sizeOfBuffer, 2);
@@ -86,7 +86,7 @@ HRESULT PATH_ALLOC_COMBINE(PCWSTR pszPathIn, PCWSTR pszMore, unsigned long dwFla
 
 		_wcsncat(pszPathOut, pszPathIn, pszPathInLength);
 		if (!backslashIn)
-			_wcsncat(pszPathOut, sep, ARRAYSIZE(sep));
+			_wcsncat(pszPathOut, CUR_PATH_SEPARATOR_STR, ARRAYSIZE(CUR_PATH_SEPARATOR_STR));
 		_wcsncat(pszPathOut, pszMore, pszMoreLength);
 
 		*ppszPathOut = pszPathOut;
@@ -98,9 +98,10 @@ HRESULT PATH_ALLOC_COMBINE(PCWSTR pszPathIn, PCWSTR pszMore, unsigned long dwFla
 
 #else
 
-HRESULT PATH_ALLOC_COMBINE(PCSTR pszPathIn, PCSTR pszMore, unsigned long dwFlags, PSTR* ppszPathOut)
+HRESULT PATH_ALLOC_COMBINE(PCSTR pszPathIn, PCSTR pszMore, WINPR_ATTR_UNUSED unsigned long dwFlags,
+                           PSTR* ppszPathOut)
 {
-	WLog_WARN(TAG, "has known bugs and needs fixing.");
+	WLog_WARN("TODO", "has known bugs and needs fixing.");
 
 	if (!ppszPathOut)
 		return E_INVALIDARG;
@@ -136,7 +137,7 @@ HRESULT PATH_ALLOC_COMBINE(PCSTR pszPathIn, PCSTR pszMore, unsigned long dwFlags
 			if (!pszPathOut)
 				return E_OUTOFMEMORY;
 
-			sprintf_s(pszPathOut, sizeOfBuffer, "%c:%s", pszPathIn[0], pszMore);
+			(void)sprintf_s(pszPathOut, sizeOfBuffer, "%c:%s", pszPathIn[0], pszMore);
 			*ppszPathOut = pszPathOut;
 			return S_OK;
 		}
@@ -151,10 +152,10 @@ HRESULT PATH_ALLOC_COMBINE(PCSTR pszPathIn, PCSTR pszMore, unsigned long dwFlags
 			return E_OUTOFMEMORY;
 
 		if (backslashIn)
-			sprintf_s(pszPathOut, sizeOfBuffer, "%s%s", pszPathIn, pszMore);
+			(void)sprintf_s(pszPathOut, sizeOfBuffer, "%s%s", pszPathIn, pszMore);
 		else
-			sprintf_s(pszPathOut, sizeOfBuffer, "%s" CUR_PATH_SEPARATOR_STR "%s", pszPathIn,
-			          pszMore);
+			(void)sprintf_s(pszPathOut, sizeOfBuffer, "%s%s%s", pszPathIn, CUR_PATH_SEPARATOR_STR,
+			                pszMore);
 
 		*ppszPathOut = pszPathOut;
 		return S_OK;

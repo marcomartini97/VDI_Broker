@@ -235,7 +235,7 @@ static size_t udevman_register_udevice(IUDEVMAN* idevman, BYTE bus_number, BYTE 
 			addnum++;
 		}
 
-		free(devArray);
+		free((void*)devArray);
 		return addnum;
 	}
 	else
@@ -624,7 +624,7 @@ static BOOL udevman_initialize(IUDEVMAN* idevman, UINT32 channelId)
 	if (!udevman)
 		return FALSE;
 
-	idevman->status &= ~URBDRC_DEVICE_CHANNEL_CLOSED;
+	idevman->status &= (uint32_t)~URBDRC_DEVICE_CHANNEL_CLOSED;
 	idevman->controlChannelId = channelId;
 	return TRUE;
 }
@@ -669,30 +669,30 @@ static BOOL udevman_parse_device_id_addr(const char** str, UINT16* id1, UINT16* 
 	return FALSE;
 }
 
-static BOOL urbdrc_udevman_register_devices(UDEVMAN* udevman, const char* devices, BOOL add_by_addr)
+static UINT urbdrc_udevman_register_devices(UDEVMAN* udevman, const char* devices, BOOL add_by_addr)
 {
 	const char* pos = devices;
-	VID_PID_PAIR* idpair = NULL;
-	UINT16 id1 = 0;
-	UINT16 id2 = 0;
 
 	while (*pos != '\0')
 	{
+		UINT16 id1 = 0;
+		UINT16 id2 = 0;
 		if (!udevman_parse_device_id_addr(&pos, &id1, &id2, (add_by_addr) ? UINT8_MAX : UINT16_MAX,
 		                                  ':', '#'))
 		{
 			WLog_ERR(TAG, "Invalid device argument: \"%s\"", devices);
-			return FALSE;
+			return CHANNEL_RC_INITIALIZATION_ERROR;
 		}
 
 		if (add_by_addr)
 		{
-			add_device(&udevman->iface, DEVICE_ADD_FLAG_BUS | DEVICE_ADD_FLAG_DEV, (UINT8)id1,
-			           (UINT8)id2, 0, 0);
+			if (!add_device(&udevman->iface, DEVICE_ADD_FLAG_BUS | DEVICE_ADD_FLAG_DEV, (UINT8)id1,
+			                (UINT8)id2, 0, 0))
+				return CHANNEL_RC_INITIALIZATION_ERROR;
 		}
 		else
 		{
-			idpair = calloc(1, sizeof(VID_PID_PAIR));
+			VID_PID_PAIR* idpair = calloc(1, sizeof(VID_PID_PAIR));
 			if (!idpair)
 				return CHANNEL_RC_NO_MEMORY;
 			idpair->vid = id1;
@@ -703,8 +703,13 @@ static BOOL urbdrc_udevman_register_devices(UDEVMAN* udevman, const char* device
 				return CHANNEL_RC_NO_MEMORY;
 			}
 
-			add_device(&udevman->iface, DEVICE_ADD_FLAG_VENDOR | DEVICE_ADD_FLAG_PRODUCT, 0, 0, id1,
-			           id2);
+			// NOLINTNEXTLINE(clang-analyzer-unix.Malloc): ArrayList_Append owns idpair
+			if (!add_device(&udevman->iface, DEVICE_ADD_FLAG_VENDOR | DEVICE_ADD_FLAG_PRODUCT, 0, 0,
+			                id1, id2))
+			{
+				// NOLINTNEXTLINE(clang-analyzer-unix.Malloc): ArrayList_Append owns idpair
+				return CHANNEL_RC_INITIALIZATION_ERROR;
+			}
 		}
 	}
 
@@ -787,15 +792,11 @@ static UINT urbdrc_udevman_parse_addin_args(UDEVMAN* udevman, const ADDIN_ARGV* 
 
 static UINT udevman_listener_created_callback(IUDEVMAN* iudevman)
 {
-	UINT status = 0;
 	UDEVMAN* udevman = (UDEVMAN*)iudevman;
+	WINPR_ASSERT(udevman);
 
 	if (udevman->devices_vid_pid)
-	{
-		status = urbdrc_udevman_register_devices(udevman, udevman->devices_vid_pid, FALSE);
-		if (status != CHANNEL_RC_OK)
-			return status;
-	}
+		return urbdrc_udevman_register_devices(udevman, udevman->devices_vid_pid, FALSE);
 
 	if (udevman->devices_addr)
 		return urbdrc_udevman_register_devices(udevman, udevman->devices_addr, TRUE);
@@ -898,7 +899,6 @@ FREERDP_ENTRY_POINT(UINT VCAPITYPE libusb_freerdp_urbdrc_client_subsystem_entry(
     PFREERDP_URBDRC_SERVICE_ENTRY_POINTS pEntryPoints))
 {
 	wObject* obj = NULL;
-	UINT rc = 0;
 	UINT status = 0;
 	UDEVMAN* udevman = NULL;
 	const ADDIN_ARGV* args = pEntryPoints->args;
@@ -916,15 +916,15 @@ FREERDP_ENTRY_POINT(UINT VCAPITYPE libusb_freerdp_urbdrc_client_subsystem_entry(
 
 	udevman->next_device_id = BASE_USBDEVICE_NUM;
 	udevman->iface.plugin = pEntryPoints->plugin;
-	rc = libusb_init(&udevman->context);
+	const int res = libusb_init(&udevman->context);
 
-	if (rc != LIBUSB_SUCCESS)
+	if (res != LIBUSB_SUCCESS)
 		goto fail;
 
 #ifdef _WIN32
 #if LIBUSB_API_VERSION >= 0x01000106
 	/* Prefer usbDK backend on windows. Not supported on other platforms. */
-	rc = libusb_set_option(udevman->context, LIBUSB_OPTION_USE_USBDK);
+	const int rc = libusb_set_option(udevman->context, LIBUSB_OPTION_USE_USBDK);
 	switch (rc)
 	{
 		case LIBUSB_SUCCESS:

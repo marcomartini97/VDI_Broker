@@ -24,6 +24,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <winpr/cast.h>
 #include <winpr/platform.h>
 #include <winpr/winpr.h>
 
@@ -32,6 +33,7 @@
 
 WINPR_PRAGMA_DIAG_PUSH
 WINPR_PRAGMA_DIAG_IGNORED_RESERVED_IDENTIFIER
+// NOLINTBEGIN(bugprone-reserved-identifier,cert-dcl37-c,cert-dcl51-cpp)
 
 #ifndef _WIN32
 
@@ -108,13 +110,7 @@ static INLINE UINT64 _byteswap_uint64(UINT64 _val)
 
 static INLINE UINT16 _byteswap_ushort(UINT16 _val)
 {
-#ifdef __cplusplus
-#define winpr_byteswap_cast(t, val) static_cast<t>(val)
-#else
-#define winpr_byteswap_cast(t, val) (t)(val)
-#endif
-	return winpr_byteswap_cast(UINT16, ((_val) >> 8U) | ((_val) << 8U));
-#undef winpr_byteswap_cast
+	return WINPR_CXX_COMPAT_CAST(UINT16, ((_val) >> 8U) | ((_val) << 8U));
 }
 
 #endif /* (__GNUC__ > 4) || ... */
@@ -240,6 +236,7 @@ extern "C"
 #define winpr_aligned_calloc(count, size, alignment) _aligned_recalloc(NULL, count, size, alignment)
 #endif /* defined(_WIN32) && (!defined(__MINGW32__) || defined(_UCRT)) */
 
+// NOLINTEND(bugprone-reserved-identifier,cert-dcl37-c,cert-dcl51-cpp)
 WINPR_PRAGMA_DIAG_POP
 
 #endif /* WINPR_CRT_H */

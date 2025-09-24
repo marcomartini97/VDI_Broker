@@ -26,23 +26,21 @@
 
 #include <SDL3/SDL.h>
 
-#include <freerdp/freerdp.h>
-
-#include "sdl_widget.hpp"
 #include "sdl_buttons.hpp"
+#include "sdl_connection_dialog_wrapper.hpp"
+#include "sdl_widget.hpp"
+#include "sdl_widget_list.hpp"
 
-class SDLConnectionDialog
+class SDLConnectionDialog : public SdlWidgetList
 {
   public:
 	explicit SDLConnectionDialog(rdpContext* context);
 	SDLConnectionDialog(const SDLConnectionDialog& other) = delete;
 	SDLConnectionDialog(const SDLConnectionDialog&& other) = delete;
-	virtual ~SDLConnectionDialog();
+	~SDLConnectionDialog() override;
 
 	SDLConnectionDialog& operator=(const SDLConnectionDialog& other) = delete;
-	SDLConnectionDialog& operator=(SDLConnectionDialog& other) = delete;
-
-	bool visible() const;
+	SDLConnectionDialog& operator=(SDLConnectionDialog&& other) = delete;
 
 	bool setTitle(const char* fmt, ...);
 	bool showInfo(const char* fmt, ...);
@@ -57,29 +55,21 @@ class SDLConnectionDialog
 
 	bool handle(const SDL_Event& event);
 
-  private:
-	enum MsgType
-	{
-		MSG_NONE,
-		MSG_INFO,
-		MSG_WARN,
-		MSG_ERROR,
-		MSG_DISCARD
-	};
+	bool visible() const override;
 
+  protected:
+	bool updateInternal() override;
+
+  private:
 	bool createWindow();
 	void destroyWindow();
 
-	bool update();
+	bool updateMsg(SdlConnectionDialogWrapper::MsgType type);
 
 	bool setModal();
 
-	static bool clearWindow(SDL_Renderer* renderer);
-
-	bool update(SDL_Renderer* renderer);
-
-	bool show(MsgType type, const char* fmt, va_list ap);
-	bool show(MsgType type);
+	bool show(SdlConnectionDialogWrapper::MsgType type, const char* fmt, va_list ap);
+	bool show(SdlConnectionDialogWrapper::MsgType type);
 
 	static std::string print(const char* fmt, va_list ap);
 	bool setTimer(Uint32 timeoutMS = 15000);
@@ -95,38 +85,11 @@ class SDLConnectionDialog
 	};
 
 	rdpContext* _context = nullptr;
-	SDL_Window* _window = nullptr;
-	SDL_Renderer* _renderer = nullptr;
 	mutable std::mutex _mux;
 	std::string _title;
 	std::string _msg;
-	MsgType _type = MSG_NONE;
-	MsgType _type_active = MSG_NONE;
-	SDL_TimerID _timer = -1;
+	SdlConnectionDialogWrapper::MsgType _type_active = SdlConnectionDialogWrapper::MSG_NONE;
+	SDL_TimerID _timer = 0;
 	bool _running = false;
 	std::vector<widget_cfg_t> _list;
-	SdlButtonList _buttons;
-};
-
-class SDLConnectionDialogHider
-{
-  public:
-	explicit SDLConnectionDialogHider(freerdp* instance);
-	explicit SDLConnectionDialogHider(rdpContext* context);
-
-	explicit SDLConnectionDialogHider(SDLConnectionDialog* dialog);
-
-	SDLConnectionDialogHider(const SDLConnectionDialogHider& other) = delete;
-	SDLConnectionDialogHider(SDLConnectionDialogHider&& other) = delete;
-	SDLConnectionDialogHider& operator=(const SDLConnectionDialogHider& other) = delete;
-	SDLConnectionDialogHider& operator=(SDLConnectionDialogHider& other) = delete;
-
-	~SDLConnectionDialogHider();
-
-  private:
-	SDLConnectionDialog* get(freerdp* instance);
-	static SDLConnectionDialog* get(rdpContext* context);
-
-	SDLConnectionDialog* _dialog = nullptr;
-	bool _visible = false;
 };

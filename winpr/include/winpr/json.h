@@ -78,6 +78,26 @@ extern "C"
 	WINPR_API WINPR_JSON* WINPR_JSON_ParseWithLength(const char* value, size_t buffer_length);
 
 	/**
+	 * @brief Parse a JSON string read from a file \b filename
+	 *
+	 * @param filename the name of the file to read from
+	 * @return A @ref WINPR_JSON object holding the parsed string or \b NULL if failed
+	 * @since version 3.16.0
+	 */
+	WINPR_ATTR_MALLOC(WINPR_JSON_Delete, 1)
+	WINPR_API WINPR_JSON* WINPR_JSON_ParseFromFile(const char* filename);
+
+	/**
+	 * @brief Parse a JSON string read from a \b FILE
+	 *
+	 * @param fp a \b FILE pointer to read from.
+	 * @return A @ref WINPR_JSON object holding the parsed string or \b NULL if failed
+	 * @since version 3.16.0
+	 */
+	WINPR_ATTR_MALLOC(WINPR_JSON_Delete, 1)
+	WINPR_API WINPR_JSON* WINPR_JSON_ParseFromFileFP(FILE* fp);
+
+	/**
 	 * @brief Get the number of arrayitems from an array
 	 *
 	 * @param array the JSON instance to query
@@ -99,14 +119,14 @@ extern "C"
 	/**
 	 * @brief Return a pointer to an JSON object item
 	 * @param object the JSON object
-	 * @param string the name of the object
+	 * @param string the name of the object (case is ignored)
 	 * @return A pointer to the object identified by @ref string or \b NULL
 	 * @since version 3.6.0
 	 */
 	WINPR_API WINPR_JSON* WINPR_JSON_GetObjectItem(const WINPR_JSON* object, const char* string);
 
 	/**
-	 * @brief Same as @ref WINPR_JSON_GetObjectItem but with case insensitive matching
+	 * @brief Same as @ref WINPR_JSON_GetObjectItem but with case sensitive matching
 	 *
 	 * @param object the JSON instance to query
 	 * @param string the name of the object

@@ -56,17 +56,7 @@ static void dump_event(WINPR_EVENT* event, size_t index)
 {
 	char** msg = NULL;
 	size_t used = 0;
-#if 0
-	void* stack = winpr_backtrace(20);
-	WLog_DBG(TAG, "Called from:");
-	msg = winpr_backtrace_symbols(stack, &used);
 
-	for (size_t i = 0; i < used; i++)
-		WLog_DBG(TAG, "[%" PRIdz "]: %s", i, msg[i]);
-
-	free(msg);
-	winpr_backtrace_free(stack);
-#endif
 	WLog_DBG(TAG, "Event handle created still not closed! [%" PRIuz ", %p]", index, event);
 	msg = winpr_backtrace_symbols(event->create_stack, &used);
 
@@ -423,8 +413,9 @@ BOOL ResetEvent(HANDLE hEvent)
 
 #endif
 
-HANDLE CreateFileDescriptorEventW(LPSECURITY_ATTRIBUTES lpEventAttributes, BOOL bManualReset,
-                                  BOOL bInitialState, int FileDescriptor, ULONG mode)
+HANDLE CreateFileDescriptorEventW(WINPR_ATTR_UNUSED LPSECURITY_ATTRIBUTES lpEventAttributes,
+                                  BOOL bManualReset, WINPR_ATTR_UNUSED BOOL bInitialState,
+                                  int FileDescriptor, ULONG mode)
 {
 #ifndef _WIN32
 	WINPR_EVENT* event = NULL;

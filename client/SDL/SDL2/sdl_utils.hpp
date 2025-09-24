@@ -26,39 +26,7 @@
 #include <string>
 #include <vector>
 
-class CriticalSection
-{
-  public:
-	CriticalSection();
-	CriticalSection(const CriticalSection& other) = delete;
-	CriticalSection(CriticalSection&& other) = delete;
-	~CriticalSection();
-
-	CriticalSection& operator=(const CriticalSection& other) = delete;
-	CriticalSection& operator=(const CriticalSection&& other) = delete;
-
-	void lock();
-	void unlock();
-
-  private:
-	CRITICAL_SECTION _section{};
-};
-
-class WinPREvent
-{
-  public:
-	explicit WinPREvent(bool initial = false);
-	~WinPREvent();
-
-	void set();
-	void clear();
-	[[nodiscard]] bool isSet() const;
-
-	[[nodiscard]] HANDLE handle() const;
-
-  private:
-	HANDLE _handle;
-};
+#include <sdl_common_utils.hpp>
 
 enum
 {
@@ -101,8 +69,8 @@ bool sdl_push_quit();
 
 std::string sdl_window_event_str(Uint8 ev);
 const char* sdl_event_type_str(Uint32 type);
-const char* sdl_error_string(Uint32 res);
+const char* sdl_error_string(Sint32 res);
 
 #define sdl_log_error(res, log, what) sdl_log_error_ex(res, log, what, __FILE__, __LINE__, __func__)
-BOOL sdl_log_error_ex(Uint32 res, wLog* log, const char* what, const char* file, size_t line,
+BOOL sdl_log_error_ex(Sint32 res, wLog* log, const char* what, const char* file, size_t line,
                       const char* fkt);

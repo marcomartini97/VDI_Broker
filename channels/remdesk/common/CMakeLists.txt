@@ -16,11 +16,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-set(SRCS
-	remdesk_common.h
-	remdesk_common.c)
+set(SRCS remdesk_common.h remdesk_common.c)
 
 add_library(remdesk-common STATIC ${SRCS})
+set_property(TARGET remdesk-common PROPERTY FOLDER "Channels/${CHANNEL_NAME}/Common")
 
-channel_install(remdesk-common  ${FREERDP_ADDIN_PATH} "FreeRDPTargets")
-
+freerdp_client_pc_add_library_private(remdesk-common)
+channel_install(remdesk-common ${FREERDP_ADDIN_PATH} "FreeRDPTargets")

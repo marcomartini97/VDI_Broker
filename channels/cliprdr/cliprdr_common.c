@@ -116,10 +116,10 @@ static BOOL cliprdr_validate_file_contents_request(const CLIPRDR_FILE_CONTENTS_R
 	return TRUE;
 }
 
-wStream* cliprdr_packet_new(UINT16 msgType, UINT16 msgFlags, UINT32 dataLen)
+wStream* cliprdr_packet_new(UINT16 msgType, UINT16 msgFlags, size_t dataLen)
 {
-	wStream* s = NULL;
-	s = Stream_New(NULL, dataLen + 8);
+	WINPR_ASSERT(dataLen < UINT32_MAX);
+	wStream* s = Stream_New(NULL, dataLen + 8ULL);
 
 	if (!s)
 	{
@@ -378,7 +378,8 @@ UINT cliprdr_read_file_contents_response(wStream* s, CLIPRDR_FILE_CONTENTS_RESPO
 	return CHANNEL_RC_OK;
 }
 
-UINT cliprdr_read_format_list(wStream* s, CLIPRDR_FORMAT_LIST* formatList, BOOL useLongFormatNames)
+UINT cliprdr_read_format_list(wLog* log, wStream* s, CLIPRDR_FORMAT_LIST* formatList,
+                              BOOL useLongFormatNames)
 {
 	UINT32 index = 0;
 	size_t formatNameLength = 0;
@@ -408,7 +409,7 @@ UINT cliprdr_read_format_list(wStream* s, CLIPRDR_FORMAT_LIST* formatList, BOOL 
 		const size_t cap = Stream_Capacity(sub1) / 36ULL;
 		if (cap > UINT32_MAX)
 		{
-			WLog_ERR(TAG, "Invalid short format list length: %" PRIuz "", cap);
+			WLog_Print(log, WLOG_ERROR, "Invalid short format list length: %" PRIuz "", cap);
 			return ERROR_INTERNAL_ERROR;
 		}
 		formatList->numFormats = (UINT32)cap;
@@ -418,7 +419,7 @@ UINT cliprdr_read_format_list(wStream* s, CLIPRDR_FORMAT_LIST* formatList, BOOL 
 
 		if (!formats)
 		{
-			WLog_ERR(TAG, "calloc failed!");
+			WLog_Print(log, WLOG_ERROR, "calloc failed!");
 			return CHANNEL_RC_NO_MEMORY;
 		}
 
@@ -426,6 +427,9 @@ UINT cliprdr_read_format_list(wStream* s, CLIPRDR_FORMAT_LIST* formatList, BOOL 
 
 		while (Stream_GetRemainingLength(sub1) >= 4)
 		{
+			if (index >= formatList->numFormats)
+				goto error_out;
+
 			CLIPRDR_FORMAT* format = &formats[index];
 
 			Stream_Read_UINT32(sub1, format->formatId); /* formatId (4 bytes) */
@@ -454,7 +458,7 @@ UINT cliprdr_read_format_list(wStream* s, CLIPRDR_FORMAT_LIST* formatList, BOOL 
 					format->formatName = strndup(szFormatName, 31);
 					if (!format->formatName)
 					{
-						WLog_ERR(TAG, "malloc failed!");
+						WLog_Print(log, WLOG_ERROR, "malloc failed!");
 						error = CHANNEL_RC_NO_MEMORY;
 						goto error_out;
 					}
@@ -498,7 +502,7 @@ UINT cliprdr_read_format_list(wStream* s, CLIPRDR_FORMAT_LIST* formatList, BOOL 
 
 		if (!formats)
 		{
-			WLog_ERR(TAG, "calloc failed!");
+			WLog_Print(log, WLOG_ERROR, "calloc failed!");
 			return CHANNEL_RC_NO_MEMORY;
 		}
 
@@ -506,6 +510,9 @@ UINT cliprdr_read_format_list(wStream* s, CLIPRDR_FORMAT_LIST* formatList, BOOL 
 
 		while (Stream_GetRemainingLength(sub2) >= 4)
 		{
+			if (index >= formatList->numFormats)
+				goto error_out;
+
 			size_t rest = 0;
 			CLIPRDR_FORMAT* format = &formats[index];
 

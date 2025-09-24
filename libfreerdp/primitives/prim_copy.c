@@ -60,14 +60,20 @@ static BOOL memory_regions_overlap_2d(const BYTE* p1, int p1Step, int p1Size, co
 
 	if (p1m <= p2m)
 	{
-		ULONG_PTR p1mEnd = p1m + 1ull * (height - 1) * p1Step + 1ull * width * p1Size;
+		ULONG_PTR p1mEnd = p1m +
+		                   1ull * (WINPR_ASSERTING_INT_CAST(uint32_t, height - 1)) *
+		                       WINPR_ASSERTING_INT_CAST(uint32_t, p1Step) +
+		                   1ull * WINPR_ASSERTING_INT_CAST(uint32_t, width* p1Size);
 
 		if (p1mEnd > p2m)
 			return TRUE;
 	}
 	else
 	{
-		ULONG_PTR p2mEnd = p2m + 1ull * (height - 1) * p2Step + 1ull * width * p2Size;
+		ULONG_PTR p2mEnd = p2m +
+		                   1ull * (WINPR_ASSERTING_INT_CAST(uintptr_t, height - 1)) *
+		                       WINPR_ASSERTING_INT_CAST(uintptr_t, p2Step) +
+		                   1ull * WINPR_ASSERTING_INT_CAST(uintptr_t, width* p2Size);
 
 		if (p2mEnd > p1m)
 			return TRUE;
@@ -78,7 +84,8 @@ static BOOL memory_regions_overlap_2d(const BYTE* p1, int p1Step, int p1Size, co
 }
 
 /* ------------------------------------------------------------------------- */
-static pstatus_t general_copy_8u(const BYTE* pSrc, BYTE* pDst, INT32 len)
+static pstatus_t general_copy_8u(const BYTE* WINPR_RESTRICT pSrc, BYTE* WINPR_RESTRICT pDst,
+                                 INT32 len)
 {
 	if (memory_regions_overlap_1d(pSrc, pDst, (size_t)len))
 	{
@@ -97,12 +104,13 @@ static pstatus_t general_copy_8u(const BYTE* pSrc, BYTE* pDst, INT32 len)
  * The addresses are assumed to have been already offset to the upper-left
  * corners of the source and destination region of interest.
  */
-static pstatus_t general_copy_8u_AC4r(const BYTE* pSrc, INT32 srcStep, BYTE* pDst, INT32 dstStep,
-                                      INT32 width, INT32 height)
+static pstatus_t general_copy_8u_AC4r(const BYTE* WINPR_RESTRICT pSrc, INT32 srcStep,
+                                      BYTE* WINPR_RESTRICT pDst, INT32 dstStep, INT32 width,
+                                      INT32 height)
 {
 	const BYTE* src = pSrc;
 	BYTE* dst = pDst;
-	int rowbytes = width * sizeof(UINT32);
+	const size_t rowbytes = WINPR_ASSERTING_INT_CAST(size_t, width) * sizeof(UINT32);
 
 	if ((width == 0) || (height == 0))
 		return PRIMITIVES_SUCCESS;
@@ -112,7 +120,7 @@ static pstatus_t general_copy_8u_AC4r(const BYTE* pSrc, INT32 srcStep, BYTE* pDs
 	{
 		do
 		{
-			generic->copy(src, dst, rowbytes);
+			generic->copy(src, dst, WINPR_ASSERTING_INT_CAST(int32_t, rowbytes));
 			src += srcStep;
 			dst += dstStep;
 		} while (--height);
@@ -139,23 +147,23 @@ static INLINE pstatus_t generic_image_copy_bgr24_bgrx32(BYTE* WINPR_RESTRICT pDs
                                                         UINT32 nWidth, UINT32 nHeight,
                                                         const BYTE* WINPR_RESTRICT pSrcData,
                                                         UINT32 nSrcStep, UINT32 nXSrc, UINT32 nYSrc,
-                                                        SSIZE_T srcVMultiplier, SSIZE_T srcVOffset,
-                                                        SSIZE_T dstVMultiplier, SSIZE_T dstVOffset)
+                                                        int64_t srcVMultiplier, int64_t srcVOffset,
+                                                        int64_t dstVMultiplier, int64_t dstVOffset)
 {
 
-	const SSIZE_T srcByte = 3;
-	const SSIZE_T dstByte = 4;
+	const int64_t srcByte = 3;
+	const int64_t dstByte = 4;
 
 	const UINT32 width = nWidth - nWidth % 8;
 
-	for (SSIZE_T y = 0; y < nHeight; y++)
+	for (int64_t y = 0; y < nHeight; y++)
 	{
 		const BYTE* WINPR_RESTRICT srcLine =
 		    &pSrcData[srcVMultiplier * (y + nYSrc) * nSrcStep + srcVOffset];
 		BYTE* WINPR_RESTRICT dstLine =
 		    &pDstData[dstVMultiplier * (y + nYDst) * nDstStep + dstVOffset];
 
-		SSIZE_T x = 0;
+		int64_t x = 0;
 		WINPR_PRAGMA_UNROLL_LOOP
 		for (; x < width; x++)
 		{
@@ -178,23 +186,23 @@ static INLINE pstatus_t generic_image_copy_bgr24_bgrx32(BYTE* WINPR_RESTRICT pDs
 static INLINE pstatus_t generic_image_copy_bgrx32_bgrx32(
     BYTE* WINPR_RESTRICT pDstData, UINT32 nDstStep, UINT32 nXDst, UINT32 nYDst, UINT32 nWidth,
     UINT32 nHeight, const BYTE* WINPR_RESTRICT pSrcData, UINT32 nSrcStep, UINT32 nXSrc,
-    UINT32 nYSrc, SSIZE_T srcVMultiplier, SSIZE_T srcVOffset, SSIZE_T dstVMultiplier,
-    SSIZE_T dstVOffset)
+    UINT32 nYSrc, int64_t srcVMultiplier, int64_t srcVOffset, int64_t dstVMultiplier,
+    int64_t dstVOffset)
 {
 
-	const SSIZE_T srcByte = 4;
-	const SSIZE_T dstByte = 4;
+	const int64_t srcByte = 4;
+	const int64_t dstByte = 4;
 
 	const UINT32 width = nWidth - nWidth % 8;
 
-	for (SSIZE_T y = 0; y < nHeight; y++)
+	for (int64_t y = 0; y < nHeight; y++)
 	{
 		const BYTE* WINPR_RESTRICT srcLine =
 		    &pSrcData[srcVMultiplier * (y + nYSrc) * nSrcStep + srcVOffset];
 		BYTE* WINPR_RESTRICT dstLine =
 		    &pDstData[dstVMultiplier * (y + nYDst) * nDstStep + dstVOffset];
 
-		SSIZE_T x = 0;
+		int64_t x = 0;
 		WINPR_PRAGMA_UNROLL_LOOP
 		for (; x < width; x++)
 		{
@@ -217,21 +225,21 @@ pstatus_t generic_image_copy_no_overlap_convert(
     BYTE* WINPR_RESTRICT pDstData, DWORD DstFormat, UINT32 nDstStep, UINT32 nXDst, UINT32 nYDst,
     UINT32 nWidth, UINT32 nHeight, const BYTE* WINPR_RESTRICT pSrcData, DWORD SrcFormat,
     UINT32 nSrcStep, UINT32 nXSrc, UINT32 nYSrc, const gdiPalette* WINPR_RESTRICT palette,
-    SSIZE_T srcVMultiplier, SSIZE_T srcVOffset, SSIZE_T dstVMultiplier, SSIZE_T dstVOffset)
+    int64_t srcVMultiplier, int64_t srcVOffset, int64_t dstVMultiplier, int64_t dstVOffset)
 {
-	const SSIZE_T srcByte = FreeRDPGetBytesPerPixel(SrcFormat);
-	const SSIZE_T dstByte = FreeRDPGetBytesPerPixel(DstFormat);
+	const int64_t srcByte = FreeRDPGetBytesPerPixel(SrcFormat);
+	const int64_t dstByte = FreeRDPGetBytesPerPixel(DstFormat);
 
 	const UINT32 width = nWidth - nWidth % 8;
-	for (SSIZE_T y = 0; y < nHeight; y++)
+	for (int64_t y = 0; y < nHeight; y++)
 	{
 		const BYTE* WINPR_RESTRICT srcLine =
 		    &pSrcData[srcVMultiplier * (y + nYSrc) * nSrcStep + srcVOffset];
 		BYTE* WINPR_RESTRICT dstLine =
 		    &pDstData[dstVMultiplier * (y + nYDst) * nDstStep + dstVOffset];
 
-		SSIZE_T x = 0;
-		WINPR_PRAGMA_UNROLL_LOOP
+		int64_t x = 0;
+		// WINPR_PRAGMA_UNROLL_LOOP
 		for (; x < width; x++)
 		{
 			const UINT32 color = FreeRDPReadColor_int(&srcLine[(x + nXSrc) * srcByte], SrcFormat);
@@ -251,23 +259,24 @@ pstatus_t generic_image_copy_no_overlap_convert(
 pstatus_t generic_image_copy_no_overlap_memcpy(
     BYTE* WINPR_RESTRICT pDstData, DWORD DstFormat, UINT32 nDstStep, UINT32 nXDst, UINT32 nYDst,
     UINT32 nWidth, UINT32 nHeight, const BYTE* WINPR_RESTRICT pSrcData, DWORD SrcFormat,
-    UINT32 nSrcStep, UINT32 nXSrc, UINT32 nYSrc, const gdiPalette* WINPR_RESTRICT palette,
-    SSIZE_T srcVMultiplier, SSIZE_T srcVOffset, SSIZE_T dstVMultiplier, SSIZE_T dstVOffset,
-    UINT32 flags)
+    UINT32 nSrcStep, UINT32 nXSrc, UINT32 nYSrc,
+    WINPR_ATTR_UNUSED const gdiPalette* WINPR_RESTRICT palette, int64_t srcVMultiplier,
+    int64_t srcVOffset, int64_t dstVMultiplier, int64_t dstVOffset, WINPR_ATTR_UNUSED UINT32 flags)
 {
-	const SSIZE_T dstByte = FreeRDPGetBytesPerPixel(DstFormat);
-	const SSIZE_T srcByte = FreeRDPGetBytesPerPixel(SrcFormat);
-	const SSIZE_T copyDstWidth = nWidth * dstByte;
-	const SSIZE_T xSrcOffset = nXSrc * srcByte;
-	const SSIZE_T xDstOffset = nXDst * dstByte;
+	const int64_t dstByte = FreeRDPGetBytesPerPixel(DstFormat);
+	const int64_t srcByte = FreeRDPGetBytesPerPixel(SrcFormat);
+	const int64_t copyDstWidth = nWidth * dstByte;
+	const int64_t xSrcOffset = nXSrc * srcByte;
+	const int64_t xDstOffset = nXDst * dstByte;
 
-	for (SSIZE_T y = 0; y < nHeight; y++)
+	for (int64_t y = 0; y < nHeight; y++)
 	{
 		const BYTE* WINPR_RESTRICT srcLine =
 		    &pSrcData[srcVMultiplier * (y + nYSrc) * nSrcStep + srcVOffset];
 		BYTE* WINPR_RESTRICT dstLine =
 		    &pDstData[dstVMultiplier * (y + nYDst) * nDstStep + dstVOffset];
-		memcpy(&dstLine[xDstOffset], &srcLine[xSrcOffset], copyDstWidth);
+		memcpy(&dstLine[xDstOffset], &srcLine[xSrcOffset],
+		       WINPR_ASSERTING_INT_CAST(size_t, copyDstWidth));
 	}
 
 	return PRIMITIVES_SUCCESS;
@@ -277,7 +286,7 @@ static INLINE pstatus_t generic_image_copy_no_overlap_dst_alpha(
     BYTE* WINPR_RESTRICT pDstData, DWORD DstFormat, UINT32 nDstStep, UINT32 nXDst, UINT32 nYDst,
     UINT32 nWidth, UINT32 nHeight, const BYTE* WINPR_RESTRICT pSrcData, DWORD SrcFormat,
     UINT32 nSrcStep, UINT32 nXSrc, UINT32 nYSrc, const gdiPalette* WINPR_RESTRICT palette,
-    SSIZE_T srcVMultiplier, SSIZE_T srcVOffset, SSIZE_T dstVMultiplier, SSIZE_T dstVOffset)
+    int64_t srcVMultiplier, int64_t srcVOffset, int64_t dstVMultiplier, int64_t dstVOffset)
 {
 	WINPR_ASSERT(pDstData);
 	WINPR_ASSERT(pSrcData);
@@ -339,7 +348,7 @@ static INLINE pstatus_t generic_image_copy_no_overlap_no_alpha(
     BYTE* WINPR_RESTRICT pDstData, DWORD DstFormat, UINT32 nDstStep, UINT32 nXDst, UINT32 nYDst,
     UINT32 nWidth, UINT32 nHeight, const BYTE* WINPR_RESTRICT pSrcData, DWORD SrcFormat,
     UINT32 nSrcStep, UINT32 nXSrc, UINT32 nYSrc, const gdiPalette* WINPR_RESTRICT palette,
-    SSIZE_T srcVMultiplier, SSIZE_T srcVOffset, SSIZE_T dstVMultiplier, SSIZE_T dstVOffset,
+    int64_t srcVMultiplier, int64_t srcVOffset, int64_t dstVMultiplier, int64_t dstVOffset,
     UINT32 flags)
 {
 	if (FreeRDPAreColorFormatsEqualNoAlpha(SrcFormat, DstFormat))
@@ -363,10 +372,10 @@ static pstatus_t generic_image_copy_no_overlap(BYTE* WINPR_RESTRICT pDstData, DW
                                                UINT32 flags)
 {
 	const BOOL vSrcVFlip = (flags & FREERDP_FLIP_VERTICAL) ? TRUE : FALSE;
-	SSIZE_T srcVOffset = 0;
-	SSIZE_T srcVMultiplier = 1;
-	SSIZE_T dstVOffset = 0;
-	SSIZE_T dstVMultiplier = 1;
+	int64_t srcVOffset = 0;
+	int64_t srcVMultiplier = 1;
+	int64_t dstVOffset = 0;
+	int64_t dstVMultiplier = 1;
 
 	if ((nWidth == 0) || (nHeight == 0))
 		return PRIMITIVES_SUCCESS;
@@ -409,12 +418,13 @@ void primitives_init_copy(primitives_t* WINPR_RESTRICT prims)
 	/* Start with the default. */
 	prims->copy_8u = general_copy_8u;
 	prims->copy_8u_AC4r = general_copy_8u_AC4r;
-	prims->copy = WINPR_FUNC_PTR_CAST(prims->copy_8u, __copy_t);
+	prims->copy = WINPR_FUNC_PTR_CAST(prims->copy_8u, fn_copy_t);
 	prims->copy_no_overlap = generic_image_copy_no_overlap;
 }
 
-void primitives_init_copy_opt(primitives_t* prims)
+void primitives_init_copy_opt(primitives_t* WINPR_RESTRICT prims)
 {
+	primitives_init_copy(prims);
 	primitives_init_copy_sse41(prims);
 #if defined(WITH_AVX2)
 	primitives_init_copy_avx2(prims);

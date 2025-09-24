@@ -28,7 +28,7 @@
 #include "prim_internal.h"
 #include "prim_templates.h"
 
-#if defined(SSE2_ENABLED)
+#if defined(SSE_AVX_INTRINSICS_ENABLED)
 #include <emmintrin.h>
 #include <tmmintrin.h>
 
@@ -42,8 +42,11 @@ static pstatus_t ssse3_YCoCgRToRGB_8u_AC4R_invert(const BYTE* WINPR_RESTRICT pSr
 {
 	const BYTE* sptr = pSrc;
 	BYTE* dptr = pDst;
-	int sRowBump = srcStep - width * sizeof(UINT32);
-	int dRowBump = dstStep - width * sizeof(UINT32);
+
+	WINPR_ASSERT(srcStep / sizeof(UINT32) >= width);
+	WINPR_ASSERT(dstStep / sizeof(UINT32) >= width);
+	const size_t sRowBump = srcStep - width * sizeof(UINT32);
+	const size_t dRowBump = dstStep - width * sizeof(UINT32);
 	/* Shift left by "shift" and divide by two is the same as shift
 	 * left by "shift-1".
 	 */
@@ -62,37 +65,14 @@ static pstatus_t ssse3_YCoCgRToRGB_8u_AC4R_invert(const BYTE* WINPR_RESTRICT pSr
 	if ((width < 8) || (ULONG_PTR)dptr & 0x03)
 	{
 		/* Too small, or we'll never hit a 16-byte boundary.  Punt. */
-		return generic->YCoCgToRGB_8u_AC4R(pSrc, srcStep, pDst, DstFormat, dstStep, width, height,
-		                                   shift, withAlpha);
+		return generic->YCoCgToRGB_8u_AC4R(pSrc, WINPR_ASSERTING_INT_CAST(INT32, srcStep), pDst,
+		                                   DstFormat, WINPR_ASSERTING_INT_CAST(INT32, dstStep),
+		                                   width, height, shift, withAlpha);
 	}
 
 	for (UINT32 h = 0; h < height; h++)
 	{
 		UINT32 w = width;
-		BOOL onStride = 0;
-
-		/* Get to a 16-byte destination boundary. */
-		if ((ULONG_PTR)dptr & 0x0f)
-		{
-			pstatus_t status = 0;
-			UINT32 startup = (16 - ((ULONG_PTR)dptr & 0x0f)) / 4;
-
-			if (startup > width)
-				startup = width;
-
-			status = generic->YCoCgToRGB_8u_AC4R(sptr, srcStep, dptr, DstFormat, dstStep, startup,
-			                                     1, shift, withAlpha);
-
-			if (status != PRIMITIVES_SUCCESS)
-				return status;
-
-			sptr += startup * sizeof(UINT32);
-			dptr += startup * sizeof(UINT32);
-			w -= startup;
-		}
-
-		/* Each loop handles eight pixels at a time. */
-		onStride = (((ULONG_PTR)sptr & 0x0f) == 0) ? TRUE : FALSE;
 
 		while (w >= 8)
 		{
@@ -105,22 +85,10 @@ static pstatus_t ssse3_YCoCgRToRGB_8u_AC4R_invert(const BYTE* WINPR_RESTRICT pSr
 			__m128i R6;
 			__m128i R7;
 
-			if (onStride)
-			{
-				/* The faster path, 16-byte aligned load. */
-				R0 = _mm_load_si128((const __m128i*)sptr);
-				sptr += (128 / 8);
-				R1 = _mm_load_si128((const __m128i*)sptr);
-				sptr += (128 / 8);
-			}
-			else
-			{
-				/* Off-stride, slower LDDQU load. */
-				R0 = _mm_lddqu_si128((const __m128i*)sptr);
-				sptr += (128 / 8);
-				R1 = _mm_lddqu_si128((const __m128i*)sptr);
-				sptr += (128 / 8);
-			}
+			R0 = LOAD_SI128(sptr);
+			sptr += (128 / 8);
+			R1 = LOAD_SI128(sptr);
+			sptr += (128 / 8);
 
 			/* R0 = a3y3o3g3 a2y2o2g2 a1y1o1g1 a0y0o0g0 */
 			/* R1 = a7y7o7g7 a6y6o6g6 a5y5o5g5 a4y4o4g4 */
@@ -139,11 +107,11 @@ static pstatus_t ssse3_YCoCgRToRGB_8u_AC4R_invert(const BYTE* WINPR_RESTRICT pSr
 			if (withAlpha)
 				R7 = _mm_unpackhi_epi64(R5, R5);
 			else
-				R7 = _mm_set1_epi32(0xFFFFFFFFU);
+				R7 = mm_set1_epu32(0xFFFFFFFFU);
 
 			/* R7 = a7a6a5a4 a3a2a1a0 a7a6a5a4 a3a2a1a0 */
 			/* Expand Y's from 8-bit unsigned to 16-bit signed. */
-			R1 = _mm_set1_epi32(0);
+			R1 = mm_set1_epu32(0);
 			R0 = _mm_unpacklo_epi8(R5, R1);
 			/* R0 = 00y700y6 00y500y4 00y300y2 00y100y0 */
 			/* Shift Co's and Cg's by (shift-1).  -1 covers division by two.
@@ -152,7 +120,7 @@ static pstatus_t ssse3_YCoCgRToRGB_8u_AC4R_invert(const BYTE* WINPR_RESTRICT pSr
 			 * version and then mask.
 			 */
 			R6 = _mm_slli_epi16(R6, dataShift);
-			R1 = _mm_set1_epi8(mask);
+			R1 = mm_set1_epu8(mask);
 			R6 = _mm_and_si128(R6, R1);
 			/* R6 = shifted o7o6o5o4 o3o2o1o0 g7g6g5g4 g3g2g1g0 */
 			/* Expand Co's from 8-bit signed to 16-bit signed */
@@ -192,9 +160,9 @@ static pstatus_t ssse3_YCoCgRToRGB_8u_AC4R_invert(const BYTE* WINPR_RESTRICT pSr
 			/* R4 = A3R3G3B3 A2R2G2B2 A1R1G1B1 A0R0G0B0 */
 			R5 = _mm_unpackhi_epi16(R2, R3);
 			/* R5 = A7R7G7B7 A6R6G6B6 A5R6G5B5 A4R4G4B4 */
-			_mm_store_si128((__m128i*)dptr, R4);
+			STORE_SI128(dptr, R4);
 			dptr += (128 / 8);
-			_mm_store_si128((__m128i*)dptr, R5);
+			STORE_SI128(dptr, R5);
 			dptr += (128 / 8);
 			w -= 8;
 		}
@@ -203,8 +171,9 @@ static pstatus_t ssse3_YCoCgRToRGB_8u_AC4R_invert(const BYTE* WINPR_RESTRICT pSr
 		if (w > 0)
 		{
 			pstatus_t status = 0;
-			status = generic->YCoCgToRGB_8u_AC4R(sptr, srcStep, dptr, DstFormat, dstStep, w, 1,
-			                                     shift, withAlpha);
+			status = generic->YCoCgToRGB_8u_AC4R(
+			    sptr, WINPR_ASSERTING_INT_CAST(INT32, srcStep), dptr, DstFormat,
+			    WINPR_ASSERTING_INT_CAST(INT32, dstStep), w, 1, shift, withAlpha);
 
 			if (status != PRIMITIVES_SUCCESS)
 				return status;
@@ -228,8 +197,8 @@ static pstatus_t ssse3_YCoCgRToRGB_8u_AC4R_no_invert(const BYTE* WINPR_RESTRICT 
 {
 	const BYTE* sptr = pSrc;
 	BYTE* dptr = pDst;
-	int sRowBump = srcStep - width * sizeof(UINT32);
-	int dRowBump = dstStep - width * sizeof(UINT32);
+	size_t sRowBump = srcStep - width * sizeof(UINT32);
+	size_t dRowBump = dstStep - width * sizeof(UINT32);
 	/* Shift left by "shift" and divide by two is the same as shift
 	 * left by "shift-1".
 	 */
@@ -248,76 +217,35 @@ static pstatus_t ssse3_YCoCgRToRGB_8u_AC4R_no_invert(const BYTE* WINPR_RESTRICT 
 	if ((width < 8) || (ULONG_PTR)dptr & 0x03)
 	{
 		/* Too small, or we'll never hit a 16-byte boundary.  Punt. */
-		return generic->YCoCgToRGB_8u_AC4R(pSrc, srcStep, pDst, DstFormat, dstStep, width, height,
-		                                   shift, withAlpha);
+		return generic->YCoCgToRGB_8u_AC4R(pSrc, WINPR_ASSERTING_INT_CAST(INT32, srcStep), pDst,
+		                                   DstFormat, WINPR_ASSERTING_INT_CAST(INT32, dstStep),
+		                                   width, height, shift, withAlpha);
 	}
 
 	for (UINT32 h = 0; h < height; h++)
 	{
-		int w = width;
-		BOOL onStride = 0;
-
-		/* Get to a 16-byte destination boundary. */
-		if ((ULONG_PTR)dptr & 0x0f)
-		{
-			pstatus_t status = 0;
-			UINT32 startup = (16 - ((ULONG_PTR)dptr & 0x0f)) / 4;
-
-			if (startup > width)
-				startup = width;
-
-			status = generic->YCoCgToRGB_8u_AC4R(sptr, srcStep, dptr, DstFormat, dstStep, startup,
-			                                     1, shift, withAlpha);
-
-			if (status != PRIMITIVES_SUCCESS)
-				return status;
-
-			sptr += startup * sizeof(UINT32);
-			dptr += startup * sizeof(UINT32);
-			w -= startup;
-		}
-
-		/* Each loop handles eight pixels at a time. */
-		onStride = (((const ULONG_PTR)sptr & 0x0f) == 0) ? TRUE : FALSE;
+		UINT32 w = width;
 
 		while (w >= 8)
 		{
-			__m128i R0;
-			__m128i R1;
-			__m128i R2;
-			__m128i R3;
-			__m128i R4;
-			__m128i R5;
-			__m128i R6;
 			__m128i R7;
 
-			if (onStride)
-			{
-				/* The faster path, 16-byte aligned load. */
-				R0 = _mm_load_si128((const __m128i*)sptr);
-				sptr += (128 / 8);
-				R1 = _mm_load_si128((const __m128i*)sptr);
-				sptr += (128 / 8);
-			}
-			else
-			{
-				/* Off-stride, slower LDDQU load. */
-				R0 = _mm_lddqu_si128((const __m128i*)sptr);
-				sptr += (128 / 8);
-				R1 = _mm_lddqu_si128((const __m128i*)sptr);
-				sptr += (128 / 8);
-			}
+			/* The faster path, 16-byte aligned load. */
+			__m128i R0 = LOAD_SI128(sptr);
+			sptr += (128 / 8);
+			__m128i R1 = LOAD_SI128(sptr);
+			sptr += (128 / 8);
 
 			/* R0 = a3y3o3g3 a2y2o2g2 a1y1o1g1 a0y0o0g0 */
 			/* R1 = a7y7o7g7 a6y6o6g6 a5y5o5g5 a4y4o4g4 */
 			/* Shuffle to pack all the like types together. */
-			R2 = _mm_set_epi32(0x0f0b0703, 0x0e0a0602, 0x0d090501, 0x0c080400);
-			R3 = _mm_shuffle_epi8(R0, R2);
-			R4 = _mm_shuffle_epi8(R1, R2);
+			__m128i R2 = _mm_set_epi32(0x0f0b0703, 0x0e0a0602, 0x0d090501, 0x0c080400);
+			__m128i R3 = _mm_shuffle_epi8(R0, R2);
+			__m128i R4 = _mm_shuffle_epi8(R1, R2);
 			/* R3 = a3a2a1a0 y3y2y1y0 o3o2o1o0 g3g2g1g0 */
 			/* R4 = a7a6a5a4 y7y6y5y4 o7o6o5o4 g7g6g5g4 */
-			R5 = _mm_unpackhi_epi32(R3, R4);
-			R6 = _mm_unpacklo_epi32(R3, R4);
+			__m128i R5 = _mm_unpackhi_epi32(R3, R4);
+			__m128i R6 = _mm_unpacklo_epi32(R3, R4);
 
 			/* R5 = a7a6a5a4 a3a2a1a0 y7y6y5y4 y3y2y1y0 */
 			/* R6 = o7o6o5o4 o3o2o1o0 g7g6g5g4 g3g2g1g0 */
@@ -325,11 +253,11 @@ static pstatus_t ssse3_YCoCgRToRGB_8u_AC4R_no_invert(const BYTE* WINPR_RESTRICT 
 			if (withAlpha)
 				R7 = _mm_unpackhi_epi64(R5, R5);
 			else
-				R7 = _mm_set1_epi32(0xFFFFFFFFU);
+				R7 = mm_set1_epu32(0xFFFFFFFFU);
 
 			/* R7 = a7a6a5a4 a3a2a1a0 a7a6a5a4 a3a2a1a0 */
 			/* Expand Y's from 8-bit unsigned to 16-bit signed. */
-			R1 = _mm_set1_epi32(0);
+			R1 = mm_set1_epu32(0);
 			R0 = _mm_unpacklo_epi8(R5, R1);
 			/* R0 = 00y700y6 00y500y4 00y300y2 00y100y0 */
 			/* Shift Co's and Cg's by (shift-1).  -1 covers division by two.
@@ -338,7 +266,7 @@ static pstatus_t ssse3_YCoCgRToRGB_8u_AC4R_no_invert(const BYTE* WINPR_RESTRICT 
 			 * version and then mask.
 			 */
 			R6 = _mm_slli_epi16(R6, dataShift);
-			R1 = _mm_set1_epi8(mask);
+			R1 = mm_set1_epu8(mask);
 			R6 = _mm_and_si128(R6, R1);
 			/* R6 = shifted o7o6o5o4 o3o2o1o0 g7g6g5g4 g3g2g1g0 */
 			/* Expand Co's from 8-bit signed to 16-bit signed */
@@ -382,9 +310,9 @@ static pstatus_t ssse3_YCoCgRToRGB_8u_AC4R_no_invert(const BYTE* WINPR_RESTRICT 
 			/* R4 = A3R3G3B3 A2R2G2B2 A1R1G1B1 A0R0G0B0 */
 			R5 = _mm_unpackhi_epi16(R2, R3);
 			/* R5 = A7R7G7B7 A6R6G6B6 A5R6G5B5 A4R4G4B4 */
-			_mm_store_si128((__m128i*)dptr, R4);
+			STORE_SI128(dptr, R4);
 			dptr += (128 / 8);
-			_mm_store_si128((__m128i*)dptr, R5);
+			STORE_SI128(dptr, R5);
 			dptr += (128 / 8);
 			w -= 8;
 		}
@@ -393,14 +321,16 @@ static pstatus_t ssse3_YCoCgRToRGB_8u_AC4R_no_invert(const BYTE* WINPR_RESTRICT 
 		if (w > 0)
 		{
 			pstatus_t status = 0;
-			status = generic->YCoCgToRGB_8u_AC4R(sptr, srcStep, dptr, DstFormat, dstStep, w, 1,
-			                                     shift, withAlpha);
+			status = generic->YCoCgToRGB_8u_AC4R(
+			    sptr, WINPR_ASSERTING_INT_CAST(INT32, srcStep), dptr, DstFormat,
+			    WINPR_ASSERTING_INT_CAST(INT32, dstStep), WINPR_ASSERTING_INT_CAST(UINT32, w), 1,
+			    shift, withAlpha);
 
 			if (status != PRIMITIVES_SUCCESS)
 				return status;
 
-			sptr += w * sizeof(UINT32);
-			dptr += w * sizeof(UINT32);
+			sptr += WINPR_ASSERTING_INT_CAST(UINT32, w) * sizeof(UINT32);
+			dptr += WINPR_ASSERTING_INT_CAST(UINT32, w) * sizeof(UINT32);
 		}
 
 		sptr += sRowBump;
@@ -420,13 +350,15 @@ static pstatus_t ssse3_YCoCgRToRGB_8u_AC4R(const BYTE* WINPR_RESTRICT pSrc, INT3
 	{
 		case PIXEL_FORMAT_BGRX32:
 		case PIXEL_FORMAT_BGRA32:
-			return ssse3_YCoCgRToRGB_8u_AC4R_invert(pSrc, srcStep, pDst, DstFormat, dstStep, width,
-			                                        height, shift, withAlpha);
+			return ssse3_YCoCgRToRGB_8u_AC4R_invert(
+			    pSrc, WINPR_ASSERTING_INT_CAST(UINT32, srcStep), pDst, DstFormat,
+			    WINPR_ASSERTING_INT_CAST(UINT32, dstStep), width, height, shift, withAlpha);
 
 		case PIXEL_FORMAT_RGBX32:
 		case PIXEL_FORMAT_RGBA32:
-			return ssse3_YCoCgRToRGB_8u_AC4R_no_invert(pSrc, srcStep, pDst, DstFormat, dstStep,
-			                                           width, height, shift, withAlpha);
+			return ssse3_YCoCgRToRGB_8u_AC4R_no_invert(
+			    pSrc, WINPR_ASSERTING_INT_CAST(UINT32, srcStep), pDst, DstFormat,
+			    WINPR_ASSERTING_INT_CAST(UINT32, dstStep), width, height, shift, withAlpha);
 
 		default:
 			return generic->YCoCgToRGB_8u_AC4R(pSrc, srcStep, pDst, DstFormat, dstStep, width,
@@ -437,20 +369,15 @@ static pstatus_t ssse3_YCoCgRToRGB_8u_AC4R(const BYTE* WINPR_RESTRICT pSrc, INT3
 #endif
 
 /* ------------------------------------------------------------------------- */
-void primitives_init_YCoCg_ssse3(primitives_t* WINPR_RESTRICT prims)
+void primitives_init_YCoCg_ssse3_int(primitives_t* WINPR_RESTRICT prims)
 {
-#if defined(SSE2_ENABLED)
+#if defined(SSE_AVX_INTRINSICS_ENABLED)
 	generic = primitives_get_generic();
-	primitives_init_YCoCg(prims);
 
-	if (IsProcessorFeaturePresentEx(PF_EX_SSSE3) &&
-	    IsProcessorFeaturePresent(PF_SSE3_INSTRUCTIONS_AVAILABLE))
-	{
-		WLog_VRB(PRIM_TAG, "SSE3/SSSE3 optimizations");
-		prims->YCoCgToRGB_8u_AC4R = ssse3_YCoCgRToRGB_8u_AC4R;
-	}
+	WLog_VRB(PRIM_TAG, "SSE3/SSSE3 optimizations");
+	prims->YCoCgToRGB_8u_AC4R = ssse3_YCoCgRToRGB_8u_AC4R;
 #else
-	WLog_VRB(PRIM_TAG, "undefined WITH_SSE2");
+	WLog_VRB(PRIM_TAG, "undefined WITH_SIMD or SSE2 intrinsics not available");
 	WINPR_UNUSED(prims);
 #endif
 }

@@ -139,10 +139,14 @@ void* winpr_unwind_backtrace(DWORD size)
 	rc = _Unwind_Backtrace(unwind_backtrace_callback, ctx);
 	if (rc != _URC_END_OF_STACK)
 	{
+		/* https://github.com/FreeRDP/FreeRDP/issues/11490
+		 *
+		 * there seems to be no consensus on what to return from this function.
+		 * so we just warn about unexpected return codes and return the context regardless.
+		 */
 		char buffer[64] = { 0 };
-		WLog_ERR(TAG, "_Unwind_Backtrace failed with %s",
-		         unwind_reason_str_buffer(rc, buffer, sizeof(buffer)));
-		goto fail;
+		WLog_WARN(TAG, "_Unwind_Backtrace failed with %s",
+		          unwind_reason_str_buffer(rc, buffer, sizeof(buffer)));
 	}
 
 	return ctx;
@@ -164,6 +168,7 @@ char** winpr_unwind_backtrace_symbols(void* buffer, size_t* used)
 {
 	union
 	{
+		void* pv;
 		char* cp;
 		char** cpp;
 	} cnv;
@@ -173,8 +178,8 @@ char** winpr_unwind_backtrace_symbols(void* buffer, size_t* used)
 	if (!ctx)
 		return NULL;
 
-	cnv.cpp = calloc(ctx->pos * (sizeof(char*) + UNWIND_MAX_LINE_SIZE), sizeof(char*));
-	if (!cnv.cpp)
+	cnv.pv = calloc(ctx->pos * (sizeof(char*) + UNWIND_MAX_LINE_SIZE), sizeof(char*));
+	if (!cnv.pv)
 		return NULL;
 
 	if (used)
@@ -196,5 +201,6 @@ char** winpr_unwind_backtrace_symbols(void* buffer, size_t* used)
 			                dlinfo.dli_fname, dlinfo.dli_fbase, dlinfo.dli_sname, dlinfo.dli_saddr);
 	}
 
+	// NOLINTNEXTLINE(clang-analyzer-unix.Malloc): function is an allocator
 	return cnv.cpp;
 }

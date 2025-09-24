@@ -16,9 +16,7 @@
 # limitations under the License.
 set(MODULE_NAME "sdl2-freerdp")
 
-find_package(SDL2 REQUIRED COMPONENTS)
-include_directories(SYSTEM ${SDL2_INCLUDE_DIR})
-include_directories(SYSTEM ${SDL2_INCLUDE_DIRS})
+find_package(SDL2 REQUIRED)
 
 find_package(Threads REQUIRED)
 
@@ -45,38 +43,46 @@ set(SRCS
     sdl_window.cpp
 )
 
-list(APPEND LIBS
-        winpr
-        freerdp
-        freerdp-client
-        Threads::Threads
-        sdl2_client_res
-        sdl2-dialogs
-		sdl-common-aad-view
-		sdl-common-prefs
-    )
+list(
+  APPEND
+  LIBS
+  winpr
+  freerdp
+  freerdp-client
+  Threads::Threads
+  sdl2_client_res
+  sdl2-dialogs
+  sdl-common-aad-view
+  sdl-common-prefs
+)
 
-if (NOT WITH_SDL_LINK_SHARED)
-    list(APPEND LIBS ${SDL2_STATIC_LIBRARIES})
+if(NOT WITH_SDL_LINK_SHARED)
+  list(APPEND LIBS SDL2::SDL2-static)
+  set_target_properties(SDL2::SDL2-static PROPERTIES SYSTEM TRUE)
 else()
-    list(APPEND LIBS ${SDL2_LIBRARIES})
+  list(APPEND LIBS SDL2::SDL2)
+  set_target_properties(SDL2::SDL2 PROPERTIES SYSTEM TRUE)
 endif()
 
-AddTargetWithResourceFile(${MODULE_NAME} TRUE "${PROJECT_VERSION}" SRCS)
+include_directories(${CMAKE_CURRENT_BINARY_DIR})
+
+addtargetwithresourcefile(${MODULE_NAME} "${WIN32_GUI_FLAG}" "${PROJECT_VERSION}" SRCS)
 
 target_link_libraries(${MODULE_NAME} PRIVATE ${LIBS})
 
 set_property(TARGET ${MODULE_NAME} PROPERTY FOLDER "Client/SDL")
 
-if (NOT WITH_CLIENT_SDL_VERSIONED)
-    get_target_property(OUT_NAME ${MODULE_NAME} OUTPUT_NAME)
-    string(REPLACE "${MODULE_NAME}" "${PROJECT_NAME}" OUT_NAME "${OUT_NAME}")
-    set_target_properties(${MODULE_NAME}
-        PROPERTIES
-        OUTPUT_NAME ${OUT_NAME})
+get_target_property(SDL_CLIENT_BINARY_NAME ${MODULE_NAME} OUTPUT_NAME)
+if(NOT WITH_CLIENT_SDL_VERSIONED)
+  string(REPLACE "${MODULE_NAME}" "${PROJECT_NAME}" SDL_CLIENT_BINARY_NAME "${SDL_CLIENT_BINARY_NAME}")
+  set_target_properties(${MODULE_NAME} PROPERTIES OUTPUT_NAME ${SDL_CLIENT_BINARY_NAME})
 endif()
 
+string(TIMESTAMP SDL_CLIENT_YEAR "%Y")
+set(SDL_CLIENT_UUID "com.freerdp.client.sdl2")
+configure_file(${CMAKE_CURRENT_SOURCE_DIR}/sdl_config.hpp.in ${CMAKE_CURRENT_BINARY_DIR}/sdl_config.hpp @ONLY)
+
 install(TARGETS ${MODULE_NAME} DESTINATION ${CMAKE_INSTALL_BINDIR} COMPONENT client)
-install_freerdp_desktop("${MODULE_NAME}")
+install_freerdp_desktop("${MODULE_NAME}" "${SDL_CLIENT_UUID}")
 
 add_subdirectory(man)

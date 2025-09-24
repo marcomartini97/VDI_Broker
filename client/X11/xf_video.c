@@ -23,6 +23,7 @@
 #include <freerdp/gdi/video.h>
 
 #include "xf_video.h"
+#include "xf_utils.h"
 
 #include <freerdp/log.h>
 #define TAG CLIENT_TAG("video")
@@ -47,8 +48,10 @@ static VideoSurface* xfVideoCreateSurface(VideoClientContext* video, UINT32 x, U
 	xfc = (xfContext*)video->custom;
 	WINPR_ASSERT(xfc);
 
-	ret->image = XCreateImage(xfc->display, xfc->visual, xfc->depth, ZPixmap, 0,
-	                          (char*)ret->base.data, width, height, 8, ret->base.scanline);
+	ret->image = LogDynAndXCreateImage(xfc->log, xfc->display, xfc->visual,
+	                                   WINPR_ASSERTING_INT_CAST(uint32_t, xfc->depth), ZPixmap, 0,
+	                                   (char*)ret->base.data, width, height, 8,
+	                                   WINPR_ASSERTING_INT_CAST(int, ret->base.scanline));
 
 	if (!ret->image)
 	{
@@ -61,7 +64,8 @@ static VideoSurface* xfVideoCreateSurface(VideoClientContext* video, UINT32 x, U
 }
 
 static BOOL xfVideoShowSurface(VideoClientContext* video, const VideoSurface* surface,
-                               UINT32 destinationWidth, UINT32 destinationHeight)
+                               WINPR_ATTR_UNUSED UINT32 destinationWidth,
+                               WINPR_ATTR_UNUSED UINT32 destinationHeight)
 {
 	const xfVideoSurface* xfSurface = (const xfVideoSurface*)surface;
 	xfContext* xfc = NULL;
@@ -81,15 +85,20 @@ static BOOL xfVideoShowSurface(VideoClientContext* video, const VideoSurface* su
 	if (freerdp_settings_get_bool(settings, FreeRDP_SmartSizing) ||
 	    freerdp_settings_get_bool(settings, FreeRDP_MultiTouchGestures))
 	{
-		XPutImage(xfc->display, xfc->primary, xfc->gc, xfSurface->image, 0, 0, surface->x,
-		          surface->y, surface->w, surface->h);
-		xf_draw_screen(xfc, surface->x, surface->y, surface->w, surface->h);
+		LogDynAndXPutImage(xfc->log, xfc->display, xfc->primary, xfc->gc, xfSurface->image, 0, 0,
+		                   WINPR_ASSERTING_INT_CAST(int, surface->x),
+		                   WINPR_ASSERTING_INT_CAST(int, surface->y), surface->w, surface->h);
+		xf_draw_screen(xfc, WINPR_ASSERTING_INT_CAST(int32_t, surface->x),
+		               WINPR_ASSERTING_INT_CAST(int32_t, surface->y),
+		               WINPR_ASSERTING_INT_CAST(int32_t, surface->w),
+		               WINPR_ASSERTING_INT_CAST(int32_t, surface->h));
 	}
 	else
 #endif
 	{
-		XPutImage(xfc->display, xfc->drawable, xfc->gc, xfSurface->image, 0, 0, surface->x,
-		          surface->y, surface->w, surface->h);
+		LogDynAndXPutImage(xfc->log, xfc->display, xfc->drawable, xfc->gc, xfSurface->image, 0, 0,
+		                   WINPR_ASSERTING_INT_CAST(int, surface->x),
+		                   WINPR_ASSERTING_INT_CAST(int, surface->y), surface->w, surface->h);
 	}
 
 	return TRUE;

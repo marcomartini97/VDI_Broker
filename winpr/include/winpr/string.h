@@ -30,6 +30,7 @@
 
 WINPR_PRAGMA_DIAG_PUSH
 WINPR_PRAGMA_DIAG_IGNORED_RESERVED_IDENTIFIER
+// NOLINTBEGIN(bugprone-reserved-identifier,cert-dcl37-c,cert-dcl51-cpp)
 
 #ifdef __cplusplus
 extern "C"
@@ -85,6 +86,7 @@ extern "C"
 	WINPR_API WCHAR* wcstok_s(WCHAR* strToken, const WCHAR* strDelimit, WCHAR** context);
 
 	WINPR_API WCHAR* _wcsncat(WCHAR* dst, const WCHAR* src, size_t sz);
+
 #else
 
 #define _wcscmp wcscmp
@@ -185,13 +187,13 @@ extern "C"
 	/* Unicode Conversion */
 
 #if defined(WITH_WINPR_DEPRECATED)
-	WINPR_API WINPR_DEPRECATED_VAR("Use ConvertUtf8ToWChar instead",
-	                               int MultiByteToWideChar(UINT CodePage, DWORD dwFlags,
+	WINPR_DEPRECATED_VAR("Use ConvertUtf8ToWChar instead",
+	                     WINPR_API int MultiByteToWideChar(UINT CodePage, DWORD dwFlags,
 	                                                       LPCSTR lpMultiByteStr, int cbMultiByte,
 	                                                       LPWSTR lpWideCharStr, int cchWideChar));
 
-	WINPR_API WINPR_DEPRECATED_VAR("Use ConvertWCharToUtf8 instead",
-	                               int WideCharToMultiByte(UINT CodePage, DWORD dwFlags,
+	WINPR_DEPRECATED_VAR("Use ConvertWCharToUtf8 instead",
+	                     WINPR_API int WideCharToMultiByte(UINT CodePage, DWORD dwFlags,
 	                                                       LPCWSTR lpWideCharStr, int cchWideChar,
 	                                                       LPSTR lpMultiByteStr, int cbMultiByte,
 	                                                       LPCSTR lpDefaultChar,
@@ -318,12 +320,12 @@ extern "C"
 	 * The function does string conversions of any '\0' terminated input string
 	 *
 	 *  \param wstr A '\0' terminated WCHAR string, may be NULL
-	 *  \param pSize Ignored if NULL, otherwise receives the length of the result string in
+	 *  \param pUtfCharLength Ignored if NULL, otherwise receives the length of the result string in
 	 * characters (strlen)
 	 *
 	 *  \return An allocated zero terminated UTF-8 string or NULL in case of failure.
 	 */
-	WINPR_API char* ConvertWCharToUtf8Alloc(const WCHAR* wstr, size_t* pSize);
+	WINPR_API char* ConvertWCharToUtf8Alloc(const WCHAR* wstr, size_t* pUtfCharLength);
 
 	/** \brief Converts form UTF-16 to UTF-8, returns an allocated string
 	 *
@@ -332,12 +334,13 @@ extern "C"
 	 *
 	 *  \param wstr A WCHAR string of \b wlen length
 	 *  \param wlen The (buffer) length in characters of \b wstr
-	 *  \param pSize Ignored if NULL, otherwise receives the length of the result string in
+	 *  \param pUtfCharLength Ignored if NULL, otherwise receives the length of the result string in
 	 * characters (strlen)
 	 *
 	 *  \return An allocated zero terminated UTF-8 string or NULL in case of failure.
 	 */
-	WINPR_API char* ConvertWCharNToUtf8Alloc(const WCHAR* wstr, size_t wlen, size_t* pSize);
+	WINPR_API char* ConvertWCharNToUtf8Alloc(const WCHAR* wstr, size_t wlen,
+	                                         size_t* pUtfCharLength);
 
 	/** \brief Converts multistring form UTF-16 to UTF-8, returns an allocated string
 	 *
@@ -346,12 +349,13 @@ extern "C"
 	 *
 	 *  \param wstr A WCHAR string of \b len character length
 	 *  \param wlen The (buffer) length in characters of \b str
-	 *  \param pSize Ignored if NULL, otherwise receives the length of the result string in
+	 *  \param pUtfCharLength Ignored if NULL, otherwise receives the length of the result string in
 	 * characters (including any '\0' character)
 	 *
 	 *  \return An allocated double zero terminated UTF-8 string or NULL in case of failure.
 	 */
-	WINPR_API char* ConvertMszWCharNToUtf8Alloc(const WCHAR* wstr, size_t wlen, size_t* pSize);
+	WINPR_API char* ConvertMszWCharNToUtf8Alloc(const WCHAR* wstr, size_t wlen,
+	                                            size_t* pUtfCharLength);
 
 	/** \brief Converts form UTF-8 to UTF-16, returns an allocated string
 	 *
@@ -404,13 +408,13 @@ extern "C"
 	WINPR_API const WCHAR* InitializeConstWCharFromUtf8(const char* str, WCHAR* buffer, size_t len);
 
 #if defined(WITH_WINPR_DEPRECATED)
-	WINPR_API WINPR_DEPRECATED_VAR("Use ConvertUtf8ToWChar functions instead",
-	                               int ConvertToUnicode(UINT CodePage, DWORD dwFlags,
+	WINPR_DEPRECATED_VAR("Use ConvertUtf8ToWChar functions instead",
+	                     WINPR_API int ConvertToUnicode(UINT CodePage, DWORD dwFlags,
 	                                                    LPCSTR lpMultiByteStr, int cbMultiByte,
 	                                                    LPWSTR* lpWideCharStr, int cchWideChar));
 
-	WINPR_API WINPR_DEPRECATED_VAR("Use ConvertWCharToUtf8 functions instead",
-	                               int ConvertFromUnicode(UINT CodePage, DWORD dwFlags,
+	WINPR_DEPRECATED_VAR("Use ConvertWCharToUtf8 functions instead",
+	                     WINPR_API int ConvertFromUnicode(UINT CodePage, DWORD dwFlags,
 	                                                      LPCWSTR lpWideCharStr, int cchWideChar,
 	                                                      LPSTR* lpMultiByteStr, int cbMultiByte,
 	                                                      LPCSTR lpDefaultChar,
@@ -448,6 +452,7 @@ extern "C"
 }
 #endif
 
+// NOLINTEND(bugprone-reserved-identifier,cert-dcl37-c,cert-dcl51-cpp)
 WINPR_PRAGMA_DIAG_POP
 
 #endif /* WINPR_CRT_STRING_H */

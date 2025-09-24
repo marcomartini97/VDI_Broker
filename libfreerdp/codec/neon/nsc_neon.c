@@ -21,27 +21,23 @@
 #include <winpr/platform.h>
 #include <winpr/sysinfo.h>
 #include <freerdp/config.h>
+#include <freerdp/codec/nsc.h>
 #include <freerdp/log.h>
 
 #include "../nsc_types.h"
 #include "nsc_neon.h"
 
-#if defined(WITH_NEON)
-#if defined(_M_ARM64) || defined(_M_ARM)
-#define NEON_ENABLED
-#endif
-#endif
+#include "../../core/simd.h"
 
-#if defined(NEON_ENABLED)
+#if defined(NEON_INTRINSICS_ENABLED)
 #define TAG FREERDP_TAG("codec.nsc.neon")
 #endif
 
-void nsc_init_neon(NSC_CONTEXT* context)
+void nsc_init_neon_int(WINPR_ATTR_UNUSED NSC_CONTEXT* WINPR_RESTRICT context)
 {
-#if defined(NEON_ENABLED)
-	if (!IsProcessorFeaturePresent(PF_ARM_NEON_INSTRUCTIONS_AVAILABLE))
-		return;
-
+#if defined(NEON_INTRINSICS_ENABLED)
 	WLog_WARN(TAG, "TODO: Implement neon optimized version of this function");
+#else
+	WLog_VRB(PRIM_TAG, "undefined WITH_SIMD or NEON intrinsics not available");
 #endif
 }

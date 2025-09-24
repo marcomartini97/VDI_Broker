@@ -86,7 +86,7 @@ size_t ArrayList_Items(wArrayList* arrayList, ULONG_PTR** ppItems)
  * Gets a value indicating whether the ArrayList has a fixed size.
  */
 
-BOOL ArrayList_IsFixedSized(wArrayList* arrayList)
+BOOL ArrayList_IsFixedSized(WINPR_ATTR_UNUSED wArrayList* arrayList)
 {
 	WINPR_ASSERT(arrayList);
 	return FALSE;
@@ -96,7 +96,7 @@ BOOL ArrayList_IsFixedSized(wArrayList* arrayList)
  * Gets a value indicating whether the ArrayList is read-only.
  */
 
-BOOL ArrayList_IsReadOnly(wArrayList* arrayList)
+BOOL ArrayList_IsReadOnly(WINPR_ATTR_UNUSED wArrayList* arrayList)
 {
 	WINPR_ASSERT(arrayList);
 	return FALSE;
@@ -207,7 +207,7 @@ static BOOL ArrayList_EnsureCapacity(wArrayList* arrayList, size_t count)
 		if (newCapacity < arrayList->size + count)
 			newCapacity = arrayList->size + count;
 
-		newArray = (void**)realloc(arrayList->array, sizeof(void*) * newCapacity);
+		newArray = (void**)realloc((void*)arrayList->array, sizeof(void*) * newCapacity);
 
 		if (!newArray)
 			return FALSE;
@@ -227,24 +227,25 @@ static BOOL ArrayList_Shift(wArrayList* arrayList, size_t index, SSIZE_T count)
 	WINPR_ASSERT(arrayList);
 	if (count > 0)
 	{
-		if (!ArrayList_EnsureCapacity(arrayList, count))
+		if (!ArrayList_EnsureCapacity(arrayList, (size_t)count))
 			return FALSE;
 
-		MoveMemory(&arrayList->array[index + count], &arrayList->array[index],
+		MoveMemory((void*)&arrayList->array[index + (size_t)count], (void*)&arrayList->array[index],
 		           (arrayList->size - index) * sizeof(void*));
-		arrayList->size += count;
+		arrayList->size += (size_t)count;
 	}
 	else if (count < 0)
 	{
-		const size_t off = index + (size_t)(-1 * count);
+		const size_t scount = WINPR_ASSERTING_INT_CAST(size_t, -count);
+		const size_t off = index + scount;
 		if (off < arrayList->size)
 		{
 			const size_t chunk = arrayList->size - off;
-			MoveMemory(&arrayList->array[index], &arrayList->array[index - count],
+			MoveMemory((void*)&arrayList->array[index], (void*)&arrayList->array[off],
 			           chunk * sizeof(void*));
 		}
 
-		arrayList->size += count;
+		arrayList->size -= scount;
 	}
 
 	return TRUE;
@@ -607,6 +608,6 @@ void ArrayList_Free(wArrayList* arrayList)
 
 	ArrayList_Clear(arrayList);
 	DeleteCriticalSection(&arrayList->lock);
-	free(arrayList->array);
+	free((void*)arrayList->array);
 	free(arrayList);
 }

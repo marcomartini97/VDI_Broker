@@ -129,7 +129,7 @@ static BOOL cl_kernel_set_sources(primitives_cl_kernel* ctx, const BYTE* WINPR_R
 			return FALSE;
 		}
 
-		ret = clSetKernelArg(ctx->kernel, i * 2, sizeof(cl_mem), &ctx->srcObjs[i]);
+		ret = clSetKernelArg(ctx->kernel, i * 2, sizeof(cl_mem), (const void*)&ctx->srcObjs[i]);
 		if (ret != CL_SUCCESS)
 		{
 			WLog_ERR(TAG, "unable to set arg for %sobj", sourceNames[i]);
@@ -162,7 +162,7 @@ static BOOL cl_kernel_set_destination(primitives_cl_kernel* ctx, UINT32 dstStep)
 		return FALSE;
 	}
 
-	ret = clSetKernelArg(ctx->kernel, 6, sizeof(cl_mem), &ctx->dstObj);
+	ret = clSetKernelArg(ctx->kernel, 6, sizeof(cl_mem), (const void*)&ctx->dstObj);
 	if (ret != CL_SUCCESS)
 	{
 		WLog_ERR(TAG, "unable to set arg destObj");
@@ -274,14 +274,14 @@ static BOOL primitives_init_opencl_context(primitives_opencl_context* WINPR_REST
 	if (ret != CL_SUCCESS || nplatforms < 1)
 		return FALSE;
 
-	cl_platform_id* platform_ids = calloc(nplatforms, sizeof(cl_platform_id));
+	cl_platform_id* platform_ids = (cl_platform_id*)calloc(nplatforms, sizeof(cl_platform_id));
 	if (!platform_ids)
 		return FALSE;
 
 	ret = clGetPlatformIDs(nplatforms, platform_ids, &nplatforms);
 	if (ret != CL_SUCCESS)
 	{
-		free(platform_ids);
+		free((void*)platform_ids);
 		return FALSE;
 	}
 
@@ -339,7 +339,7 @@ static BOOL primitives_init_opencl_context(primitives_opencl_context* WINPR_REST
 		gotGPU = TRUE;
 	}
 
-	free(platform_ids);
+	free((void*)platform_ids);
 
 	if (!gotGPU)
 	{

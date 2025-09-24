@@ -653,14 +653,15 @@ static UINT cliprdr_server_receive_format_list(CliprdrServerContext* context, wS
 	formatList.common.msgFlags = header->msgFlags;
 	formatList.common.dataLen = header->dataLen;
 
-	if ((error = cliprdr_read_format_list(s, &formatList, context->useLongFormatNames)))
+	wLog* log = WLog_Get(TAG);
+	if ((error = cliprdr_read_format_list(log, s, &formatList, context->useLongFormatNames)))
 		goto out;
 
-	WLog_DBG(TAG, "ClientFormatList: numFormats: %" PRIu32 "", formatList.numFormats);
+	WLog_Print(log, WLOG_DEBUG, "ClientFormatList: numFormats: %" PRIu32 "", formatList.numFormats);
 	IFCALLRET(context->ClientFormatList, error, context, &formatList);
 
 	if (error)
-		WLog_ERR(TAG, "ClientFormatList failed with error %" PRIu32 "!", error);
+		WLog_Print(log, WLOG_ERROR, "ClientFormatList failed with error %" PRIu32 "!", error);
 
 out:
 	cliprdr_free_format_list(&formatList);
@@ -1113,7 +1114,7 @@ static UINT cliprdr_server_read(CliprdrServerContext* context)
 		Stream_Read_UINT16(s, header.msgFlags); /* msgFlags (2 bytes) */
 		Stream_Read_UINT32(s, header.dataLen);  /* dataLen (4 bytes) */
 
-		if (!Stream_EnsureCapacity(s, (header.dataLen + CLIPRDR_HEADER_LENGTH)))
+		if (!Stream_EnsureRemainingCapacity(s, header.dataLen))
 		{
 			WLog_ERR(TAG, "Stream_EnsureCapacity failed!");
 			return CHANNEL_RC_NO_MEMORY;
@@ -1322,7 +1323,7 @@ static UINT cliprdr_server_open(CliprdrServerContext* context)
 			return ERROR_INTERNAL_ERROR;
 		}
 
-		CopyMemory(&(cliprdr->ChannelEvent), buffer, sizeof(HANDLE));
+		cliprdr->ChannelEvent = *(HANDLE*)buffer;
 		WTSFreeMemory(buffer);
 	}
 

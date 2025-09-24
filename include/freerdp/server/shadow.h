@@ -92,6 +92,10 @@ extern "C"
 	                                              UINT16 code);
 	typedef BOOL (*pfnShadowMouseEvent)(rdpShadowSubsystem* subsystem, rdpShadowClient* client,
 	                                    UINT16 flags, UINT16 x, UINT16 y);
+	typedef BOOL (*pfnShadowRelMouseEvent)(rdpShadowSubsystem* subsystem, rdpShadowClient* client,
+	                                       UINT16 flags, INT16 xDelta,
+	                                       INT16 yDelta); /** @since version 3.15.0 */
+
 	typedef BOOL (*pfnShadowExtendedMouseEvent)(rdpShadowSubsystem* subsystem,
 	                                            rdpShadowClient* client, UINT16 flags, UINT16 x,
 	                                            UINT16 y);
@@ -174,6 +178,8 @@ extern "C"
 		freerdp_listener* listener;
 
 		size_t maxClientsConnected;
+		BOOL SupportMultiRectBitmapUpdates; /** @since version 3.13.0 */
+		BOOL ShowMouseCursor;               /** @since version 3.15.0 */
 	};
 
 	struct rdp_shadow_surface
@@ -243,6 +249,8 @@ extern "C"
 		pfnShadowClientCapabilities ClientCapabilities;
 
 		rdpShadowServer* server;
+
+		pfnShadowRelMouseEvent RelMouseEvent; /** @since version 3.15.0 */
 	};
 
 /* Definition of message between subsystem and clients */
@@ -302,11 +310,13 @@ extern "C"
 	FREERDP_API void shadow_subsystem_set_entry_builtin(const char* name);
 	FREERDP_API void shadow_subsystem_set_entry(pfnShadowSubsystemEntry pEntry);
 
-	FREERDP_API WINPR_DEPRECATED_VAR(
+#if !defined(WITHOUT_FREERDP_3x_DEPRECATED)
+	WINPR_DEPRECATED_VAR(
 	    "[since 3.4.0] Use shadow_subsystem_pointer_convert_alpha_pointer_data_to_format instead",
-	    int shadow_subsystem_pointer_convert_alpha_pointer_data(
+	    FREERDP_API int shadow_subsystem_pointer_convert_alpha_pointer_data(
 	        const BYTE* WINPR_RESTRICT pixels, BOOL premultiplied, UINT32 width, UINT32 height,
 	        SHADOW_MSG_OUT_POINTER_ALPHA_UPDATE* WINPR_RESTRICT pointerColor));
+#endif
 
 	/** @brief Convert a pointer image from input format to RDP specific encoding
 	 *
@@ -329,7 +339,7 @@ extern "C"
 	                                                 COMMAND_LINE_ARGUMENT_A* cargs);
 	FREERDP_API int shadow_server_command_line_status_print(rdpShadowServer* server, int argc,
 	                                                        char** argv, int status,
-	                                                        COMMAND_LINE_ARGUMENT_A* cargs);
+	                                                        const COMMAND_LINE_ARGUMENT_A* cargs);
 
 	FREERDP_API int shadow_server_start(rdpShadowServer* server);
 	FREERDP_API int shadow_server_stop(rdpShadowServer* server);
@@ -346,11 +356,13 @@ extern "C"
 
 	FREERDP_API int shadow_capture_align_clip_rect(RECTANGLE_16* rect, const RECTANGLE_16* clip);
 
-	FREERDP_API WINPR_DEPRECATED_VAR(
-	    "[since 3.4.0] Use shadow_capture_compare_with_format",
-	    int shadow_capture_compare(const BYTE* WINPR_RESTRICT pData1, UINT32 nStep1, UINT32 nWidth,
-	                               UINT32 nHeight, const BYTE* WINPR_RESTRICT pData2, UINT32 nStep2,
-	                               RECTANGLE_16* WINPR_RESTRICT rect));
+#if !defined(WITHOUT_FREERDP_3x_DEPRECATED)
+	WINPR_DEPRECATED_VAR("[since 3.4.0] Use shadow_capture_compare_with_format",
+	                     FREERDP_API int shadow_capture_compare(
+	                         const BYTE* WINPR_RESTRICT pData1, UINT32 nStep1, UINT32 nWidth,
+	                         UINT32 nHeight, const BYTE* WINPR_RESTRICT pData2, UINT32 nStep2,
+	                         RECTANGLE_16* WINPR_RESTRICT rect));
+#endif
 
 	/** @brief Compare two framebuffer images of possibly different formats with each other
 	 *

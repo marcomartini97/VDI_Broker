@@ -59,6 +59,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <sys/epoll.h>
+#include <sys/stat.h>
 
 #include <uwac/config.h>
 
@@ -178,6 +179,14 @@ int uwac_os_epoll_create_cloexec(void)
 	return set_cloexec_or_close(fd);
 }
 
+static int secure_mkstemp(char* tmpname)
+{
+	const mode_t mask = umask(S_IRWXU);
+	int fd = mkstemp(tmpname);
+	(void)umask(mask);
+	return fd;
+}
+
 static int create_tmpfile_cloexec(char* tmpname)
 {
 	int fd = 0;
@@ -190,7 +199,7 @@ static int create_tmpfile_cloexec(char* tmpname)
 		unlink(tmpname);
 
 #else
-	fd = mkstemp(tmpname);
+	fd = secure_mkstemp(tmpname);
 
 	if (fd >= 0)
 	{
@@ -228,10 +237,10 @@ int uwac_create_anonymous_file(off_t size)
 	static const char template[] = "/weston-shared-XXXXXX";
 	size_t length = 0;
 	char* name = NULL;
-	const char* path = NULL;
 	int fd = 0;
 	int ret = 0;
-	path = getenv("XDG_RUNTIME_DIR");
+	// NOLINTNEXTLINE(concurrency-mt-unsafe)
+	const char* path = getenv("XDG_RUNTIME_DIR");
 
 	if (!path)
 	{

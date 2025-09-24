@@ -24,13 +24,9 @@
 #include "../rfx_types.h"
 #include "rfx_neon.h"
 
-#if defined(WITH_NEON)
-#if defined(_M_ARM64) || defined(_M_ARM)
-#define NEON_ENABLED
-#endif
-#endif
+#include "../../core/simd.h"
 
-#if defined(NEON_ENABLED)
+#if defined(NEON_INTRINSICS_ENABLED)
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -525,23 +521,20 @@ static void rfx_dwt_2d_extrapolate_decode_neon(INT16* buffer, INT16* temp)
 	rfx_dwt_2d_decode_extrapolate_block_neon(&buffer[3007], temp, 2);
 	rfx_dwt_2d_decode_extrapolate_block_neon(&buffer[0], temp, 1);
 }
-#endif // NEON_ENABLED
+#endif // NEON_INTRINSICS_ENABLED
 
-void rfx_init_neon(RFX_CONTEXT* context)
+void rfx_init_neon_int(RFX_CONTEXT* WINPR_RESTRICT context)
 {
-#if defined(NEON_ENABLED)
-	if (IsProcessorFeaturePresent(PF_ARM_NEON_INSTRUCTIONS_AVAILABLE))
-	{
-		DEBUG_RFX("Using NEON optimizations");
-		PROFILER_RENAME(context->priv->prof_rfx_ycbcr_to_rgb, "rfx_decode_YCbCr_to_RGB_NEON");
-		PROFILER_RENAME(context->priv->prof_rfx_quantization_decode,
-		                "rfx_quantization_decode_NEON");
-		PROFILER_RENAME(context->priv->prof_rfx_dwt_2d_decode, "rfx_dwt_2d_decode_NEON");
-		context->quantization_decode = rfx_quantization_decode_NEON;
-		context->dwt_2d_decode = rfx_dwt_2d_decode_NEON;
-		context->dwt_2d_extrapolate_decode = rfx_dwt_2d_extrapolate_decode_neon;
-	}
+#if defined(NEON_INTRINSICS_ENABLED)
+	WLog_VRB(PRIM_TAG, "NEON optimizations");
+	PROFILER_RENAME(context->priv->prof_rfx_ycbcr_to_rgb, "rfx_decode_YCbCr_to_RGB_NEON");
+	PROFILER_RENAME(context->priv->prof_rfx_quantization_decode, "rfx_quantization_decode_NEON");
+	PROFILER_RENAME(context->priv->prof_rfx_dwt_2d_decode, "rfx_dwt_2d_decode_NEON");
+	context->quantization_decode = rfx_quantization_decode_NEON;
+	context->dwt_2d_decode = rfx_dwt_2d_decode_NEON;
+	context->dwt_2d_extrapolate_decode = rfx_dwt_2d_extrapolate_decode_neon;
 #else
+	WLog_VRB(PRIM_TAG, "undefined WITH_SIMD or NEON intrinsics not available");
 	WINPR_UNUSED(context);
 #endif
 }

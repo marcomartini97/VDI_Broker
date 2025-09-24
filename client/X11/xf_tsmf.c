@@ -127,8 +127,8 @@ static int xf_tsmf_xv_video_frame_event(TsmfClientContext* tsmf, TSMF_VIDEO_FRAM
 			width = event->visibleRects[i].right - event->visibleRects[i].left;
 			height = event->visibleRects[i].bottom - event->visibleRects[i].top;
 
-			xrects[i].x = x;
-			xrects[i].y = y;
+			xrects[i].x = WINPR_ASSERTING_INT_CAST(short, x);
+			xrects[i].y = WINPR_ASSERTING_INT_CAST(short, y);
 			xrects[i].width = width;
 			xrects[i].height = height;
 		}
@@ -137,13 +137,13 @@ static int xf_tsmf_xv_video_frame_event(TsmfClientContext* tsmf, TSMF_VIDEO_FRAM
 	if (xv->xv_colorkey_atom != None)
 	{
 		XvGetPortAttribute(xfc->display, xv->xv_port, xv->xv_colorkey_atom, &colorkey);
-		XSetFunction(xfc->display, xfc->gc, GXcopy);
-		XSetFillStyle(xfc->display, xfc->gc, FillSolid);
-		XSetForeground(xfc->display, xfc->gc, colorkey);
+		LogDynAndXSetFunction(xfc->log, xfc->display, xfc->gc, GXcopy);
+		LogDynAndXSetFillStyle(xfc->log, xfc->display, xfc->gc, FillSolid);
+		LogDynAndXSetForeground(xfc->log, xfc->display, xfc->gc, colorkey);
 
 		if (event->numVisibleRects < 1)
 		{
-			XSetClipMask(xfc->display, xfc->gc, None);
+			LogDynAndXSetClipMask(xfc->log, xfc->display, xfc->gc, None);
 		}
 		else
 		{
@@ -152,12 +152,12 @@ static int xf_tsmf_xv_video_frame_event(TsmfClientContext* tsmf, TSMF_VIDEO_FRAM
 	}
 	else
 	{
-		XSetFunction(xfc->display, xfc->gc, GXcopy);
-		XSetFillStyle(xfc->display, xfc->gc, FillSolid);
+		LogDynAndXSetFunction(xfc->log, xfc->display, xfc->gc, GXcopy);
+		LogDynAndXSetFillStyle(xfc->log, xfc->display, xfc->gc, FillSolid);
 
 		if (event->numVisibleRects < 1)
 		{
-			XSetClipMask(xfc->display, xfc->gc, None);
+			LogDynAndXSetClipMask(xfc->log, xfc->display, xfc->gc, None);
 		}
 		else
 		{
@@ -188,8 +188,8 @@ static int xf_tsmf_xv_video_frame_event(TsmfClientContext* tsmf, TSMF_VIDEO_FRAM
 		return -1003;
 	}
 
-	image = XvShmCreateImage(xfc->display, xv->xv_port, xvpixfmt, 0, event->frameWidth,
-	                         event->frameHeight, &shminfo);
+	image = XvShmCreateImage(xfc->display, xv->xv_port, WINPR_ASSERTING_INT_CAST(int, xvpixfmt), 0,
+	                         event->frameWidth, event->frameHeight, &shminfo);
 
 	if (xv->xv_image_size != image->data_size)
 	{
@@ -295,9 +295,9 @@ static int xf_tsmf_xv_video_frame_event(TsmfClientContext* tsmf, TSMF_VIDEO_FRAM
 	              FALSE);
 
 	if (xv->xv_colorkey_atom == None)
-		XSetClipMask(xfc->display, xfc->gc, None);
+		LogDynAndXSetClipMask(xfc->log, xfc->display, xfc->gc, None);
 
-	XSync(xfc->display, FALSE);
+	LogDynAndXSync(xfc->log, xfc->display, FALSE);
 
 	XShmDetach(xfc->display, &shminfo);
 	XFree(image);

@@ -18,6 +18,7 @@
  */
 
 #include <winpr/assert.h>
+#include <winpr/cast.h>
 #include <winpr/print.h>
 
 #include <freerdp/config.h>
@@ -51,7 +52,7 @@ BOOL per_read_length(wStream* s, UINT16* length)
 			return FALSE;
 
 		byte &= ~(0x80);
-		*length = (byte << 8);
+		*length = WINPR_ASSERTING_INT_CAST(UINT16, byte << 8);
 		Stream_Read_UINT8(s, byte);
 		*length += byte;
 	}
@@ -272,7 +273,7 @@ BOOL per_write_integer(wStream* s, UINT32 integer)
 			return FALSE;
 		if (!Stream_EnsureRemainingCapacity(s, 1))
 			return FALSE;
-		Stream_Write_UINT8(s, integer);
+		Stream_Write_UINT8(s, WINPR_ASSERTING_INT_CAST(UINT8, integer));
 	}
 	else if (integer <= UINT16_MAX)
 	{
@@ -280,7 +281,7 @@ BOOL per_write_integer(wStream* s, UINT32 integer)
 			return FALSE;
 		if (!Stream_EnsureRemainingCapacity(s, 2))
 			return FALSE;
-		Stream_Write_UINT16_BE(s, integer);
+		Stream_Write_UINT16_BE(s, WINPR_ASSERTING_INT_CAST(UINT16, integer));
 	}
 	else if (integer <= UINT32_MAX)
 	{
@@ -379,7 +380,7 @@ BOOL per_read_enumerated(wStream* s, BYTE* enumerated, BYTE count)
  * @return \b TRUE for success, \b FALSE otherwise
  */
 
-BOOL per_write_enumerated(wStream* s, BYTE enumerated, BYTE count)
+BOOL per_write_enumerated(wStream* s, BYTE enumerated, WINPR_ATTR_UNUSED BYTE count)
 {
 	if (!Stream_EnsureRemainingCapacity(s, 1))
 		return FALSE;
@@ -466,19 +467,6 @@ BOOL per_write_object_identifier(wStream* s, const BYTE oid[6])
 	Stream_Write_UINT8(s, oid[4]); /* tuple 5 */
 	Stream_Write_UINT8(s, oid[5]); /* tuple 6 */
 	return TRUE;
-}
-
-/**
- * Write PER string.
- * @param s stream
- * @param str string
- * @param length string length
- */
-
-static void per_write_string(wStream* s, BYTE* str, int length)
-{
-	for (int i = 0; i < length; i++)
-		Stream_Write_UINT8(s, str[i]);
 }
 
 /**
@@ -596,7 +584,7 @@ BOOL per_write_numeric_string(wStream* s, const BYTE* num_str, UINT16 length, UI
 
 		c1 = (c1 - 0x30) % 10;
 		c2 = (c2 - 0x30) % 10;
-		const BYTE num = (c1 << 4) | c2;
+		const BYTE num = WINPR_ASSERTING_INT_CAST(BYTE, (c1 << 4) | c2);
 
 		Stream_Write_UINT8(s, num); /* string */
 	}

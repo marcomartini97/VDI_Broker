@@ -18,6 +18,7 @@
  */
 
 #include <winpr/assert.h>
+#include <winpr/cast.h>
 
 #include "camera.h"
 
@@ -42,8 +43,8 @@ UINT ecam_channel_send_error_response(CameraPlugin* ecam, GENERIC_CHANNEL_CALLBA
 		return ERROR_NOT_ENOUGH_MEMORY;
 	}
 
-	Stream_Write_UINT8(s, ecam->version);
-	Stream_Write_UINT8(s, msg);
+	Stream_Write_UINT8(s, WINPR_ASSERTING_INT_CAST(uint8_t, ecam->version));
+	Stream_Write_UINT8(s, WINPR_ASSERTING_INT_CAST(uint8_t, msg));
 	Stream_Write_UINT32(s, code);
 
 	return ecam_channel_write(ecam, hchannel, msg, s, TRUE);
@@ -66,8 +67,8 @@ UINT ecam_channel_send_generic_msg(CameraPlugin* ecam, GENERIC_CHANNEL_CALLBACK*
 		return ERROR_NOT_ENOUGH_MEMORY;
 	}
 
-	Stream_Write_UINT8(s, ecam->version);
-	Stream_Write_UINT8(s, msg);
+	Stream_Write_UINT8(s, WINPR_ASSERTING_INT_CAST(uint8_t, ecam->version));
+	Stream_Write_UINT8(s, WINPR_ASSERTING_INT_CAST(uint8_t, msg));
 
 	return ecam_channel_write(ecam, hchannel, msg, s, TRUE);
 }
@@ -77,8 +78,8 @@ UINT ecam_channel_send_generic_msg(CameraPlugin* ecam, GENERIC_CHANNEL_CALLBACK*
  *
  * @return 0 on success, otherwise a Win32 error code
  */
-UINT ecam_channel_write(CameraPlugin* ecam, GENERIC_CHANNEL_CALLBACK* hchannel, CAM_MSG_ID msg,
-                        wStream* out, BOOL freeStream)
+UINT ecam_channel_write(WINPR_ATTR_UNUSED CameraPlugin* ecam, GENERIC_CHANNEL_CALLBACK* hchannel,
+                        CAM_MSG_ID msg, wStream* out, BOOL freeStream)
 {
 	if (!hchannel || !out)
 		return ERROR_INVALID_PARAMETER;
@@ -118,8 +119,8 @@ static UINT ecam_send_device_added_notification(CameraPlugin* ecam,
 		return ERROR_NOT_ENOUGH_MEMORY;
 	}
 
-	Stream_Write_UINT8(s, ecam->version);
-	Stream_Write_UINT8(s, msg);
+	Stream_Write_UINT8(s, WINPR_ASSERTING_INT_CAST(uint8_t, ecam->version));
+	Stream_Write_UINT8(s, WINPR_ASSERTING_INT_CAST(uint8_t, msg));
 
 	size_t devNameLen = strlen(deviceName);
 	if (Stream_Write_UTF16_String_From_UTF8(s, devNameLen + 1, deviceName, devNameLen, TRUE) < 0)
@@ -179,8 +180,8 @@ static UINT ecam_enumerate_devices(CameraPlugin* ecam, GENERIC_CHANNEL_CALLBACK*
  * @return 0 on success, otherwise a Win32 error code
  */
 static UINT ecam_process_select_version_response(CameraPlugin* ecam,
-                                                 GENERIC_CHANNEL_CALLBACK* hchannel, wStream* s,
-                                                 BYTE serverVersion)
+                                                 GENERIC_CHANNEL_CALLBACK* hchannel,
+                                                 WINPR_ATTR_UNUSED wStream* s, BYTE serverVersion)
 {
 	const BYTE clientVersion = ECAM_PROTO_VERSION;
 
@@ -288,7 +289,9 @@ static UINT ecam_on_close(IWTSVirtualChannelCallback* pChannelCallback)
  * @return 0 on success, otherwise a Win32 error code
  */
 static UINT ecam_on_new_channel_connection(IWTSListenerCallback* pListenerCallback,
-                                           IWTSVirtualChannel* pChannel, BYTE* Data, BOOL* pbAccept,
+                                           IWTSVirtualChannel* pChannel,
+                                           WINPR_ATTR_UNUSED BYTE* Data,
+                                           WINPR_ATTR_UNUSED BOOL* pbAccept,
                                            IWTSVirtualChannelCallback** ppCallback)
 {
 	GENERIC_LISTENER_CALLBACK* hlistener = (GENERIC_LISTENER_CALLBACK*)pListenerCallback;

@@ -15,20 +15,17 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-set(SRCS
-    sdl3_resource_manager.cpp
-    sdl3_resource_manager.hpp
-)
+set(SRCS sdl3_resource_manager.cpp sdl3_resource_manager.hpp)
 
-add_library(sdl3_client_res STATIC
-    ${SRCS}
-)
-if (NOT WITH_SDL_LINK_SHARED)
-	target_link_libraries(sdl3_client_res ${SDL3_STATIC_LIBRARIES})
+add_library(sdl3_client_res STATIC ${SRCS})
+set_property(TARGET sdl3_client_res PROPERTY FOLDER "Client/SDL")
+
+if(NOT WITH_SDL_LINK_SHARED)
+  target_link_libraries(sdl3_client_res ${SDL3_STATIC_LIBRARIES})
 else()
-	target_link_libraries(sdl3_client_res ${SDL3_LIBRARIES})
+  target_link_libraries(sdl3_client_res ${SDL3_LIBRARIES})
 endif()
 
 target_link_libraries(sdl3_client_res sdl-common-client-res)
 
-set_property(TARGET sdl3_client_res PROPERTY POSITION_INDEPENDENT_CODE ON)
+set_target_properties(sdl3_client_res PROPERTIES POSITION_INDEPENDENT_CODE ON INTERPROCEDURAL_OPTIMIZATION OFF)

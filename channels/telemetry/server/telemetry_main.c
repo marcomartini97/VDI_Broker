@@ -187,6 +187,8 @@ static UINT telemetry_process_message(telemetry_server* telemetry)
 
 	Stream_Read_UINT8(s, MessageId);
 	Stream_Read_UINT8(s, Length);
+	if (!Stream_CheckAndLogRequiredLength(TAG, s, Length))
+		return ERROR_NO_DATA;
 
 	switch (MessageId)
 	{
@@ -244,7 +246,7 @@ static HANDLE telemetry_server_get_channel_handle(telemetry_server* telemetry)
 	                           &BytesReturned) == TRUE)
 	{
 		if (BytesReturned == sizeof(HANDLE))
-			CopyMemory(&ChannelEvent, buffer, sizeof(HANDLE));
+			ChannelEvent = *(HANDLE*)buffer;
 
 		WTSFreeMemory(buffer);
 	}

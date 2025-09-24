@@ -59,7 +59,7 @@ static int transport_bio_named_write(BIO* bio, const char* buf, int size)
 	DWORD written = 0;
 
 	UINT64 start = GetTickCount64();
-	BOOL ret = WriteFile(ptr->hFile, buf, size, &written, NULL);
+	BOOL ret = WriteFile(ptr->hFile, buf, WINPR_ASSERTING_INT_CAST(uint32_t, size), &written, NULL);
 	// winpr_HexDump(TAG, WLOG_DEBUG, buf, size);
 
 	if (!ret)
@@ -222,14 +222,15 @@ static int transport_bio_named_read(BIO* bio, char* buf, int size)
 	if ((size >= 0) && ret)
 	{
 		DataChunk chunks[2] = { 0 };
-		const int nchunks = ringbuffer_peek(&ptr->readBuffer, chunks, ret);
+		const int nchunks =
+		    ringbuffer_peek(&ptr->readBuffer, chunks, WINPR_ASSERTING_INT_CAST(size_t, ret));
 		for (int i = 0; i < nchunks; i++)
 		{
 			memcpy(buf, chunks[i].data, chunks[i].size);
 			buf += chunks[i].size;
 		}
 
-		ringbuffer_commit_read_bytes(&ptr->readBuffer, ret);
+		ringbuffer_commit_read_bytes(&ptr->readBuffer, WINPR_ASSERTING_INT_CAST(size_t, ret));
 
 		WLog_VRB(TAG, "(%d)=%" PRIdz " nchunks=%d", size, ret, nchunks);
 	}
@@ -255,7 +256,11 @@ static int transport_bio_named_puts(BIO* bio, const char* str)
 	WINPR_ASSERT(bio);
 	WINPR_ASSERT(str);
 
-	return transport_bio_named_write(bio, str, (int)strnlen(str, INT32_MAX));
+	const int max = (INT_MAX > SIZE_MAX) ? SIZE_MAX : INT_MAX;
+	const size_t len = strnlen(str, max);
+	if (len >= max)
+		return -1;
+	return transport_bio_named_write(bio, str, WINPR_ASSERTING_INT_CAST(int, len));
 }
 
 static int transport_bio_named_gets(BIO* bio, char* str, int size)
@@ -542,7 +547,7 @@ BIO* createChildSessionBio(void)
 	if (!bufferedBio)
 	{
 		BIO_free_all(lowLevelBio);
-		return FALSE;
+		return NULL;
 	}
 
 	bufferedBio = BIO_push(bufferedBio, lowLevelBio);

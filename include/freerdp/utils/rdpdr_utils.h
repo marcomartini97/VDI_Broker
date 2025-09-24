@@ -51,10 +51,21 @@ extern "C"
 	FREERDP_API const char* rdpdr_cap_type_string(UINT16 capability);
 
 	FREERDP_API LONG scard_log_status_error(const char* tag, const char* what, LONG status);
+
+	/** @brief log a smartcard related issue with a wLog
+	 *
+	 *  @param log The logger to use
+	 *  @param what The module affected
+	 *  @param status The status to log
+	 *
+	 *  @return The \ref status logged
+	 *  @since version 3.16.0
+	 */
+	FREERDP_API LONG scard_log_status_error_wlog(wLog* log, const char* what, LONG status);
 	FREERDP_API const char* scard_get_ioctl_string(UINT32 ioControlCode, BOOL funcName);
 
 	FREERDP_API BOOL rdpdr_write_iocompletion_header(wStream* out, UINT32 DeviceId,
-	                                                 UINT32 CompletionId, UINT32 ioStatus);
+	                                                 UINT32 CompletionId, NTSTATUS ioStatus);
 
 	FREERDP_API void rdpdr_dump_received_packet(wLog* log, DWORD lvl, wStream* out,
 	                                            const char* custom);

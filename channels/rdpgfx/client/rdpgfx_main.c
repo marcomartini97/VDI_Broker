@@ -24,6 +24,7 @@
 #include <freerdp/config.h>
 
 #include <winpr/assert.h>
+#include <winpr/cast.h>
 
 #include <winpr/crt.h>
 #include <winpr/wlog.h>
@@ -383,9 +384,9 @@ static UINT rdpgfx_recv_caps_confirm_pdu(GENERIC_CHANNEL_CALLBACK* callback, wSt
 	Stream_Read_UINT32(s, capsSet.flags);   /* capsData (4 bytes) */
 	gfx->TotalDecodedFrames = 0;
 	gfx->ConnectionCaps = capsSet;
-	DEBUG_RDPGFX(gfx->log,
-	             "RecvCapsConfirmPdu: version: %s [0x%08" PRIX32 "] flags: 0x%08" PRIX32 "",
-	             rdpgfx_caps_version_str(capsSet.version), capsSet.version, capsSet.flags);
+	WLog_Print(gfx->log, WLOG_DEBUG,
+	           "RecvCapsConfirmPdu: version: %s [0x%08" PRIX32 "] flags: 0x%08" PRIX32 "",
+	           rdpgfx_caps_version_str(capsSet.version), capsSet.version, capsSet.flags);
 
 	if (!context)
 		return ERROR_BAD_CONFIGURATION;
@@ -507,7 +508,6 @@ fail:
  */
 static UINT rdpgfx_recv_reset_graphics_pdu(GENERIC_CHANNEL_CALLBACK* callback, wStream* s)
 {
-	MONITOR_DEF* monitor = NULL;
 	RDPGFX_RESET_GRAPHICS_PDU pdu = { 0 };
 	WINPR_ASSERT(callback);
 
@@ -539,7 +539,7 @@ static UINT rdpgfx_recv_reset_graphics_pdu(GENERIC_CHANNEL_CALLBACK* callback, w
 
 	for (UINT32 index = 0; index < pdu.monitorCount; index++)
 	{
-		monitor = &(pdu.monitorDefArray[index]);
+		MONITOR_DEF* monitor = &(pdu.monitorDefArray[index]);
 		Stream_Read_INT32(s, monitor->left);   /* left (4 bytes) */
 		Stream_Read_INT32(s, monitor->top);    /* top (4 bytes) */
 		Stream_Read_INT32(s, monitor->right);  /* right (4 bytes) */
@@ -562,14 +562,14 @@ static UINT rdpgfx_recv_reset_graphics_pdu(GENERIC_CHANNEL_CALLBACK* callback, w
 	}
 
 	Stream_Seek(s, pad); /* pad (total size is 340 bytes) */
-	DEBUG_RDPGFX(gfx->log,
-	             "RecvResetGraphicsPdu: width: %" PRIu32 " height: %" PRIu32 " count: %" PRIu32 "",
-	             pdu.width, pdu.height, pdu.monitorCount);
+	WLog_Print(gfx->log, WLOG_DEBUG,
+	           "RecvResetGraphicsPdu: width: %" PRIu32 " height: %" PRIu32 " count: %" PRIu32 "",
+	           pdu.width, pdu.height, pdu.monitorCount);
 
 #if defined(WITH_DEBUG_RDPGFX)
 	for (UINT32 index = 0; index < pdu.monitorCount; index++)
 	{
-		monitor = &(pdu.monitorDefArray[index]);
+		MONITOR_DEF* monitor = &(pdu.monitorDefArray[index]);
 		DEBUG_RDPGFX(gfx->log,
 		             "RecvResetGraphicsPdu: monitor left:%" PRIi32 " top:%" PRIi32 " right:%" PRIi32
 		             " bottom:%" PRIi32 " flags:0x%" PRIx32 "",
@@ -625,87 +625,6 @@ static UINT rdpgfx_recv_evict_cache_entry_pdu(GENERIC_CHANNEL_CALLBACK* callback
 			           "context->EvictCacheEntry failed with error %" PRIu32 "", error);
 	}
 
-	return error;
-}
-
-/**
- * Load cache import offer from file (offline replay)
- *
- * @return 0 on success, otherwise a Win32 error code
- */
-static UINT rdpgfx_load_cache_import_offer(RDPGFX_PLUGIN* gfx, RDPGFX_CACHE_IMPORT_OFFER_PDU* offer)
-{
-	int count = 0;
-	UINT error = CHANNEL_RC_OK;
-	PERSISTENT_CACHE_ENTRY entry;
-	rdpPersistentCache* persistent = NULL;
-	WINPR_ASSERT(gfx);
-	WINPR_ASSERT(gfx->rdpcontext);
-	rdpSettings* settings = gfx->rdpcontext->settings;
-
-	WINPR_ASSERT(offer);
-	WINPR_ASSERT(settings);
-
-	offer->cacheEntriesCount = 0;
-
-	if (!freerdp_settings_get_bool(settings, FreeRDP_BitmapCachePersistEnabled))
-		return CHANNEL_RC_OK;
-
-	const char* BitmapCachePersistFile =
-	    freerdp_settings_get_string(settings, FreeRDP_BitmapCachePersistFile);
-	if (!BitmapCachePersistFile)
-		return CHANNEL_RC_OK;
-
-	persistent = persistent_cache_new();
-
-	if (!persistent)
-		return CHANNEL_RC_NO_MEMORY;
-
-	if (persistent_cache_open(persistent, BitmapCachePersistFile, FALSE, 3) < 1)
-	{
-		error = CHANNEL_RC_INITIALIZATION_ERROR;
-		goto fail;
-	}
-
-	if (persistent_cache_get_version(persistent) != 3)
-	{
-		error = ERROR_INVALID_DATA;
-		goto fail;
-	}
-
-	count = persistent_cache_get_count(persistent);
-
-	if (count < 1)
-	{
-		error = ERROR_INVALID_DATA;
-		goto fail;
-	}
-
-	if (count >= RDPGFX_CACHE_ENTRY_MAX_COUNT)
-		count = RDPGFX_CACHE_ENTRY_MAX_COUNT - 1;
-
-	if (count > gfx->MaxCacheSlots)
-		count = gfx->MaxCacheSlots;
-
-	offer->cacheEntriesCount = (UINT16)count;
-
-	for (int idx = 0; idx < count; idx++)
-	{
-		if (persistent_cache_read_entry(persistent, &entry) < 1)
-		{
-			error = ERROR_INVALID_DATA;
-			goto fail;
-		}
-
-		offer->cacheEntries[idx].cacheKey = entry.key64;
-		offer->cacheEntries[idx].bitmapLength = entry.size;
-	}
-
-	persistent_cache_free(persistent);
-
-	return error;
-fail:
-	persistent_cache_free(persistent);
 	return error;
 }
 
@@ -799,8 +718,8 @@ static UINT rdpgfx_send_cache_import_offer_pdu(RdpgfxClientContext* context,
 	header.flags = 0;
 	header.cmdId = RDPGFX_CMDID_CACHEIMPORTOFFER;
 	header.pduLength = RDPGFX_HEADER_SIZE + 2ul + pdu->cacheEntriesCount * 12ul;
-	DEBUG_RDPGFX(gfx->log, "SendCacheImportOfferPdu: cacheEntriesCount: %" PRIu16 "",
-	             pdu->cacheEntriesCount);
+	WLog_Print(gfx->log, WLOG_DEBUG, "SendCacheImportOfferPdu: cacheEntriesCount: %" PRIu16 "",
+	           pdu->cacheEntriesCount);
 	s = Stream_New(NULL, header.pduLength);
 
 	if (!s)
@@ -1254,8 +1173,8 @@ static UINT rdpgfx_recv_end_frame_pdu(GENERIC_CHANNEL_CALLBACK* callback, wStrea
 
 				qoe.frameId = pdu.frameId;
 				qoe.timestamp = gfx->StartDecodingTime % UINT32_MAX;
-				qoe.timeDiffSE = diff;
-				qoe.timeDiffEDR = EndFrameTime;
+				qoe.timeDiffSE = WINPR_ASSERTING_INT_CAST(UINT16, diff);
+				qoe.timeDiffEDR = WINPR_ASSERTING_INT_CAST(UINT16, EndFrameTime);
 
 				if ((error = rdpgfx_send_qoe_frame_acknowledge_pdu(context, &qoe)))
 					WLog_Print(gfx->log, WLOG_ERROR,
@@ -2341,7 +2260,8 @@ static void* rdpgfx_get_cache_slot_data(RdpgfxClientContext* context, UINT16 cac
 	return pData;
 }
 
-static UINT init_plugin_cb(GENERIC_DYNVC_PLUGIN* base, rdpContext* rcontext, rdpSettings* settings)
+static UINT init_plugin_cb(GENERIC_DYNVC_PLUGIN* base, rdpContext* rcontext,
+                           WINPR_ATTR_UNUSED rdpSettings* settings)
 {
 	RdpgfxClientContext* context = NULL;
 	RDPGFX_PLUGIN* gfx = (RDPGFX_PLUGIN*)base;

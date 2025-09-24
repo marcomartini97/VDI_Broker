@@ -17,6 +17,9 @@
  * limitations under the License.
  */
 
+#include <winpr/assert.h>
+#include <winpr/cast.h>
+
 #include <freerdp/config.h>
 
 #include <freerdp/codec/bitmap.h>
@@ -25,7 +28,7 @@
 static INLINE UINT16 GETPIXEL16(const void* WINPR_RESTRICT d, UINT32 x, UINT32 y, UINT32 w)
 {
 	const BYTE* WINPR_RESTRICT src = (const BYTE*)d + ((y * w + x) * sizeof(UINT16));
-	return (UINT16)(((UINT16)src[1] << 8) | (UINT16)src[0]);
+	return WINPR_ASSERTING_INT_CAST(UINT16, ((UINT16)src[1] << 8) | (UINT16)src[0]);
 }
 
 static INLINE UINT32 GETPIXEL32(const void* WINPR_RESTRICT d, UINT32 x, UINT32 y, UINT32 w)
@@ -380,7 +383,7 @@ static INLINE UINT16 out_mix_count_3(UINT16 in_count, wStream* WINPR_RESTRICT in
 /*****************************************************************************/
 /* fom */
 static INLINE UINT16 out_from_count_2(UINT16 in_count, wStream* WINPR_RESTRICT in_s,
-                                      const char* WINPR_RESTRICT in_mask, size_t in_mask_len)
+                                      const int8_t* WINPR_RESTRICT in_mask, size_t in_mask_len)
 {
 	if (in_count > 0)
 	{
@@ -412,7 +415,7 @@ static INLINE UINT16 out_from_count_2(UINT16 in_count, wStream* WINPR_RESTRICT i
 /*****************************************************************************/
 /* fill or mix (fom) */
 static INLINE UINT16 out_from_count_3(UINT16 in_count, wStream* WINPR_RESTRICT in_s,
-                                      const char* WINPR_RESTRICT in_mask, size_t in_mask_len)
+                                      const int8_t* WINPR_RESTRICT in_mask, size_t in_mask_len)
 {
 	if (in_count > 0)
 	{
@@ -462,11 +465,12 @@ static INLINE UINT16 out_from_count_3(UINT16 in_count, wStream* WINPR_RESTRICT i
 	} while (0)
 
 static INLINE SSIZE_T freerdp_bitmap_compress_24(const void* WINPR_RESTRICT srcData, UINT32 width,
-                                                 UINT32 height, wStream* WINPR_RESTRICT s,
-                                                 UINT32 byte_limit, UINT32 start_line,
-                                                 wStream* WINPR_RESTRICT temp_s, UINT32 e)
+                                                 WINPR_ATTR_UNUSED UINT32 height,
+                                                 wStream* WINPR_RESTRICT s, UINT32 byte_limit,
+                                                 UINT32 start_line, wStream* WINPR_RESTRICT temp_s,
+                                                 UINT32 e)
 {
-	char fom_mask[8192] = { 0 }; /* good for up to 64K bitmap */
+	int8_t fom_mask[8192] = { 0 }; /* good for up to 64K bitmap */
 	SSIZE_T lines_sent = 0;
 	UINT16 count = 0;
 	UINT16 color_count = 0;
@@ -630,7 +634,10 @@ static INLINE SSIZE_T freerdp_bitmap_compress_24(const void* WINPR_RESTRICT srcD
 
 				if (pixel == (ypixel ^ mix))
 				{
-					fom_mask[fom_mask_len - 1] |= (1 << (fom_count % 8));
+					const int tmp = (1 << (fom_count % 8));
+					const int val = fom_mask[fom_mask_len - 1] | tmp;
+					const int8_t ival = WINPR_ASSERTING_INT_CAST(int8_t, val);
+					fom_mask[fom_mask_len - 1] = ival;
 				}
 
 				fom_count++;
@@ -768,11 +775,12 @@ static INLINE SSIZE_T freerdp_bitmap_compress_24(const void* WINPR_RESTRICT srcD
 }
 
 static INLINE SSIZE_T freerdp_bitmap_compress_16(const void* WINPR_RESTRICT srcData, UINT32 width,
-                                                 UINT32 height, wStream* WINPR_RESTRICT s,
-                                                 UINT32 bpp, UINT32 byte_limit, UINT32 start_line,
+                                                 WINPR_ATTR_UNUSED UINT32 height,
+                                                 wStream* WINPR_RESTRICT s, UINT32 bpp,
+                                                 UINT32 byte_limit, UINT32 start_line,
                                                  wStream* WINPR_RESTRICT temp_s, UINT32 e)
 {
-	char fom_mask[8192] = { 0 }; /* good for up to 64K bitmap */
+	int8_t fom_mask[8192] = { 0 }; /* good for up to 64K bitmap */
 	SSIZE_T lines_sent = 0;
 	UINT16 count = 0;
 	UINT16 color_count = 0;
@@ -936,7 +944,10 @@ static INLINE SSIZE_T freerdp_bitmap_compress_16(const void* WINPR_RESTRICT srcD
 
 				if (pixel == (ypixel ^ mix))
 				{
-					fom_mask[fom_mask_len - 1] |= (1 << (fom_count % 8));
+					const int tmp = (1 << (fom_count % 8));
+					const int val = fom_mask[fom_mask_len - 1] | tmp;
+					const int8_t ival = WINPR_ASSERTING_INT_CAST(int8_t, val);
+					fom_mask[fom_mask_len - 1] = ival;
 				}
 
 				fom_count++;
