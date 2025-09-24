@@ -82,6 +82,11 @@ typedef struct
 	BYTE tag[3];
 } piv_cert_tags_t;
 static const piv_cert_tags_t piv_cert_tags[] = {
+	{ "X.509 Certificate for PIV Authentication", "\x5F\xC1\x05" },
+	{ "X.509 Certificate for Digital Signature", "\x5F\xC1\x0A" },
+	{ "X.509 Certificate for Key Management", "\x5F\xC1\x0B" },
+	{ "X.509 Certificate for Card Authentication", "\x5F\xC1\x01" },
+
 	{ "Certificate for PIV Authentication", "\x5F\xC1\x05" },
 	{ "Certificate for Digital Signature", "\x5F\xC1\x0A" },
 	{ "Certificate for Key Management", "\x5F\xC1\x0B" },
@@ -130,12 +135,17 @@ static SECURITY_STATUS NCryptP11StorageProvider_dtor(NCRYPT_HANDLE handle)
 
 static void fix_padded_string(char* str, size_t maxlen)
 {
-	char* ptr = str + maxlen - 1;
+	if (maxlen == 0)
+		return;
 
-	while (ptr > str && *ptr == ' ')
+	WINPR_ASSERT(str);
+	char* ptr = &str[maxlen - 1];
+
+	while ((ptr > str) && (*ptr == ' '))
+	{
+		*ptr = '\0';
 		ptr--;
-	ptr++;
-	*ptr = 0;
+	}
 }
 
 static BOOL attributes_have_unallocated_buffers(CK_ATTRIBUTE_PTR attributes, CK_ULONG count)
@@ -361,9 +371,8 @@ static void log_(const char* tag, const char* msg, CK_RV rv, CK_ULONG index, CK_
 	if (!WLog_IsLevelActive(log_cached_ptr, log_level))
 		return;
 
-	WLog_PrintMessage(log_cached_ptr, WLOG_MESSAGE_TEXT, log_level, line, file, fkt,
-	                  "%s for slot #%" PRIu32 "(%" PRIu32 "), rv=%s", msg, index, slot,
-	                  CK_RV_error_string(rv));
+	WLog_PrintTextMessage(log_cached_ptr, log_level, line, file, fkt,
+	                      "%s for slot #%lu(%lu), rv=%s", msg, index, slot, CK_RV_error_string(rv));
 }
 
 static SECURITY_STATUS collect_keys(NCryptP11ProviderHandle* provider, P11EnumKeysState* state)
@@ -486,10 +495,12 @@ static SECURITY_STATUS collect_keys(NCryptP11ProviderHandle* provider, P11EnumKe
 static BOOL convertKeyType(CK_KEY_TYPE k, LPWSTR dest, DWORD len, DWORD* outlen)
 {
 	const WCHAR* r = NULL;
+	size_t retLen = 0;
 
-#define ALGO_CASE(V, S) \
-	case V:             \
-		r = S;          \
+#define ALGO_CASE(V, S)                         \
+	case V:                                     \
+		r = S;                                  \
+		retLen = _wcsnlen((S), ARRAYSIZE((S))); \
 		break
 	switch (k)
 	{
@@ -522,7 +533,6 @@ static BOOL convertKeyType(CK_KEY_TYPE k, LPWSTR dest, DWORD len, DWORD* outlen)
 	}
 #undef ALGO_CASE
 
-	size_t retLen = _wcslen(r);
 	if (retLen > UINT32_MAX)
 		return FALSE;
 
@@ -535,19 +545,17 @@ static BOOL convertKeyType(CK_KEY_TYPE k, LPWSTR dest, DWORD len, DWORD* outlen)
 			dest[0] = 0;
 		return FALSE;
 	}
-	else
+
+	if (dest)
 	{
-		if (retLen + 1 < len)
+		if (retLen + 1 > len)
 		{
 			WLog_ERR(TAG, "target buffer is too small for algo name");
 			return FALSE;
 		}
 
-		if (dest)
-		{
-			memcpy(dest, r, sizeof(WCHAR) * retLen);
-			dest[retLen] = 0;
-		}
+		memcpy(dest, r, sizeof(WCHAR) * retLen);
+		dest[retLen] = 0;
 	}
 
 	return TRUE;
@@ -578,11 +586,11 @@ static void wprintKeyName(LPWSTR str, CK_SLOT_ID slotId, CK_BYTE* id, CK_ULONG i
 
 static size_t parseHex(const char* str, const char* end, CK_BYTE* target)
 {
-	int ret = 0;
+	size_t ret = 0;
 
 	for (; str != end && *str; str++, ret++, target++)
 	{
-		CK_BYTE v = 0;
+		int v = 0;
 		if (*str <= '9' && *str >= '0')
 		{
 			v = (*str - '0');
@@ -622,7 +630,7 @@ static size_t parseHex(const char* str, const char* end, CK_BYTE* target)
 			return 0;
 		}
 
-		*target = v;
+		*target = v & 0xFF;
 	}
 	return ret;
 }
@@ -659,7 +667,7 @@ static SECURITY_STATUS parseKeyName(LPCWSTR pszKeyName, CK_SLOT_ID* slotId, CK_B
 
 static SECURITY_STATUS NCryptP11EnumKeys(NCRYPT_PROV_HANDLE hProvider, LPCWSTR pszScope,
                                          NCryptKeyName** ppKeyName, PVOID* ppEnumState,
-                                         DWORD dwFlags)
+                                         WINPR_ATTR_UNUSED DWORD dwFlags)
 {
 	NCryptP11ProviderHandle* provider = (NCryptP11ProviderHandle*)hProvider;
 	P11EnumKeysState* state = (P11EnumKeysState*)*ppEnumState;
@@ -978,7 +986,8 @@ static SECURITY_STATUS check_for_piv_container_name(NCryptP11KeyHandle* key, BYT
 
 static SECURITY_STATUS NCryptP11KeyGetProperties(NCryptP11KeyHandle* keyHandle,
                                                  NCryptKeyGetPropertyEnum property, PBYTE pbOutput,
-                                                 DWORD cbOutput, DWORD* pcbResult, DWORD dwFlags)
+                                                 DWORD cbOutput, DWORD* pcbResult,
+                                                 WINPR_ATTR_UNUSED DWORD dwFlags)
 {
 	SECURITY_STATUS ret = NTE_FAIL;
 	CK_RV rv = 0;
@@ -1201,7 +1210,8 @@ static SECURITY_STATUS NCryptP11GetProperty(NCRYPT_HANDLE hObject, NCryptKeyGetP
 }
 
 static SECURITY_STATUS NCryptP11OpenKey(NCRYPT_PROV_HANDLE hProvider, NCRYPT_KEY_HANDLE* phKey,
-                                        LPCWSTR pszKeyName, DWORD dwLegacyKeySpec, DWORD dwFlags)
+                                        LPCWSTR pszKeyName, WINPR_ATTR_UNUSED DWORD dwLegacyKeySpec,
+                                        WINPR_ATTR_UNUSED DWORD dwFlags)
 {
 	SECURITY_STATUS ret = 0;
 	CK_SLOT_ID slotId = 0;
@@ -1271,8 +1281,8 @@ fail:
 }
 
 SECURITY_STATUS NCryptOpenP11StorageProviderEx(NCRYPT_PROV_HANDLE* phProvider,
-                                               LPCWSTR pszProviderName, DWORD dwFlags,
-                                               LPCSTR* modulePaths)
+                                               WINPR_ATTR_UNUSED LPCWSTR pszProviderName,
+                                               WINPR_ATTR_UNUSED DWORD dwFlags, LPCSTR* modulePaths)
 {
 	SECURITY_STATUS status = ERROR_INVALID_PARAMETER;
 	LPCSTR defaultPaths[] = { "p11-kit-proxy.so", "opensc-pkcs11.so", NULL };

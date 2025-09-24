@@ -22,6 +22,8 @@
 #include <string>
 #include <SDL3/SDL.h>
 
+#include <freerdp/settings_types.h>
+
 class SdlWindow
 {
   public:
@@ -35,7 +37,7 @@ class SdlWindow
 	SdlWindow& operator=(SdlWindow&& other) = delete;
 
 	[[nodiscard]] Uint32 id() const;
-	[[nodiscard]] int displayIndex() const;
+	[[nodiscard]] SDL_DisplayID displayIndex() const;
 	[[nodiscard]] SDL_Rect rect() const;
 	[[nodiscard]] SDL_Window* window() const;
 
@@ -44,6 +46,8 @@ class SdlWindow
 
 	void setOffsetY(Sint32 y);
 	[[nodiscard]] Sint32 offsetY() const;
+
+	[[nodiscard]] rdpMonitor monitor() const;
 
 	bool grabKeyboard(bool enable);
 	bool grabMouse(bool enable);
@@ -58,6 +62,8 @@ class SdlWindow
 	void updateSurface();
 
   private:
+	static UINT32 orientaion_to_rdp(SDL_DisplayOrientation orientation);
+
 	SDL_Window* _window = nullptr;
 	Sint32 _offset_x = 0;
 	Sint32 _offset_y = 0;

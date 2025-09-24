@@ -21,6 +21,7 @@
 #include <freerdp/config.h>
 
 #include <winpr/assert.h>
+#include <winpr/cast.h>
 #include <winpr/string.h>
 #include <winpr/print.h>
 
@@ -318,7 +319,7 @@ static BOOL rdpdr_check_version(BOOL server, wLog* log, UINT16 versionMajor, UIN
 {
 	if (versionMajor != RDPDR_VERSION_MAJOR)
 	{
-		RX_LOG(server, log, WLOG_WARN, "[%s | %s] expected MajorVersion %" PRIu16 ", got %" PRIu16,
+		RX_LOG(server, log, WLOG_WARN, "[%s | %s] expected MajorVersion %d, got %" PRIu16,
 		       rdpdr_component_string(component), rdpdr_packetid_string(PacketId),
 		       RDPDR_VERSION_MAJOR, versionMajor);
 		return FALSE;
@@ -465,7 +466,7 @@ static UINT rdpdr_process_client_name_request(pf_channel_server_context* rdpdr, 
 	if (!Stream_CheckAndLogRequiredLengthSrv(rdpdr->log, s, rdpdr->common.computerNameLen))
 	{
 		SERVER_RX_LOG(
-		    rdpdr->log, WLOG_WARN, "[%s | %s]: missing data, got %" PRIu32 ", expected %" PRIu32,
+		    rdpdr->log, WLOG_WARN, "[%s | %s]: missing data, got %" PRIuz ", expected %" PRIu32,
 		    rdpdr_component_string(RDPDR_CTYP_CORE), rdpdr_packetid_string(PAKID_CORE_CLIENT_NAME),
 		    Stream_GetRemainingLength(s), rdpdr->common.computerNameLen);
 		return ERROR_INVALID_DATA;
@@ -520,8 +521,9 @@ static UINT rdpdr_send_client_name_request(pClientContext* pc, pf_channel_client
 
 #define rdpdr_ignore_capset(srv, log, s, header) \
 	rdpdr_ignore_capset_((srv), (log), (s), header, __func__)
-static UINT rdpdr_ignore_capset_(BOOL srv, wLog* log, wStream* s,
-                                 const RDPDR_CAPABILITY_HEADER* header, const char* fkt)
+static UINT rdpdr_ignore_capset_(WINPR_ATTR_UNUSED BOOL srv, WINPR_ATTR_UNUSED wLog* log,
+                                 wStream* s, const RDPDR_CAPABILITY_HEADER* header,
+                                 WINPR_ATTR_UNUSED const char* fkt)
 {
 	WINPR_ASSERT(s);
 	WINPR_ASSERT(header);
@@ -1076,7 +1078,7 @@ static BOOL pf_channel_rdpdr_rewrite_device_list_to(wStream* s, UINT32 fromVersi
 				const size_t datalen = charCount * sizeof(WCHAR);
 				if (!Stream_EnsureRemainingCapacity(s, datalen + sizeof(UINT32)))
 					goto fail;
-				Stream_Write_UINT32(s, datalen);
+				Stream_Write_UINT32(s, WINPR_ASSERTING_INT_CAST(uint32_t, datalen));
 
 				const SSIZE_T rcw = Stream_Write_UTF16_String_From_UTF8(
 				    s, charCount, device.PreferredDosName, charCount - 1, TRUE);
@@ -1508,8 +1510,8 @@ static BOOL pf_channel_rdpdr_common_context_new(pf_channel_common_context* commo
 }
 
 static BOOL pf_channel_rdpdr_client_pass_message(pServerContext* ps, pClientContext* pc,
-                                                 UINT16 channelId, const char* channel_name,
-                                                 wStream* s)
+                                                 WINPR_ATTR_UNUSED UINT16 channelId,
+                                                 const char* channel_name, wStream* s)
 {
 	pf_channel_client_context* rdpdr = NULL;
 
@@ -1973,8 +1975,9 @@ static PfChannelResult pf_rdpdr_back_data(proxyData* pdata,
 	WINPR_ASSERT(pdata);
 	WINPR_ASSERT(channel);
 
-	if (!pf_channel_rdpdr_client_handle(pdata->pc, channel->back_channel_id, channel->channel_name,
-	                                    xdata, xsize, flags, totalSize))
+	if (!pf_channel_rdpdr_client_handle(pdata->pc,
+	                                    WINPR_ASSERTING_INT_CAST(UINT16, channel->back_channel_id),
+	                                    channel->channel_name, xdata, xsize, flags, totalSize))
 		return PF_CHANNEL_RESULT_ERROR;
 
 #if defined(WITH_PROXY_EMULATE_SMARTCARD)
@@ -1992,8 +1995,9 @@ static PfChannelResult pf_rdpdr_front_data(proxyData* pdata,
 	WINPR_ASSERT(pdata);
 	WINPR_ASSERT(channel);
 
-	if (!pf_channel_rdpdr_server_handle(pdata->ps, channel->front_channel_id, channel->channel_name,
-	                                    xdata, xsize, flags, totalSize))
+	if (!pf_channel_rdpdr_server_handle(pdata->ps,
+	                                    WINPR_ASSERTING_INT_CAST(UINT16, channel->front_channel_id),
+	                                    channel->channel_name, xdata, xsize, flags, totalSize))
 		return PF_CHANNEL_RESULT_ERROR;
 
 #if defined(WITH_PROXY_EMULATE_SMARTCARD)

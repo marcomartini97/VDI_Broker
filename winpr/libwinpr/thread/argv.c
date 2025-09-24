@@ -157,8 +157,8 @@ LPSTR* CommandLineToArgvA(LPCSTR lpCmdLine, int* pNumArgs)
 				pBeg--;
 			}
 
-			n = ((pEnd - pBeg) - 1);
-			length = (pBeg - pLastEnd);
+			n = WINPR_ASSERTING_INT_CAST(size_t, ((pEnd - pBeg) - 1));
+			length = WINPR_ASSERTING_INT_CAST(size_t, (pBeg - pLastEnd));
 			CopyMemory(pOutput, p, length);
 			pOutput += length;
 			p += length;
@@ -221,7 +221,7 @@ LPSTR* CommandLineToArgvA(LPCSTR lpCmdLine, int* pNumArgs)
 		if (*p != '"')
 		{
 			/* no whitespace escaped with double quotes */
-			length = (p - pBeg);
+			length = WINPR_ASSERTING_INT_CAST(size_t, (p - pBeg));
 			CopyMemory(pOutput, pBeg, length);
 			pOutput[length] = '\0';
 			pArgs[numArgs++] = pOutput;
@@ -244,8 +244,13 @@ LPSTR* CommandLineToArgvA(LPCSTR lpCmdLine, int* pNumArgs)
 			if (*p != '"')
 				WLog_ERR(TAG, "parsing error: uneven number of unescaped double quotes!");
 
-			if (p[0] && p[1])
-				p += 1 + strcspn(&p[1], " \t\0");
+			if (*p)
+			{
+				p++;
+
+				if (*p)
+					p += strcspn(p, " \t\0");
+			}
 
 			pArgs[numArgs++] = pOutput;
 
@@ -271,8 +276,9 @@ LPSTR* CommandLineToArgvA(LPCSTR lpCmdLine, int* pNumArgs)
 
 #ifndef _WIN32
 
-LPWSTR* CommandLineToArgvW(LPCWSTR lpCmdLine, int* pNumArgs)
+LPWSTR* CommandLineToArgvW(WINPR_ATTR_UNUSED LPCWSTR lpCmdLine, WINPR_ATTR_UNUSED int* pNumArgs)
 {
+	WLog_ERR("TODO", "TODO: Implement");
 	return NULL;
 }
 

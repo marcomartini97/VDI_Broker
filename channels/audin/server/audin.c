@@ -191,8 +191,8 @@ static UINT audin_server_recv_open_reply(audin_server_context* context, wStream*
 	return error;
 }
 
-static UINT audin_server_recv_data_incoming(audin_server_context* context, wStream* s,
-                                            const SNDIN_PDU* header)
+static UINT audin_server_recv_data_incoming(audin_server_context* context,
+                                            WINPR_ATTR_UNUSED wStream* s, const SNDIN_PDU* header)
 {
 	audin_server* audin = (audin_server*)context;
 	SNDIN_DATA_INCOMING pdu = { 0 };
@@ -277,7 +277,7 @@ static DWORD WINAPI audin_server_thread_func(LPVOID arg)
 	                           &BytesReturned) == TRUE)
 	{
 		if (BytesReturned == sizeof(HANDLE))
-			CopyMemory(&ChannelEvent, buffer, sizeof(HANDLE));
+			ChannelEvent = *(HANDLE*)buffer;
 
 		WTSFreeMemory(buffer);
 	}
@@ -296,8 +296,7 @@ static DWORD WINAPI audin_server_thread_func(LPVOID arg)
 
 	while (1)
 	{
-		if ((status = WaitForMultipleObjects(nCount, events, FALSE, 100)) == WAIT_OBJECT_0)
-			goto out;
+		status = WaitForMultipleObjects(nCount, events, FALSE, 100);
 
 		if (status == WAIT_FAILED)
 		{
@@ -794,8 +793,9 @@ static UINT audin_server_receive_format_change_default(audin_server_context* con
 	return CHANNEL_RC_OK;
 }
 
-static UINT audin_server_incoming_data_default(audin_server_context* context,
-                                               const SNDIN_DATA_INCOMING* data_incoming)
+static UINT
+audin_server_incoming_data_default(audin_server_context* context,
+                                   WINPR_ATTR_UNUSED const SNDIN_DATA_INCOMING* data_incoming)
 {
 	audin_server* audin = (audin_server*)context;
 	WINPR_ASSERT(audin);
@@ -814,7 +814,7 @@ static UINT audin_server_open_reply_default(audin_server_context* context,
 	WINPR_ASSERT(open_reply);
 
 	/* TODO: Implement failure handling */
-	WLog_Print(audin->log, WLOG_DEBUG, "Open Reply PDU: Result: %i", open_reply->Result);
+	WLog_Print(audin->log, WLOG_DEBUG, "Open Reply PDU: Result: %" PRIu32, open_reply->Result);
 	return CHANNEL_RC_OK;
 }
 
@@ -883,7 +883,8 @@ BOOL audin_server_set_formats(audin_server_context* context, SSIZE_T count,
 	}
 	else
 	{
-		AUDIO_FORMAT* audin_server_formats = audio_formats_new(count);
+		const size_t scount = (size_t)count;
+		AUDIO_FORMAT* audin_server_formats = audio_formats_new(scount);
 		if (!audin_server_formats)
 			return count == 0;
 
@@ -891,7 +892,7 @@ BOOL audin_server_set_formats(audin_server_context* context, SSIZE_T count,
 		{
 			if (!audio_format_copy(&formats[x], &audin_server_formats[x]))
 			{
-				audio_formats_free(audin_server_formats, count);
+				audio_formats_free(audin_server_formats, scount);
 				return FALSE;
 			}
 		}

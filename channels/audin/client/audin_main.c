@@ -386,7 +386,7 @@ static UINT audin_receive_wave_data(const AUDIO_FORMAT* format, const BYTE* data
 		return CHANNEL_RC_OK;
 
 	audio_format_print(audin->log, WLOG_TRACE, audin->format);
-	WLog_Print(audin->log, WLOG_TRACE, "[%" PRIdz "/%" PRIdz "]", size,
+	WLog_Print(audin->log, WLOG_TRACE, "[%" PRIuz "/%" PRIuz "]", size,
 	           Stream_GetPosition(audin->data) - 1);
 
 	if ((error = audin_send_incoming_data_pdu(callback)))
@@ -639,8 +639,10 @@ static UINT audin_on_close(IWTSVirtualChannelCallback* pChannelCallback)
  * @return 0 on success, otherwise a Win32 error code
  */
 static UINT audin_on_new_channel_connection(IWTSListenerCallback* pListenerCallback,
-                                            IWTSVirtualChannel* pChannel, BYTE* Data,
-                                            BOOL* pbAccept, IWTSVirtualChannelCallback** ppCallback)
+                                            IWTSVirtualChannel* pChannel,
+                                            WINPR_ATTR_UNUSED BYTE* Data,
+                                            WINPR_ATTR_UNUSED BOOL* pbAccept,
+                                            IWTSVirtualChannelCallback** ppCallback)
 {
 	GENERIC_LISTENER_CALLBACK* listener_callback = (GENERIC_LISTENER_CALLBACK*)pListenerCallback;
 
@@ -738,7 +740,7 @@ static UINT audin_plugin_terminated(IWTSPlugin* pPlugin)
 		if (error != CHANNEL_RC_OK)
 		{
 			WLog_Print(audin->log, WLOG_ERROR, "Free failed with errorcode %" PRIu32 "", error);
-			// dont stop on error
+			// don't stop on error
 		}
 
 		audin->device = NULL;

@@ -296,7 +296,7 @@ extern "C"
 #define OpenWaitableTimer OpenWaitableTimerA
 #endif
 
-	WINPR_API int GetTimerFileDescriptor(HANDLE hEvent);
+	WINPR_API int GetTimerFileDescriptor(HANDLE hTimer);
 
 	/**
 	 * Timer-Queue Timer
@@ -339,6 +339,7 @@ extern "C"
 	WINPR_PRAGMA_DIAG_IGNORED_RESERVED_ID_MACRO
 
 #ifndef _RTL_RUN_ONCE_DEF
+// NOLINTNEXTLINE(bugprone-reserved-identifier,cert-dcl37-c,cert-dcl51-cpp)
 #define _RTL_RUN_ONCE_DEF
 
 	WINPR_PRAGMA_DIAG_POP

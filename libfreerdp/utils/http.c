@@ -53,12 +53,11 @@ static void log_errors_(wLog* log, const char* msg, const char* file, const char
 	while ((ec = ERR_get_error()))
 	{
 		error_logged = TRUE;
-		WLog_PrintMessage(log, WLOG_MESSAGE_TEXT, level, line, file, fkt, "%s: %s", msg,
-		                  ERR_error_string(ec, NULL));
+		WLog_PrintTextMessage(log, level, line, file, fkt, "%s: %s", msg,
+		                      ERR_error_string(ec, NULL));
 	}
 	if (!error_logged)
-		WLog_PrintMessage(log, WLOG_MESSAGE_TEXT, level, line, file, fkt,
-		                  "%s (no details available)", msg);
+		WLog_PrintTextMessage(log, level, line, file, fkt, "%s (no details available)", msg);
 }
 
 static int get_line(BIO* bio, char* buffer, size_t size)
@@ -118,7 +117,7 @@ BOOL freerdp_http_request(const char* url, const char* body, long* status_code, 
 		goto out;
 	}
 
-	const size_t len = path - (url + 8);
+	const size_t len = WINPR_ASSERTING_INT_CAST(size_t, path - (url + 8));
 	hostname = strndup(&url[8], len);
 	if (!hostname)
 		return FALSE;

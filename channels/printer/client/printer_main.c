@@ -34,6 +34,7 @@
 #include <winpr/thread.h>
 #include <winpr/stream.h>
 #include <winpr/interlocked.h>
+#include <winpr/file.h>
 #include <winpr/path.h>
 
 #include <freerdp/channels/rdpdr.h>
@@ -113,7 +114,8 @@ static BOOL printer_write_setting(const char* path, prn_conf_t type, const void*
 		return FALSE;
 	}
 
-	file = CreateFileA(abs, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+	file =
+	    winpr_CreateFile(abs, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
 	free(abs);
 
 	if (file == INVALID_HANDLE_VALUE)
@@ -160,15 +162,24 @@ static BOOL printer_read_setting(const char* path, prn_conf_t type, void** data,
 	DWORD highSize = 0;
 	DWORD read = 0;
 	BOOL rc = FALSE;
-	HANDLE file = NULL;
 	char* fdata = NULL;
 	const char* name = filemap[type];
-	char* abs = GetCombinedPath(path, name);
 
+	switch (type)
+	{
+		case PRN_CONF_DATA:
+			break;
+		default:
+			WLog_DBG(TAG, "Printer option %s ignored", name);
+			return FALSE;
+	}
+
+	char* abs = GetCombinedPath(path, name);
 	if (!abs)
 		return FALSE;
 
-	file = CreateFileA(abs, GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+	HANDLE file =
+	    winpr_CreateFile(abs, GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
 	free(abs);
 
 	if (file == INVALID_HANDLE_VALUE)
@@ -469,6 +480,7 @@ static UINT printer_process_irp_create(PRINTER_DEVICE* printer_dev, IRP* irp)
 		irp->IoStatus = STATUS_PRINT_QUEUE_FULL;
 	}
 
+	WINPR_ASSERT(irp->Complete);
 	return irp->Complete(irp);
 }
 
@@ -500,6 +512,7 @@ static UINT printer_process_irp_close(PRINTER_DEVICE* printer_dev, IRP* irp)
 	}
 
 	Stream_Zero(irp->output, 4); /* Padding(4) */
+	WINPR_ASSERT(irp->Complete);
 	return irp->Complete(irp);
 }
 
@@ -562,7 +575,8 @@ static UINT printer_process_irp_write(PRINTER_DEVICE* printer_dev, IRP* irp)
  *
  * @return 0 on success, otherwise a Win32 error code
  */
-static UINT printer_process_irp_device_control(PRINTER_DEVICE* printer_dev, IRP* irp)
+static UINT printer_process_irp_device_control(WINPR_ATTR_UNUSED PRINTER_DEVICE* printer_dev,
+                                               IRP* irp)
 {
 	WINPR_ASSERT(printer_dev);
 	WINPR_ASSERT(irp);

@@ -3,32 +3,22 @@ apply plugin: 'com.android.library'
 android {
     compileSdkVersion = rootProject.ext.compileApi
     buildToolsVersion = rootProject.ext.toolsVersion
-
     packagingOptions {
-        pickFirst 'lib/arm64-v8a/libfreerdp3.so'
-        pickFirst 'lib/armeabi-v7a/libfreerdp3.so'
-        pickFirst 'lib/x86/libfreerdp3.so'
-        pickFirst 'lib/x86_64/libfreerdp3.so'
-
-        pickFirst 'lib/arm64-v8a/libfreerdp-client3.so'
-        pickFirst 'lib/armeabi-v7a/libfreerdp-client3.so'
-        pickFirst 'lib/x86/libfreerdp-client3.so'
-        pickFirst 'lib/x86_64/libfreerdp-client3.so'
-
-        pickFirst 'lib/arm64-v8a/libwinpr3.so'
-        pickFirst 'lib/armeabi-v7a/libwinpr3.so'
-        pickFirst 'lib/x86/libwinpr3.so'
-        pickFirst 'lib/x86_64/libwinpr3.so'
+        jniLibs {
+            pickFirsts += ['lib/arm64-v8a/libfreerdp3.so', 'lib/armeabi-v7a/libfreerdp3.so', 'lib/x86/libfreerdp3.so', 'lib/x86_64/libfreerdp3.so', 'lib/arm64-v8a/libfreerdp-client3.so', 'lib/armeabi-v7a/libfreerdp-client3.so', 'lib/x86/libfreerdp-client3.so', 'lib/x86_64/libfreerdp-client3.so', 'lib/arm64-v8a/libwinpr3.so', 'lib/armeabi-v7a/libwinpr3.so', 'lib/x86/libwinpr3.so', 'lib/x86_64/libwinpr3.so']
+        }
     }
+
 
     defaultConfig {
         minSdkVersion rootProject.ext.minApi
         targetSdkVersion rootProject.ext.targetApi
         vectorDrawables.useSupportLibrary = true
+	ndkVersion = "29.0.13113456"
 
         ndk {
             File jniLibsDirectory = new File(project.projectDir, "src/main/jniLibs")
-            ArrayList<String> abiFiltersList = new ArrayList<String>();
+            ArrayList<String> abiFiltersList = new ArrayList<String>()
             if (new File(jniLibsDirectory, "arm64-v8a/libfreerdp3.so").exists())
                 abiFiltersList.add("arm64-v8a")
             if (new File(jniLibsDirectory, "armeabi-v7a/libfreerdp3.so").exists())
@@ -38,6 +28,7 @@ android {
             if (new File(jniLibsDirectory, "x86/libfreerdp3.so").exists())
                 abiFiltersList.add("x86")
             
+            //noinspection ChromeOsAbiSupport
             abiFilters = abiFiltersList
         }
 
@@ -55,7 +46,6 @@ android {
         }
         debug {
             jniDebuggable true
-            renderscriptDebuggable true
         }
     }
     compileOptions {

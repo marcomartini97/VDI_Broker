@@ -68,7 +68,7 @@ static void redirection_free_array(char*** what, UINT32* count)
 	{
 		for (UINT32 x = 0; x < *count; x++)
 			free((*what)[x]);
-		free(*what);
+		free((void*)*what);
 	}
 
 	*what = NULL;
@@ -127,7 +127,7 @@ static BOOL redirection_copy_array(char*** dst, UINT32* plen, const char** str, 
 	if (!str || (len == 0))
 		return TRUE;
 
-	*dst = calloc(len, sizeof(char*));
+	*dst = (char**)calloc(len, sizeof(char*));
 	if (!*dst)
 		return FALSE;
 	*plen = (UINT32)len;
@@ -203,20 +203,20 @@ static BOOL rdp_redirection_write_data(wStream* s, size_t length, const void* da
 	WINPR_ASSERT(data || (length == 0));
 	WINPR_ASSERT(length <= UINT32_MAX);
 
-	if (!Stream_CheckAndLogRequiredCapacity(TAG, s, 4))
+	if (!Stream_EnsureRemainingCapacity(s, 4))
 		return FALSE;
 
 	Stream_Write_UINT32(s, (UINT32)length);
 
-	if (!Stream_CheckAndLogRequiredCapacity(TAG, s, length))
+	if (!Stream_EnsureRemainingCapacity(s, length))
 		return FALSE;
 
 	Stream_Write(s, data, length);
 	return TRUE;
 }
 
-static BOOL rdp_redirection_write_base64_wchar(UINT32 flag, wStream* s, size_t length,
-                                               const void* data)
+static BOOL rdp_redirection_write_base64_wchar(WINPR_ATTR_UNUSED UINT32 flag, wStream* s,
+                                               size_t length, const void* data)
 {
 	BOOL rc = FALSE;
 
@@ -332,14 +332,14 @@ static BOOL rdp_target_cert_write_element(wStream* s, UINT32 Type, UINT32 Encodi
 	WINPR_ASSERT(data || (length == 0));
 	WINPR_ASSERT(length <= UINT32_MAX);
 
-	if (!Stream_CheckAndLogRequiredCapacity(TAG, s, 12))
+	if (!Stream_EnsureRemainingCapacity(s, 12))
 		return FALSE;
 
 	Stream_Write_UINT32(s, Type);
 	Stream_Write_UINT32(s, Encoding);
 	Stream_Write_UINT32(s, (UINT32)length);
 
-	if (!Stream_CheckAndLogRequiredCapacity(TAG, s, length))
+	if (!Stream_EnsureRemainingCapacity(s, length))
 		return FALSE;
 
 	Stream_Write(s, data, length);
@@ -451,6 +451,27 @@ static BOOL rdp_redirection_read_target_cert_stream(wStream* s, rdpRedirection* 
 		rc = rdp_redirection_read_target_cert(&redirection->TargetCertificate, ptr, length);
 	free(ptr);
 	return rc;
+}
+
+BOOL rdp_set_target_certificate(rdpSettings* settings, const rdpCertificate* tcert)
+{
+	rdpCertificate* cert = freerdp_certificate_clone(tcert);
+	if (!freerdp_settings_set_pointer(settings, FreeRDP_RedirectionTargetCertificate, cert))
+		return FALSE;
+
+	BOOL pres = FALSE;
+	size_t length = 0;
+	char* pem = freerdp_certificate_get_pem(cert, &length);
+	if (pem && (length <= UINT32_MAX))
+	{
+		pres =
+		    freerdp_settings_set_string_len(settings, FreeRDP_RedirectionAcceptedCert, pem, length);
+		if (pres)
+			pres = freerdp_settings_set_uint32(settings, FreeRDP_RedirectionAcceptedCertLength,
+			                                   (UINT32)length);
+	}
+	free(pem);
+	return pres;
 }
 
 int rdp_redirection_apply_settings(rdpRdp* rdp)
@@ -610,23 +631,7 @@ int rdp_redirection_apply_settings(rdpRdp* rdp)
 
 	if (settings->RedirectionFlags & LB_TARGET_CERTIFICATE)
 	{
-		rdpCertificate* cert = freerdp_certificate_clone(redirection->TargetCertificate);
-		if (!freerdp_settings_set_pointer(settings, FreeRDP_RedirectionTargetCertificate, cert))
-			return -1;
-
-		BOOL pres = FALSE;
-		size_t length = 0;
-		char* pem = freerdp_certificate_get_pem(cert, &length);
-		if (pem && (length <= UINT32_MAX))
-		{
-			pres = freerdp_settings_set_string_len(settings, FreeRDP_RedirectionAcceptedCert, pem,
-			                                       length);
-			if (pres)
-				pres = freerdp_settings_set_uint32(settings, FreeRDP_RedirectionAcceptedCertLength,
-				                                   (UINT32)length);
-		}
-		free(pem);
-		if (!pres)
+		if (!rdp_set_target_certificate(settings, redirection->TargetCertificate))
 			return -1;
 	}
 
@@ -933,7 +938,7 @@ void redirection_free(rdpRedirection* redirection)
 	}
 }
 
-static SSIZE_T redir_write_string(UINT32 flag, wStream* s, const char* str)
+static SSIZE_T redir_write_string(WINPR_ATTR_UNUSED UINT32 flag, wStream* s, const char* str)
 {
 	const size_t length = (strlen(str) + 1);
 	if (!Stream_EnsureRemainingCapacity(s, 4ull + length * sizeof(WCHAR)))
@@ -946,7 +951,8 @@ static SSIZE_T redir_write_string(UINT32 flag, wStream* s, const char* str)
 	return (SSIZE_T)(Stream_GetPosition(s) - pos);
 }
 
-static BOOL redir_write_data(UINT32 flag, wStream* s, UINT32 length, const BYTE* data)
+static BOOL redir_write_data(WINPR_ATTR_UNUSED UINT32 flag, wStream* s, UINT32 length,
+                             const BYTE* data)
 {
 	if (!Stream_EnsureRemainingCapacity(s, 4ull + length))
 		return FALSE;

@@ -28,6 +28,7 @@
 #include <winpr/crt.h>
 #include <winpr/cmdline.h>
 #include <winpr/wlog.h>
+#include <winpr/cast.h>
 
 #include <pulse/pulseaudio.h>
 
@@ -44,6 +45,8 @@ typedef struct
 	IAudinDevice iface;
 
 	char* device_name;
+	char* client_name;
+	char* stream_name;
 	UINT32 frames_per_packet;
 	pa_threaded_mainloop* mainloop;
 	pa_context* context;
@@ -259,7 +262,8 @@ static UINT audin_pulse_set_format(IAudinDevice* device, const AUDIO_FORMAT* for
 		pulse->frames_per_packet = FramesPerPacket;
 
 	sample_spec.rate = format->nSamplesPerSec;
-	sample_spec.channels = format->nChannels;
+
+	sample_spec.channels = WINPR_ASSERTING_INT_CAST(uint8_t, format->nChannels);
 
 	switch (format->wFormatTag)
 	{
@@ -375,14 +379,15 @@ static UINT audin_pulse_open(IAudinDevice* device, AudinReceive receive, void* u
 	pulse->receive = receive;
 	pulse->user_data = user_data;
 	pa_threaded_mainloop_lock(pulse->mainloop);
-	pulse->stream = pa_stream_new(pulse->context, "freerdp_audin", &pulse->sample_spec, NULL);
+	pulse->stream = pa_stream_new(pulse->context, pulse->stream_name, &pulse->sample_spec, NULL);
 
 	if (!pulse->stream)
 	{
 		pa_threaded_mainloop_unlock(pulse->mainloop);
 		WLog_Print(pulse->log, WLOG_DEBUG, "pa_stream_new failed (%d)",
 		           pa_context_errno(pulse->context));
-		return pa_context_errno(pulse->context);
+		const int rc = pa_context_errno(pulse->context);
+		return (UINT)rc;
 	}
 
 	pulse->bytes_per_frame = pa_frame_size(&pulse->sample_spec);
@@ -407,7 +412,8 @@ static UINT audin_pulse_open(IAudinDevice* device, AudinReceive receive, void* u
 		pa_threaded_mainloop_unlock(pulse->mainloop);
 		WLog_Print(pulse->log, WLOG_ERROR, "pa_stream_connect_playback failed (%d)",
 		           pa_context_errno(pulse->context));
-		return pa_context_errno(pulse->context);
+		const int rc = pa_context_errno(pulse->context);
+		return (UINT)rc;
 	}
 
 	while (pulse->stream)
@@ -423,7 +429,8 @@ static UINT audin_pulse_open(IAudinDevice* device, AudinReceive receive, void* u
 			WLog_Print(pulse->log, WLOG_ERROR, "bad stream state (%s: %d)",
 			           pulse_stream_state_string(state), pa_context_errno(pulse->context));
 			pa_threaded_mainloop_unlock(pulse->mainloop);
-			return pa_context_errno(pulse->context);
+			const int rc = pa_context_errno(pulse->context);
+			return (UINT)rc;
 		}
 
 		pa_threaded_mainloop_wait(pulse->mainloop);
@@ -440,26 +447,30 @@ static UINT audin_pulse_open(IAudinDevice* device, AudinReceive receive, void* u
  *
  * @return 0 on success, otherwise a Win32 error code
  */
-static UINT audin_pulse_parse_addin_args(AudinPulseDevice* device, const ADDIN_ARGV* args)
+static UINT audin_pulse_parse_addin_args(AudinPulseDevice* pulse, const ADDIN_ARGV* args)
 {
-	int status = 0;
-	DWORD flags = 0;
-	const COMMAND_LINE_ARGUMENT_A* arg = NULL;
-	AudinPulseDevice* pulse = device;
-	COMMAND_LINE_ARGUMENT_A audin_pulse_args[] = { { "dev", COMMAND_LINE_VALUE_REQUIRED, "<device>",
-		                                             NULL, NULL, -1, NULL, "audio device name" },
-		                                           { NULL, 0, NULL, NULL, NULL, -1, NULL, NULL } };
+	COMMAND_LINE_ARGUMENT_A audin_pulse_args[] = {
+		{ "dev", COMMAND_LINE_VALUE_REQUIRED, "<device>", NULL, NULL, -1, NULL,
+		  "audio device name" },
+		{ "client_name", COMMAND_LINE_VALUE_REQUIRED, "<client_name>", NULL, NULL, -1, NULL,
+		  "name of pulse client" },
+		{ "stream_name", COMMAND_LINE_VALUE_REQUIRED, "<stream_name>", NULL, NULL, -1, NULL,
+		  "name of pulse stream" },
+		{ NULL, 0, NULL, NULL, NULL, -1, NULL, NULL }
+	};
 
-	flags =
+	const DWORD flags =
 	    COMMAND_LINE_SIGIL_NONE | COMMAND_LINE_SEPARATOR_COLON | COMMAND_LINE_IGN_UNKNOWN_KEYWORD;
-	status = CommandLineParseArgumentsA(args->argc, args->argv, audin_pulse_args, flags, pulse,
-	                                    NULL, NULL);
+	const int status = CommandLineParseArgumentsA(args->argc, args->argv, audin_pulse_args, flags,
+	                                              pulse, NULL, NULL);
 
 	if (status < 0)
 		return ERROR_INVALID_PARAMETER;
 
-	arg = audin_pulse_args;
+	const COMMAND_LINE_ARGUMENT_A* arg = audin_pulse_args;
 
+	const char* client_name = NULL;
+	const char* stream_name = NULL;
 	do
 	{
 		if (!(arg->Flags & COMMAND_LINE_VALUE_PRESENT))
@@ -477,6 +488,16 @@ static UINT audin_pulse_parse_addin_args(AudinPulseDevice* device, const ADDIN_A
 		}
 		CommandLineSwitchEnd(arg)
 	} while ((arg = CommandLineFindNextArgumentA(arg)) != NULL);
+
+	if (!client_name)
+		client_name = "freerdp";
+	if (!stream_name)
+		stream_name = "freerdp_audin";
+
+	pulse->client_name = _strdup(client_name);
+	pulse->stream_name = _strdup(stream_name);
+	if (!pulse->client_name || !pulse->stream_name)
+		return ERROR_OUTOFMEMORY;
 
 	return CHANNEL_RC_OK;
 }
@@ -525,7 +546,8 @@ FREERDP_ENTRY_POINT(UINT VCAPITYPE pulse_freerdp_audin_client_subsystem_entry(
 		goto error_out;
 	}
 
-	pulse->context = pa_context_new(pa_threaded_mainloop_get_api(pulse->mainloop), "freerdp");
+	pulse->context =
+	    pa_context_new(pa_threaded_mainloop_get_api(pulse->mainloop), pulse->client_name);
 
 	if (!pulse->context)
 	{

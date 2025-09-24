@@ -56,7 +56,7 @@ typedef struct
 /* See MSDN Section on Multiple Display Monitors: http://msdn.microsoft.com/en-us/library/dd145071
  */
 
-int sdl_list_monitors(SdlContext* sdl)
+int sdl_list_monitors([[maybe_unused]] SdlContext* sdl)
 {
 	SDL_Init(SDL_INIT_VIDEO);
 
@@ -81,30 +81,6 @@ int sdl_list_monitors(SdlContext* sdl)
 	return 0;
 }
 
-static BOOL sdl_is_monitor_id_active(SdlContext* sdl, UINT32 id)
-{
-	const rdpSettings* settings = nullptr;
-
-	WINPR_ASSERT(sdl);
-
-	settings = sdl->context()->settings;
-	WINPR_ASSERT(settings);
-
-	const UINT32 NumMonitorIds = freerdp_settings_get_uint32(settings, FreeRDP_NumMonitorIds);
-	if (!NumMonitorIds)
-		return TRUE;
-
-	for (UINT32 index = 0; index < NumMonitorIds; index++)
-	{
-		auto cur = static_cast<const UINT32*>(
-		    freerdp_settings_get_pointer_array(settings, FreeRDP_MonitorIds, index));
-		if (cur && (*cur == id))
-			return TRUE;
-	}
-
-	return FALSE;
-}
-
 static BOOL sdl_apply_max_size(SdlContext* sdl, UINT32* pMaxWidth, UINT32* pMaxHeight)
 {
 	WINPR_ASSERT(sdl);
@@ -124,31 +100,33 @@ static BOOL sdl_apply_max_size(SdlContext* sdl, UINT32* pMaxWidth, UINT32* pMaxH
 
 		if (freerdp_settings_get_bool(settings, FreeRDP_Fullscreen))
 		{
-			*pMaxWidth = monitor->width;
-			*pMaxHeight = monitor->height;
+			*pMaxWidth = WINPR_ASSERTING_INT_CAST(uint32_t, monitor->width);
+			*pMaxHeight = WINPR_ASSERTING_INT_CAST(uint32_t, monitor->height);
 		}
 		else if (freerdp_settings_get_bool(settings, FreeRDP_Workarea))
 		{
 			SDL_Rect rect = {};
 			SDL_GetDisplayUsableBounds(monitor->orig_screen, &rect);
-			*pMaxWidth = rect.w;
-			*pMaxHeight = rect.h;
+			*pMaxWidth = WINPR_ASSERTING_INT_CAST(uint32_t, rect.w);
+			*pMaxHeight = WINPR_ASSERTING_INT_CAST(uint32_t, rect.h);
 		}
 		else if (freerdp_settings_get_uint32(settings, FreeRDP_PercentScreen) > 0)
 		{
 			SDL_Rect rect = {};
 			SDL_GetDisplayUsableBounds(monitor->orig_screen, &rect);
 
-			*pMaxWidth = rect.w;
-			*pMaxHeight = rect.h;
+			*pMaxWidth = WINPR_ASSERTING_INT_CAST(uint32_t, rect.w);
+			*pMaxHeight = WINPR_ASSERTING_INT_CAST(uint32_t, rect.h);
 
 			if (freerdp_settings_get_bool(settings, FreeRDP_PercentScreenUseWidth))
-				*pMaxWidth =
-				    (rect.w * freerdp_settings_get_uint32(settings, FreeRDP_PercentScreen)) / 100;
+				*pMaxWidth = (WINPR_ASSERTING_INT_CAST(uint32_t, rect.w) *
+				              freerdp_settings_get_uint32(settings, FreeRDP_PercentScreen)) /
+				             100;
 
 			if (freerdp_settings_get_bool(settings, FreeRDP_PercentScreenUseHeight))
-				*pMaxHeight =
-				    (rect.h * freerdp_settings_get_uint32(settings, FreeRDP_PercentScreen)) / 100;
+				*pMaxHeight = (WINPR_ASSERTING_INT_CAST(uint32_t, rect.h) *
+				               freerdp_settings_get_uint32(settings, FreeRDP_PercentScreen)) /
+				              100;
 		}
 		else if (freerdp_settings_get_uint32(settings, FreeRDP_DesktopWidth) &&
 		         freerdp_settings_get_uint32(settings, FreeRDP_DesktopHeight))
@@ -158,22 +136,6 @@ static BOOL sdl_apply_max_size(SdlContext* sdl, UINT32* pMaxWidth, UINT32* pMaxH
 		}
 	}
 	return TRUE;
-}
-
-static UINT32 sdl_orientaion_to_rdp(SDL_DisplayOrientation orientation)
-{
-	switch (orientation)
-	{
-		case SDL_ORIENTATION_LANDSCAPE:
-			return ORIENTATION_LANDSCAPE;
-		case SDL_ORIENTATION_LANDSCAPE_FLIPPED:
-			return ORIENTATION_LANDSCAPE_FLIPPED;
-		case SDL_ORIENTATION_PORTRAIT_FLIPPED:
-			return ORIENTATION_PORTRAIT_FLIPPED;
-		case SDL_ORIENTATION_PORTRAIT:
-		default:
-			return ORIENTATION_PORTRAIT;
-	}
 }
 
 static Uint32 scale(Uint32 val, float scale)
@@ -193,24 +155,19 @@ static BOOL sdl_apply_display_properties(SdlContext* sdl)
 	    !freerdp_settings_get_bool(settings, FreeRDP_UseMultimon))
 		return TRUE;
 
-	const UINT32 numIds = freerdp_settings_get_uint32(settings, FreeRDP_NumMonitorIds);
-	if (!freerdp_settings_set_pointer_len(settings, FreeRDP_MonitorDefArray, nullptr, numIds))
-		return FALSE;
-	if (!freerdp_settings_set_uint32(settings, FreeRDP_MonitorCount, numIds))
-		return FALSE;
+	std::vector<rdpMonitor> monitors;
+	const auto& ids = sdl->monitorIds();
 
-	for (UINT32 x = 0; x < numIds; x++)
+	for (UINT32 x = 0; x < ids.size(); x++)
 	{
-		auto id = static_cast<const int*>(
-		    freerdp_settings_get_pointer_array(settings, FreeRDP_MonitorIds, x));
-		WINPR_ASSERT(id);
+		auto id = ids[x];
 
-		float dpi = SDL_GetDisplayContentScale(*id);
+		float dpi = SDL_GetDisplayContentScale(id);
 		float hdpi = dpi;
 		float vdpi = dpi;
 		SDL_Rect rect = {};
 
-		if (!SDL_GetDisplayBounds(*id, &rect))
+		if (!SDL_GetDisplayBounds(id, &rect))
 			return FALSE;
 
 		WINPR_ASSERT(rect.w > 0);
@@ -246,7 +203,7 @@ static BOOL sdl_apply_display_properties(SdlContext* sdl)
 					}
 				}
 			}
-			SDL_free(modes);
+			SDL_free(static_cast<void*>(modes));
 
 			const float dw = 1.0f * static_cast<float>(rect.w) / static_cast<float>(scaleRect.w);
 			const float dh = 1.0f * static_cast<float>(rect.h) / static_cast<float>(scaleRect.h);
@@ -254,28 +211,28 @@ static BOOL sdl_apply_display_properties(SdlContext* sdl)
 			vdpi /= dh;
 		}
 
-		const SDL_DisplayOrientation orientation = SDL_GetCurrentDisplayOrientation(*id);
-		const UINT32 rdp_orientation = sdl_orientaion_to_rdp(orientation);
+		const SDL_DisplayOrientation orientation = SDL_GetCurrentDisplayOrientation(id);
+		const UINT32 rdp_orientation = sdl::utils::orientaion_to_rdp(orientation);
 
-		auto monitor = static_cast<rdpMonitor*>(
-		    freerdp_settings_get_pointer_array_writable(settings, FreeRDP_MonitorDefArray, x));
-		WINPR_ASSERT(monitor);
+		rdpMonitor monitor = {};
 
 		/* windows uses 96 dpi as 'default' and the scale factors are in percent. */
 		const auto factor = dpi / 96.0f * 100.0f;
-		monitor->orig_screen = x;
-		monitor->x = rect.x;
-		monitor->y = rect.y;
-		monitor->width = rect.w;
-		monitor->height = rect.h;
-		monitor->is_primary = x == 0;
-		monitor->attributes.desktopScaleFactor = static_cast<UINT32>(factor);
-		monitor->attributes.deviceScaleFactor = 100;
-		monitor->attributes.orientation = rdp_orientation;
-		monitor->attributes.physicalWidth = scale(rect.w, hdpi);
-		monitor->attributes.physicalHeight = scale(rect.h, vdpi);
+		monitor.orig_screen = x;
+		monitor.x = rect.x;
+		monitor.y = rect.y;
+		monitor.width = rect.w;
+		monitor.height = rect.h;
+		monitor.is_primary = x == 0;
+		monitor.attributes.desktopScaleFactor = static_cast<UINT32>(factor);
+		monitor.attributes.deviceScaleFactor = 100;
+		monitor.attributes.orientation = rdp_orientation;
+		monitor.attributes.physicalWidth = scale(WINPR_ASSERTING_INT_CAST(uint32_t, rect.w), hdpi);
+		monitor.attributes.physicalHeight = scale(WINPR_ASSERTING_INT_CAST(uint32_t, rect.h), vdpi);
+		monitors.emplace_back(monitor);
 	}
-	return TRUE;
+	return freerdp_settings_set_monitor_def_array_sorted(settings, monitors.data(),
+	                                                     monitors.size());
 }
 
 static BOOL sdl_detect_single_window(SdlContext* sdl, UINT32* pMaxWidth, UINT32* pMaxHeight)
@@ -296,20 +253,13 @@ static BOOL sdl_detect_single_window(SdlContext* sdl, UINT32* pMaxWidth, UINT32*
 		 */
 		if (freerdp_settings_get_uint32(settings, FreeRDP_NumMonitorIds) == 0)
 		{
-			const size_t id =
-			    (!sdl->windows.empty()) ? sdl->windows.begin()->second.displayIndex() : 0;
-			if (!freerdp_settings_set_pointer_len(settings, FreeRDP_MonitorIds, &id, 1))
-				return FALSE;
-		}
-		else
-		{
-
-			/* Always sets number of monitors from command-line to just 1.
-			 * If the monitor is invalid then we will default back to current monitor
-			 * later as a fallback. So, there is no need to validate command-line entry here.
-			 */
-			if (!freerdp_settings_set_uint32(settings, FreeRDP_NumMonitorIds, 1))
-				return FALSE;
+			SDL_DisplayID id = 0;
+			const auto& ids = sdl->monitorIds();
+			if (!ids.empty())
+			{
+				id = ids.front();
+			}
+			sdl->setMonitorIds({ id });
 		}
 
 		// TODO: Fill monitor struct
@@ -343,14 +293,11 @@ BOOL sdl_detect_monitors(SdlContext* sdl, UINT32* pMaxWidth, UINT32* pMaxHeight)
 	auto nr = freerdp_settings_get_uint32(settings, FreeRDP_NumMonitorIds);
 	if (nr == 0)
 	{
-		if (!freerdp_settings_set_pointer_len(settings, FreeRDP_MonitorIds, nullptr, ids.size()))
-			return FALSE;
-
-		for (size_t x = 0; x < ids.size(); x++)
+		if (freerdp_settings_get_bool(settings, FreeRDP_UseMultimon))
+			sdl->setMonitorIds(ids);
+		else
 		{
-			auto id = ids[x];
-			if (!freerdp_settings_set_pointer_array(settings, FreeRDP_MonitorIds, x, &id))
-				return FALSE;
+			sdl->setMonitorIds({ ids.front() });
 		}
 	}
 	else
@@ -364,14 +311,14 @@ BOOL sdl_detect_monitors(SdlContext* sdl, UINT32* pMaxWidth, UINT32* pMaxHeight)
 			return FALSE;
 		}
 
-		std::vector<UINT32> used;
+		std::vector<SDL_DisplayID> used;
 		for (size_t x = 0; x < nr; x++)
 		{
 			auto cur = static_cast<const UINT32*>(
 			    freerdp_settings_get_pointer_array(settings, FreeRDP_MonitorIds, x));
 			WINPR_ASSERT(cur);
 
-			auto id = *cur;
+			SDL_DisplayID id = *cur;
 
 			/* the ID is no valid monitor index */
 			if (std::find(ids.begin(), ids.end(), id) == ids.end())
@@ -386,30 +333,17 @@ BOOL sdl_detect_monitors(SdlContext* sdl, UINT32* pMaxWidth, UINT32* pMaxHeight)
 				WLog_ERR(TAG, "Duplicate monitor ID[%" PRIuz "]=%" PRIu32 " detected", x, id);
 				return FALSE;
 			}
-			used.push_back(*cur);
+			used.push_back(id);
 		}
+		sdl->setMonitorIds(used);
 	}
 
 	if (!sdl_apply_display_properties(sdl))
 		return FALSE;
 
+	auto size = static_cast<uint32_t>(sdl->monitorIds().size());
+	if (!freerdp_settings_set_uint32(settings, FreeRDP_NumMonitorIds, size))
+		return FALSE;
+
 	return sdl_detect_single_window(sdl, pMaxWidth, pMaxHeight);
-}
-
-INT64 sdl_monitor_id_for_index(SdlContext* sdl, UINT32 index)
-{
-	WINPR_ASSERT(sdl);
-	auto settings = sdl->context()->settings;
-
-	auto nr = freerdp_settings_get_uint32(settings, FreeRDP_NumMonitorIds);
-	if (nr == 0)
-		return index;
-
-	if (nr <= index)
-		return -1;
-
-	auto cur = static_cast<const UINT32*>(
-	    freerdp_settings_get_pointer_array(settings, FreeRDP_MonitorIds, index));
-	WINPR_ASSERT(cur);
-	return *cur;
 }

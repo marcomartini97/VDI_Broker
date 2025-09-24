@@ -22,6 +22,7 @@
 #include <winpr/config.h>
 
 #include <winpr/crt.h>
+#include <winpr/wlog.h>
 #include <winpr/string.h>
 #include <winpr/path.h>
 #include <winpr/file.h>
@@ -230,6 +231,14 @@ HANDLE CreateFileA(LPCSTR lpFileName, DWORD dwDesiredAccess, DWORD dwShareMode,
                    LPSECURITY_ATTRIBUTES lpSecurityAttributes, DWORD dwCreationDisposition,
                    DWORD dwFlagsAndAttributes, HANDLE hTemplateFile)
 {
+	return winpr_CreateFile(lpFileName, dwDesiredAccess, dwShareMode, lpSecurityAttributes,
+	                        dwCreationDisposition, dwFlagsAndAttributes, hTemplateFile);
+}
+
+HANDLE winpr_CreateFile(LPCSTR lpFileName, DWORD dwDesiredAccess, DWORD dwShareMode,
+                        LPSECURITY_ATTRIBUTES lpSecurityAttributes, DWORD dwCreationDisposition,
+                        DWORD dwFlagsAndAttributes, HANDLE hTemplateFile)
+{
 	if (!lpFileName)
 		return INVALID_HANDLE_VALUE;
 
@@ -280,8 +289,8 @@ HANDLE CreateFileW(LPCWSTR lpFileName, DWORD dwDesiredAccess, DWORD dwShareMode,
 		goto fail;
 	}
 
-	hdl = CreateFileA(lpFileNameA, dwDesiredAccess, dwShareMode, lpSecurityAttributes,
-	                  dwCreationDisposition, dwFlagsAndAttributes, hTemplateFile);
+	hdl = winpr_CreateFile(lpFileNameA, dwDesiredAccess, dwShareMode, lpSecurityAttributes,
+	                       dwCreationDisposition, dwFlagsAndAttributes, hTemplateFile);
 fail:
 	free(lpFileNameA);
 	return hdl;
@@ -289,9 +298,7 @@ fail:
 
 BOOL DeleteFileA(LPCSTR lpFileName)
 {
-	int status = 0;
-	status = unlink(lpFileName);
-	return (status != -1) ? TRUE : FALSE;
+	return winpr_DeleteFile(lpFileName);
 }
 
 BOOL DeleteFileW(LPCWSTR lpFileName)
@@ -299,13 +306,7 @@ BOOL DeleteFileW(LPCWSTR lpFileName)
 	if (!lpFileName)
 		return FALSE;
 	LPSTR lpFileNameA = ConvertWCharToUtf8Alloc(lpFileName, NULL);
-	BOOL rc = FALSE;
-
-	if (!lpFileNameA)
-		goto fail;
-
-	rc = DeleteFileA(lpFileNameA);
-fail:
+	BOOL rc = winpr_DeleteFile(lpFileNameA);
 	free(lpFileNameA);
 	return rc;
 }
@@ -470,17 +471,18 @@ BOOL FlushFileBuffers(HANDLE hFile)
 	return FALSE;
 }
 
-BOOL WINAPI GetFileAttributesExA(LPCSTR lpFileName, GET_FILEEX_INFO_LEVELS fInfoLevelId,
+BOOL WINAPI GetFileAttributesExA(LPCSTR lpFileName,
+                                 WINPR_ATTR_UNUSED GET_FILEEX_INFO_LEVELS fInfoLevelId,
                                  LPVOID lpFileInformation)
 {
 	LPWIN32_FILE_ATTRIBUTE_DATA fd = lpFileInformation;
-	WIN32_FIND_DATAA findFileData;
-	HANDLE hFind = NULL;
+	WIN32_FIND_DATAA findFileData = { 0 };
 
 	if (!fd)
 		return FALSE;
 
-	if ((hFind = FindFirstFileA(lpFileName, &findFileData)) == INVALID_HANDLE_VALUE)
+	HANDLE hFind = FindFirstFileA(lpFileName, &findFileData);
+	if (hFind == INVALID_HANDLE_VALUE)
 		return FALSE;
 
 	FindClose(hFind);
@@ -514,10 +516,10 @@ BOOL WINAPI GetFileAttributesExW(LPCWSTR lpFileName, GET_FILEEX_INFO_LEVELS fInf
 
 DWORD WINAPI GetFileAttributesA(LPCSTR lpFileName)
 {
-	WIN32_FIND_DATAA findFileData;
-	HANDLE hFind = NULL;
+	WIN32_FIND_DATAA findFileData = { 0 };
+	HANDLE hFind = FindFirstFileA(lpFileName, &findFileData);
 
-	if ((hFind = FindFirstFileA(lpFileName, &findFileData)) == INVALID_HANDLE_VALUE)
+	if (hFind == INVALID_HANDLE_VALUE)
 		return INVALID_FILE_ATTRIBUTES;
 
 	FindClose(hFind);
@@ -610,27 +612,25 @@ BOOL SetFileAttributesA(LPCSTR lpFileName, DWORD dwFileAttributes)
 {
 	BOOL rc = FALSE;
 #ifdef WINPR_HAVE_FCNTL_H
-	struct stat st = { 0 };
-	int fd = 0;
-
-	if (dwFileAttributes & ~FILE_ATTRIBUTE_READONLY)
+	const uint32_t mask = ~(FILE_ATTRIBUTE_READONLY | FILE_ATTRIBUTE_NORMAL);
+	if (dwFileAttributes & mask)
 	{
 		char buffer[8192] = { 0 };
-		const char* flags =
-		    flagsToStr(buffer, sizeof(buffer), dwFileAttributes & ~FILE_ATTRIBUTE_READONLY);
+		const char* flags = flagsToStr(buffer, sizeof(buffer), dwFileAttributes & mask);
 		WLog_WARN(TAG, "Unsupported flags %s, ignoring!", flags);
 	}
 
-	fd = open(lpFileName, O_RDONLY);
+	int fd = open(lpFileName, O_RDONLY);
 	if (fd < 0)
 		return FALSE;
 
+	struct stat st = { 0 };
 	if (fstat(fd, &st) != 0)
 		goto fail;
 
 	if (dwFileAttributes & FILE_ATTRIBUTE_READONLY)
 	{
-		st.st_mode &= ~(S_IWUSR | S_IWGRP | S_IWOTH);
+		st.st_mode &= WINPR_ASSERTING_INT_CAST(mode_t, (mode_t)(~(S_IWUSR | S_IWGRP | S_IWOTH)));
 	}
 	else
 	{
@@ -650,20 +650,11 @@ fail:
 BOOL SetFileAttributesW(LPCWSTR lpFileName, DWORD dwFileAttributes)
 {
 	BOOL ret = 0;
-	LPSTR lpCFileName = NULL;
 
 	if (!lpFileName)
 		return FALSE;
 
-	if (dwFileAttributes & ~FILE_ATTRIBUTE_READONLY)
-	{
-		char buffer[8192] = { 0 };
-		const char* flags =
-		    flagsToStr(buffer, sizeof(buffer), dwFileAttributes & ~FILE_ATTRIBUTE_READONLY);
-		WLog_WARN(TAG, "Unsupported flags %s, ignoring!", flags);
-	}
-
-	lpCFileName = ConvertWCharToUtf8Alloc(lpFileName, NULL);
+	char* lpCFileName = ConvertWCharToUtf8Alloc(lpFileName, NULL);
 	if (!lpCFileName)
 	{
 		SetLastError(ERROR_NOT_ENOUGH_MEMORY);
@@ -1057,7 +1048,8 @@ HANDLE FindFirstFileW(LPCWSTR lpFileName, LPWIN32_FIND_DATAW lpFindFileData)
 	LPSTR utfFileName = NULL;
 	HANDLE h = NULL;
 	if (!lpFileName)
-		return FALSE;
+		return INVALID_HANDLE_VALUE;
+
 	LPWIN32_FIND_DATAA fd = (LPWIN32_FIND_DATAA)calloc(1, sizeof(WIN32_FIND_DATAA));
 
 	if (!fd)
@@ -1093,15 +1085,25 @@ out:
 	return h;
 }
 
-HANDLE FindFirstFileExA(LPCSTR lpFileName, FINDEX_INFO_LEVELS fInfoLevelId, LPVOID lpFindFileData,
-                        FINDEX_SEARCH_OPS fSearchOp, LPVOID lpSearchFilter, DWORD dwAdditionalFlags)
+HANDLE FindFirstFileExA(WINPR_ATTR_UNUSED LPCSTR lpFileName,
+                        WINPR_ATTR_UNUSED FINDEX_INFO_LEVELS fInfoLevelId,
+                        WINPR_ATTR_UNUSED LPVOID lpFindFileData,
+                        WINPR_ATTR_UNUSED FINDEX_SEARCH_OPS fSearchOp,
+                        WINPR_ATTR_UNUSED LPVOID lpSearchFilter,
+                        WINPR_ATTR_UNUSED DWORD dwAdditionalFlags)
 {
+	WLog_ERR("TODO", "TODO: Implement");
 	return INVALID_HANDLE_VALUE;
 }
 
-HANDLE FindFirstFileExW(LPCWSTR lpFileName, FINDEX_INFO_LEVELS fInfoLevelId, LPVOID lpFindFileData,
-                        FINDEX_SEARCH_OPS fSearchOp, LPVOID lpSearchFilter, DWORD dwAdditionalFlags)
+HANDLE FindFirstFileExW(WINPR_ATTR_UNUSED LPCWSTR lpFileName,
+                        WINPR_ATTR_UNUSED FINDEX_INFO_LEVELS fInfoLevelId,
+                        WINPR_ATTR_UNUSED LPVOID lpFindFileData,
+                        WINPR_ATTR_UNUSED FINDEX_SEARCH_OPS fSearchOp,
+                        WINPR_ATTR_UNUSED LPVOID lpSearchFilter,
+                        WINPR_ATTR_UNUSED DWORD dwAdditionalFlags)
 {
+	WLog_ERR("TODO", "TODO: Implement");
 	return INVALID_HANDLE_VALUE;
 }
 
@@ -1118,6 +1120,7 @@ BOOL FindNextFileA(HANDLE hFindFile, LPWIN32_FIND_DATAA lpFindFileData)
 
 	WIN32_FILE_SEARCH* pFileSearch = (WIN32_FILE_SEARCH*)hFindFile;
 	struct dirent* pDirent = NULL;
+	// NOLINTNEXTLINE(concurrency-mt-unsafe)
 	while ((pDirent = readdir(pFileSearch->pDir)) != NULL)
 	{
 		if (FilePatternMatchA(pDirent->d_name, pFileSearch->lpPattern))
@@ -1216,11 +1219,13 @@ BOOL FindClose(HANDLE hFindFile)
 	if (pFileSearch->pDir)
 		closedir(pFileSearch->pDir);
 
+	// NOLINTNEXTLINE(clang-analyzer-unix.Malloc)
 	free(pFileSearch);
 	return TRUE;
 }
 
-BOOL CreateDirectoryA(LPCSTR lpPathName, LPSECURITY_ATTRIBUTES lpSecurityAttributes)
+BOOL CreateDirectoryA(LPCSTR lpPathName,
+                      WINPR_ATTR_UNUSED LPSECURITY_ATTRIBUTES lpSecurityAttributes)
 {
 	if (!mkdir(lpPathName, S_IRUSR | S_IWUSR | S_IXUSR))
 		return TRUE;
@@ -1249,14 +1254,7 @@ fail:
 
 BOOL RemoveDirectoryA(LPCSTR lpPathName)
 {
-	int ret = rmdir(lpPathName);
-
-	if (ret != 0)
-		SetLastError(map_posix_err(errno));
-	else
-		SetLastError(STATUS_SUCCESS);
-
-	return ret == 0;
+	return winpr_RemoveDirectory(lpPathName);
 }
 
 BOOL RemoveDirectoryW(LPCWSTR lpPathName)
@@ -1272,7 +1270,7 @@ BOOL RemoveDirectoryW(LPCWSTR lpPathName)
 		goto fail;
 	}
 
-	ret = RemoveDirectoryA(utfPathName);
+	ret = winpr_RemoveDirectory(utfPathName);
 fail:
 	free(utfPathName);
 	return ret;
@@ -1280,33 +1278,7 @@ fail:
 
 BOOL MoveFileExA(LPCSTR lpExistingFileName, LPCSTR lpNewFileName, DWORD dwFlags)
 {
-	struct stat st;
-	int ret = 0;
-	ret = stat(lpNewFileName, &st);
-
-	if ((dwFlags & MOVEFILE_REPLACE_EXISTING) == 0)
-	{
-		if (ret == 0)
-		{
-			SetLastError(ERROR_ALREADY_EXISTS);
-			return FALSE;
-		}
-	}
-	else
-	{
-		if (ret == 0 && (st.st_mode & S_IWUSR) == 0)
-		{
-			SetLastError(ERROR_ACCESS_DENIED);
-			return FALSE;
-		}
-	}
-
-	ret = rename(lpExistingFileName, lpNewFileName);
-
-	if (ret != 0)
-		SetLastError(map_posix_err(errno));
-
-	return ret == 0;
+	return winpr_MoveFileEx(lpExistingFileName, lpNewFileName, dwFlags);
 }
 
 BOOL MoveFileExW(LPCWSTR lpExistingFileName, LPCWSTR lpNewFileName, DWORD dwFlags)
@@ -1324,7 +1296,7 @@ BOOL MoveFileExW(LPCWSTR lpExistingFileName, LPCWSTR lpNewFileName, DWORD dwFlag
 		goto fail;
 	}
 
-	ret = MoveFileExA(lpCExistingFileName, lpCNewFileName, dwFlags);
+	ret = winpr_MoveFileEx(lpCExistingFileName, lpCNewFileName, dwFlags);
 fail:
 	free(lpCNewFileName);
 	free(lpCExistingFileName);
@@ -1333,7 +1305,7 @@ fail:
 
 BOOL MoveFileA(LPCSTR lpExistingFileName, LPCSTR lpNewFileName)
 {
-	return MoveFileExA(lpExistingFileName, lpNewFileName, 0);
+	return winpr_MoveFileEx(lpExistingFileName, lpNewFileName, 0);
 }
 
 BOOL MoveFileW(LPCWSTR lpExistingFileName, LPCWSTR lpNewFileName)
@@ -1380,3 +1352,19 @@ int UnixChangeFileMode(const char* filename, int flags)
 	return rc;
 #endif
 }
+
+#if defined(_WIN32) || defined(_UWP)
+HANDLE winpr_CreateFile(LPCSTR lpFileName, DWORD dwDesiredAccess, DWORD dwShareMode,
+                        LPSECURITY_ATTRIBUTES lpSecurityAttributes, DWORD dwCreationDisposition,
+                        DWORD dwFlagsAndAttributes, HANDLE hTemplateFile)
+{
+	WCHAR* filename = ConvertUtf8ToWCharAlloc(lpFileName, NULL);
+	if (!filename)
+		return NULL;
+
+	HANDLE hdl = CreateFileW(filename, dwDesiredAccess, dwShareMode, lpSecurityAttributes,
+	                         dwCreationDisposition, dwFlagsAndAttributes, hTemplateFile);
+	free(filename);
+	return hdl;
+}
+#endif

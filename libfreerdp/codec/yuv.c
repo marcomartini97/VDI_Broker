@@ -1,5 +1,6 @@
 #include <winpr/sysinfo.h>
 #include <winpr/assert.h>
+#include <winpr/cast.h>
 #include <winpr/pool.h>
 
 #include <freerdp/settings.h>
@@ -54,11 +55,7 @@ struct S_YUV_CONTEXT
 	UINT32 width, height;
 	BOOL useThreads;
 	BOOL encoder;
-	UINT32 nthreads;
 	UINT32 heightStep;
-
-	PTP_POOL threadPool;
-	TP_CALLBACK_ENVIRON ThreadPoolEnv;
 
 	UINT32 work_object_count;
 	PTP_WORK* work_objects;
@@ -90,8 +87,8 @@ static INLINE BOOL avc420_yuv_to_rgb(const BYTE* WINPR_RESTRICT pYUVData[3],
 	pYUVPoint[1] = pYUVData[1] + 1ULL * rect->top / 2 * iStride[1] + rect->left / 2;
 	pYUVPoint[2] = pYUVData[2] + 1ULL * rect->top / 2 * iStride[2] + rect->left / 2;
 
-	roi.width = width;
-	roi.height = height;
+	roi.width = WINPR_ASSERTING_INT_CAST(uint32_t, width);
+	roi.height = WINPR_ASSERTING_INT_CAST(uint32_t, height);
 
 	if (prims->YUV420ToRGB_8u_P3AC4R(pYUVPoint, iStride, pDstPoint, nDstStep, DstFormat, &roi) !=
 	    PRIMITIVES_SUCCESS)
@@ -123,8 +120,8 @@ static INLINE BOOL avc444_yuv_to_rgb(const BYTE* WINPR_RESTRICT pYUVData[3],
 	pYUVPoint[1] = pYUVData[1] + 1ULL * rect->top * iStride[1] + rect->left;
 	pYUVPoint[2] = pYUVData[2] + 1ULL * rect->top * iStride[2] + rect->left;
 
-	roi.width = width;
-	roi.height = height;
+	roi.width = WINPR_ASSERTING_INT_CAST(uint32_t, width);
+	roi.height = WINPR_ASSERTING_INT_CAST(uint32_t, height);
 
 	if (prims->YUV444ToRGB_8u_P3AC4R(pYUVPoint, iStride, pDstPoint, nDstStep, DstFormat, &roi) !=
 	    PRIMITIVES_SUCCESS)
@@ -166,16 +163,21 @@ BOOL yuv_context_reset(YUV_CONTEXT* WINPR_RESTRICT context, UINT32 width, UINT32
 
 	context->width = width;
 	context->height = height;
-	context->heightStep = (height / context->nthreads);
+
+	context->heightStep = height;
 
 	if (context->useThreads)
 	{
-		const UINT32 pw = (width + TILE_SIZE - width % TILE_SIZE) / TILE_SIZE;
-		const UINT32 ph = (height + TILE_SIZE - height % TILE_SIZE) / TILE_SIZE;
+		context->heightStep = 16;
+		/* Preallocate workers for 16x16 tiles.
+		 * this is overallocation for most cases.
+		 *
+		 * ~2MB total for a 4k resolution, so negligible.
+		 */
+		const size_t pw = (width + TILE_SIZE - width % TILE_SIZE) / 16;
+		const size_t ph = (height + TILE_SIZE - height % TILE_SIZE) / 16;
 
-		/* We´ve calculated the amount of workers for 64x64 tiles, but the decoder
-		 * might get 16x16 tiles mixed in. */
-		const UINT32 count = pw * ph * 16;
+		const size_t count = pw * ph;
 
 		context->work_object_count = 0;
 		if (context->encoder)
@@ -207,13 +209,14 @@ BOOL yuv_context_reset(YUV_CONTEXT* WINPR_RESTRICT context, UINT32 width, UINT32
 			context->work_combined_params = ctmp;
 		}
 
-		void* wtmp = winpr_aligned_recalloc(context->work_objects, count, sizeof(PTP_WORK), 32);
+		void* wtmp =
+		    winpr_aligned_recalloc((void*)context->work_objects, count, sizeof(PTP_WORK), 32);
 		if (!wtmp)
 			goto fail;
 		memset(wtmp, 0, count * sizeof(PTP_WORK));
 
-		context->work_objects = wtmp;
-		context->work_object_count = count;
+		context->work_objects = (PTP_WORK*)wtmp;
+		context->work_object_count = WINPR_ASSERTING_INT_CAST(uint32_t, count);
 	}
 	rc = TRUE;
 fail:
@@ -231,33 +234,13 @@ YUV_CONTEXT* yuv_context_new(BOOL encoder, UINT32 ThreadingFlags)
 	primitives_get();
 
 	ret->encoder = encoder;
-	ret->nthreads = 1;
 	if (!(ThreadingFlags & THREADING_FLAGS_DISABLE_THREADS))
 	{
 		GetNativeSystemInfo(&sysInfos);
 		ret->useThreads = (sysInfos.dwNumberOfProcessors > 1);
-		if (ret->useThreads)
-		{
-			ret->nthreads = sysInfos.dwNumberOfProcessors;
-			ret->threadPool = CreateThreadpool(NULL);
-			if (!ret->threadPool)
-			{
-				goto error_threadpool;
-			}
-
-			InitializeThreadpoolEnvironment(&ret->ThreadPoolEnv);
-			SetThreadpoolCallbackPool(&ret->ThreadPoolEnv, ret->threadPool);
-		}
 	}
 
 	return ret;
-
-error_threadpool:
-	WINPR_PRAGMA_DIAG_PUSH
-	WINPR_PRAGMA_DIAG_IGNORED_MISMATCHED_DEALLOC
-	yuv_context_free(ret);
-	WINPR_PRAGMA_DIAG_POP
-	return NULL;
 }
 
 void yuv_context_free(YUV_CONTEXT* context)
@@ -266,10 +249,7 @@ void yuv_context_free(YUV_CONTEXT* context)
 		return;
 	if (context->useThreads)
 	{
-		if (context->threadPool)
-			CloseThreadpool(context->threadPool);
-		DestroyThreadpoolEnvironment(&context->ThreadPoolEnv);
-		winpr_aligned_free(context->work_objects);
+		winpr_aligned_free((void*)context->work_objects);
 		winpr_aligned_free(context->work_combined_params);
 		winpr_aligned_free(context->work_enc_params);
 		winpr_aligned_free(context->work_dec_params);
@@ -324,7 +304,7 @@ static BOOL submit_object(PTP_WORK* WINPR_RESTRICT work_object, PTP_WORK_CALLBAC
 	if (!param || !context)
 		return FALSE;
 
-	*work_object = CreateThreadpoolWork(cb, cnv.pv, &context->ThreadPoolEnv);
+	*work_object = CreateThreadpoolWork(cb, cnv.pv, NULL);
 	if (!*work_object)
 		return FALSE;
 
@@ -378,9 +358,9 @@ static RECTANGLE_16 clamp(YUV_CONTEXT* WINPR_RESTRICT context,
 	RECTANGLE_16 c = *rect;
 	const UINT32 height = MIN(context->height, srcHeight);
 	if (c.top > height)
-		c.top = height;
+		c.top = WINPR_ASSERTING_INT_CAST(UINT16, height);
 	if (c.bottom > height)
-		c.bottom = height;
+		c.bottom = WINPR_ASSERTING_INT_CAST(UINT16, height);
 	return c;
 }
 
@@ -438,11 +418,8 @@ static BOOL pool_decode(YUV_CONTEXT* WINPR_RESTRICT context, PTP_WORK_CALLBACK c
 
 				if (context->work_object_count <= waitCount)
 				{
-					WLog_ERR(TAG,
-					         "YUV decoder: invalid number of tiles, only support less than %" PRIu32
-					         ", got %" PRIu32,
-					         context->work_object_count, waitCount);
-					goto fail;
+					free_objects(context->work_objects, context->work_object_count);
+					waitCount = 0;
 				}
 
 				YUV_PROCESS_WORK_PARAM* cur = &context->work_dec_params[waitCount];
@@ -585,11 +562,8 @@ static BOOL pool_decode_rect(YUV_CONTEXT* WINPR_RESTRICT context, BYTE type,
 
 		if (context->work_object_count <= waitCount)
 		{
-			WLog_ERR(TAG,
-			         "YUV rect decoder: invalid number of tiles, only support less than %" PRIu32
-			         ", got %" PRIu32,
-			         context->work_object_count, waitCount);
-			goto fail;
+			free_objects(context->work_objects, context->work_object_count);
+			waitCount = 0;
 		}
 		current = &context->work_combined_params[waitCount];
 		*current = pool_decode_rect_param(&regionRects[waitCount], context, type, pYUVData, iStride,
@@ -789,6 +763,14 @@ static INLINE YUV_ENCODE_WORK_PARAM pool_encode_fill(
 	return current;
 }
 
+static uint32_t getSteps(uint32_t height, uint32_t step)
+{
+	const uint32_t steps = (height + step / 2 + 1) / step;
+	if (steps < 1)
+		return 1;
+	return steps;
+}
+
 static BOOL pool_encode(YUV_CONTEXT* WINPR_RESTRICT context, PTP_WORK_CALLBACK cb,
                         const BYTE* WINPR_RESTRICT pSrcData, UINT32 nSrcStep, UINT32 SrcFormat,
                         const UINT32 iStride[], BYTE* WINPR_RESTRICT pYUVLumaData[],
@@ -829,7 +811,7 @@ static BOOL pool_encode(YUV_CONTEXT* WINPR_RESTRICT context, PTP_WORK_CALLBACK c
 	{
 		const RECTANGLE_16* rect = &regionRects[x];
 		const UINT32 height = rect->bottom - rect->top;
-		const UINT32 steps = (height + context->heightStep / 2) / context->heightStep;
+		const UINT32 steps = getSteps(height, context->heightStep);
 
 		waitCount += steps;
 	}
@@ -838,7 +820,7 @@ static BOOL pool_encode(YUV_CONTEXT* WINPR_RESTRICT context, PTP_WORK_CALLBACK c
 	{
 		const RECTANGLE_16* rect = &regionRects[x];
 		const UINT32 height = rect->bottom - rect->top;
-		const UINT32 steps = (height + context->heightStep / 2) / context->heightStep;
+		const UINT32 steps = getSteps(height, context->heightStep);
 
 		for (UINT32 y = 0; y < steps; y++)
 		{
@@ -847,11 +829,8 @@ static BOOL pool_encode(YUV_CONTEXT* WINPR_RESTRICT context, PTP_WORK_CALLBACK c
 
 			if (context->work_object_count <= waitCount)
 			{
-				WLog_ERR(TAG,
-				         "YUV encoder: invalid number of tiles, only support less than %" PRIu32
-				         ", got %" PRIu32,
-				         context->work_object_count, waitCount);
-				goto fail;
+				free_objects(context->work_objects, context->work_object_count);
+				waitCount = 0;
 			}
 
 			current = &context->work_enc_params[waitCount];

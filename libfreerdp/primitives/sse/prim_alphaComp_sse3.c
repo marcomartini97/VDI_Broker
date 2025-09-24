@@ -29,9 +29,10 @@
 #include "prim_alphaComp.h"
 
 #include "prim_internal.h"
+#include "prim_avxsse.h"
 
 /* ------------------------------------------------------------------------- */
-#if defined(SSE2_ENABLED)
+#if defined(SSE_AVX_INTRINSICS_ENABLED)
 #include <emmintrin.h>
 #include <pmmintrin.h>
 
@@ -44,13 +45,6 @@ static pstatus_t sse2_alphaComp_argb(const BYTE* WINPR_RESTRICT pSrc1, UINT32 sr
 {
 	const UINT32* sptr1 = (const UINT32*)pSrc1;
 	const UINT32* sptr2 = (const UINT32*)pSrc2;
-	UINT32* dptr = NULL;
-	int linebytes = 0;
-	int src1Jump = 0;
-	int src2Jump = 0;
-	int dstJump = 0;
-	__m128i xmm0;
-	__m128i xmm1;
 
 	if ((width <= 0) || (height <= 0))
 		return PRIMITIVES_SUCCESS;
@@ -61,20 +55,20 @@ static pstatus_t sse2_alphaComp_argb(const BYTE* WINPR_RESTRICT pSrc1, UINT32 sr
 		                               height);
 	}
 
-	dptr = (UINT32*)pDst;
-	linebytes = width * sizeof(UINT32);
-	src1Jump = (src1Step - linebytes) / sizeof(UINT32);
-	src2Jump = (src2Step - linebytes) / sizeof(UINT32);
-	dstJump = (dstStep - linebytes) / sizeof(UINT32);
-	xmm0 = _mm_set1_epi32(0);
-	xmm1 = _mm_set1_epi16(1);
+	UINT32* dptr = (UINT32*)pDst;
+	const size_t linebytes = width * sizeof(UINT32);
+	const size_t src1Jump = (src1Step - linebytes) / sizeof(UINT32);
+	const size_t src2Jump = (src2Step - linebytes) / sizeof(UINT32);
+	const size_t dstJump = (dstStep - linebytes) / sizeof(UINT32);
+	__m128i xmm0 = mm_set1_epu32(0);
+	__m128i xmm1 = _mm_set1_epi16(1);
 
 	for (UINT32 y = 0; y < height; ++y)
 	{
-		int pixels = width;
-		int count = 0;
+		uint32_t pixels = width;
+		uint32_t count = 0;
 		/* Get to the 16-byte boundary now. */
-		int leadIn = 0;
+		uint32_t leadIn = 0;
 
 		switch ((ULONG_PTR)dptr & 0x0f)
 		{
@@ -178,7 +172,7 @@ static pstatus_t sse2_alphaComp_argb(const BYTE* WINPR_RESTRICT pSrc1, UINT32 sr
 			xmm5 = _mm_and_si128(xmm5, xmm3);
 			/* BlGlRlAlBkGkRkAkBjGjRjAjBiGiRiAi */
 			xmm5 = _mm_packus_epi16(xmm5, xmm4);
-			_mm_store_si128((__m128i*)dptr, xmm5);
+			STORE_SI128(dptr, xmm5);
 			dptr += 4;
 		}
 
@@ -207,21 +201,15 @@ static pstatus_t sse2_alphaComp_argb(const BYTE* WINPR_RESTRICT pSrc1, UINT32 sr
 #endif
 
 /* ------------------------------------------------------------------------- */
-void primitives_init_alphaComp_sse3(primitives_t* WINPR_RESTRICT prims)
+void primitives_init_alphaComp_sse3_int(primitives_t* WINPR_RESTRICT prims)
 {
-#if defined(SSE2_ENABLED)
+#if defined(SSE_AVX_INTRINSICS_ENABLED)
 	generic = primitives_get_generic();
-	primitives_init_alphaComp(prims);
-
-	if (IsProcessorFeaturePresent(PF_SSE2_INSTRUCTIONS_AVAILABLE) &&
-	    IsProcessorFeaturePresent(PF_SSE3_INSTRUCTIONS_AVAILABLE)) /* for LDDQU */
-	{
-		WLog_VRB(PRIM_TAG, "SSE2/SSE3 optimizations");
-		prims->alphaComp_argb = sse2_alphaComp_argb;
-	}
+	WLog_VRB(PRIM_TAG, "SSE2/SSE3 optimizations");
+	prims->alphaComp_argb = sse2_alphaComp_argb;
 
 #else
-	WLog_VRB(PRIM_TAG, "undefined WITH_SSE2");
+	WLog_VRB(PRIM_TAG, "undefined WITH_SIMD or SSE3 intrinsics not available");
 	WINPR_UNUSED(prims);
 #endif
 }

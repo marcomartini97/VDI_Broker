@@ -3,7 +3,24 @@
 #include <stdlib.h>
 #include <winpr/crt.h>
 #include <winpr/file.h>
+#include <winpr/path.h>
 #include <winpr/windows.h>
+
+#if !defined(_WIN32)
+#include <sys/stat.h>
+#endif
+
+static int secure_mkstemp(char* tmpname)
+{
+#if !defined(_WIN32)
+	const mode_t mask = umask(S_IRWXU);
+#endif
+	int fd = mkstemp(tmpname);
+#if !defined(_WIN32)
+	(void)umask(mask);
+#endif
+	return fd;
+}
 
 int TestFileDeleteFile(int argc, char* argv[])
 {
@@ -20,7 +37,7 @@ int TestFileDeleteFile(int argc, char* argv[])
 	WINPR_UNUSED(argc);
 	WINPR_UNUSED(argv);
 
-	rc = DeleteFileA(invalidA);
+	rc = winpr_DeleteFile(invalidA);
 	if (rc)
 		return -1;
 
@@ -28,15 +45,15 @@ int TestFileDeleteFile(int argc, char* argv[])
 	if (rc)
 		return -1;
 
-	fd = mkstemp(validA);
+	fd = secure_mkstemp(validA);
 	if (fd < 0)
 		return -1;
 
-	rc = DeleteFileA(validA);
+	rc = winpr_DeleteFile(validA);
 	if (!rc)
 		return -1;
 
-	fd = mkstemp(validW);
+	fd = secure_mkstemp(validW);
 	if (fd < 0)
 		return -1;
 

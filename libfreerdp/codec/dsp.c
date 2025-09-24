@@ -624,7 +624,8 @@ static BOOL freerdp_dsp_decode_opus(FREERDP_DSP_CONTEXT* WINPR_RESTRICT context,
 	if (!Stream_EnsureRemainingCapacity(context->common.buffer, max_size))
 		return FALSE;
 
-	frames = opus_decode(context->opus_decoder, src, size, Stream_Pointer(out), OPUS_MAX_FRAMES, 0);
+	frames = opus_decode(context->opus_decoder, src, WINPR_ASSERTING_INT_CAST(opus_int32, size),
+	                     Stream_Pointer(out), OPUS_MAX_FRAMES, 0);
 	if (frames < 0)
 		return FALSE;
 
@@ -645,10 +646,11 @@ static BOOL freerdp_dsp_encode_opus(FREERDP_DSP_CONTEXT* WINPR_RESTRICT context,
 	if (!Stream_EnsureRemainingCapacity(context->common.buffer, max_size))
 		return FALSE;
 
-	const int src_frames = size / sizeof(opus_int16) / context->common.format.nChannels;
+	const size_t src_frames = size / sizeof(opus_int16) / context->common.format.nChannels;
 	const opus_int16* src_data = (const opus_int16*)src;
-	const int frames =
-	    opus_encode(context->opus_encoder, src_data, src_frames, Stream_Pointer(out), max_size);
+	const int frames = opus_encode(
+	    context->opus_encoder, src_data, WINPR_ASSERTING_INT_CAST(opus_int32, src_frames),
+	    Stream_Pointer(out), WINPR_ASSERTING_INT_CAST(opus_int32, max_size));
 	if (frames < 0)
 		return FALSE;
 	return Stream_SafeSeek(out, frames * context->common.format.nChannels * sizeof(int16_t));
@@ -744,7 +746,7 @@ static const struct
 	                          { 1, 4 }, { 5, 4 }, { 2, 0 }, { 6, 0 }, { 2, 4 }, { 6, 4 },
 	                          { 3, 0 }, { 7, 0 }, { 3, 4 }, { 7, 4 } };
 
-static BYTE dsp_encode_ima_adpcm_sample(ADPCM* WINPR_RESTRICT adpcm, int channel, INT16 sample)
+static BYTE dsp_encode_ima_adpcm_sample(ADPCM* WINPR_RESTRICT adpcm, size_t channel, INT16 sample)
 {
 	INT32 ss = ima_step_size_table[adpcm->ima.last_step[channel]];
 	INT32 e = sample - adpcm->ima.last_sample[channel];
@@ -890,7 +892,7 @@ static const INT32 ms_adpcm_coeffs1[7] = { 256, 512, 0, 192, 240, 460, 392 };
 static const INT32 ms_adpcm_coeffs2[7] = { 0, -256, 0, 64, 0, -208, -232 };
 
 static INLINE INT16 freerdp_dsp_decode_ms_adpcm_sample(ADPCM* WINPR_RESTRICT adpcm, BYTE sample,
-                                                       int channel)
+                                                       size_t channel)
 {
 	const INT8 nibble = (sample & 0x08 ? (INT8)sample - 16 : (INT8)sample);
 	INT32 presample =
@@ -1460,7 +1462,7 @@ BOOL freerdp_dsp_supports_format(const AUDIO_FORMAT* WINPR_RESTRICT format, BOOL
 
 BOOL freerdp_dsp_context_reset(FREERDP_DSP_CONTEXT* WINPR_RESTRICT context,
                                const AUDIO_FORMAT* WINPR_RESTRICT targetFormat,
-                               UINT32 FramesPerPacket)
+                               WINPR_ATTR_UNUSED UINT32 FramesPerPacket)
 {
 #if defined(WITH_FDK_AAC)
 	WINPR_ASSERT(targetFormat);

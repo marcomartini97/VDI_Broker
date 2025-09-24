@@ -22,6 +22,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <winpr/assert.h>
+#include <winpr/cast.h>
 #include <winpr/wtypes.h>
 #include <winpr/sysinfo.h>
 #include <winpr/collections.h>
@@ -29,6 +31,7 @@
 #include <errno.h>
 
 #include "libusb_udevice.h"
+#include "msusb.h"
 #include "../common/urbdrc_types.h"
 
 #define BASIC_STATE_FUNC_DEFINED(_arg, _type)             \
@@ -265,7 +268,8 @@ static void LIBUSB_CALL func_iso_callback(struct libusb_transfer* transfer)
 			Stream_SetPosition(user_data->data,
 			                   40); /* TS_URB_ISOCH_TRANSFER_RESULT IsoPacket offset */
 
-			for (int i = 0; i < transfer->num_iso_packets; i++)
+			for (uint32_t i = 0; i < WINPR_ASSERTING_INT_CAST(uint32_t, transfer->num_iso_packets);
+			     i++)
 			{
 				const UINT32 act_len = transfer->iso_packet_desc[i].actual_length;
 				Stream_Write_UINT32(user_data->data, index);
@@ -307,8 +311,8 @@ static void LIBUSB_CALL func_iso_callback(struct libusb_transfer* transfer)
 					const UINT32 RequestID = streamID & INTERFACE_ID_MASK;
 					user_data->cb(user_data->idev, user_data->callback, user_data->data,
 					              InterfaceId, user_data->noack, user_data->MessageId, RequestID,
-					              transfer->num_iso_packets, transfer->status,
-					              user_data->StartFrame, user_data->ErrorCount,
+					              WINPR_ASSERTING_INT_CAST(uint32_t, transfer->num_iso_packets),
+					              transfer->status, user_data->StartFrame, user_data->ErrorCount,
 					              user_data->OutputBufferSize);
 					user_data->data = NULL;
 				}
@@ -369,9 +373,10 @@ static void LIBUSB_CALL func_bulk_transfer_cb(struct libusb_transfer* transfer)
 		const UINT32 RequestID = streamID & INTERFACE_ID_MASK;
 
 		user_data->cb(user_data->idev, user_data->callback, user_data->data, InterfaceId,
-		              user_data->noack, user_data->MessageId, RequestID, transfer->num_iso_packets,
+		              user_data->noack, user_data->MessageId, RequestID,
+		              WINPR_ASSERTING_INT_CAST(uint32_t, transfer->num_iso_packets),
 		              transfer->status, user_data->StartFrame, user_data->ErrorCount,
-		              transfer->actual_length);
+		              WINPR_ASSERTING_INT_CAST(uint32_t, transfer->actual_length));
 		user_data->data = NULL;
 		ArrayList_Remove(list, transfer);
 	}
@@ -655,8 +660,9 @@ libusb_udev_complete_msconfig_setup(IUDEVICE* idev, MSUSB_CONFIG_DESCRIPTOR* MsC
 	 * ||  bus_number  |  dev_number  |      bConfigurationValue    ||
 	 * ---------------------------------------------------------------
 	 * ***********************/
-	MsConfig->ConfigurationHandle =
-	    MsConfig->bConfigurationValue | (pdev->bus_number << 24) | (pdev->dev_number << 16);
+	MsConfig->ConfigurationHandle = (uint32_t)MsConfig->bConfigurationValue |
+	                                ((uint32_t)pdev->bus_number << 24) |
+	                                (((uint32_t)pdev->dev_number << 16) & 0xFF0000);
 	MsInterfaces = MsConfig->MsInterfaces;
 
 	for (UINT32 inum = 0; inum < MsConfig->NumInterfaces; inum++)
@@ -672,10 +678,12 @@ libusb_udev_complete_msconfig_setup(IUDEVICE* idev, MSUSB_CONFIG_DESCRIPTOR* MsC
 		 * ||  bus_number  |  dev_number  |  altsetting  | interfaceNum ||
 		 * ---------------------------------------------------------------
 		 * ***********************/
-		MsInterface->InterfaceHandle = LibusbAltsetting->bInterfaceNumber |
-		                               (LibusbAltsetting->bAlternateSetting << 8) |
-		                               (pdev->dev_number << 16) | (pdev->bus_number << 24);
-		MsInterface->Length = 16 + (MsInterface->NumberOfPipes * 20);
+		MsInterface->InterfaceHandle =
+		    WINPR_ASSERTING_INT_CAST(UINT32, (LibusbAltsetting->bInterfaceNumber |
+		                                      (LibusbAltsetting->bAlternateSetting << 8) |
+		                                      (pdev->dev_number << 16) | (pdev->bus_number << 24)));
+		const size_t len = 16 + (MsInterface->NumberOfPipes * 20);
+		MsInterface->Length = WINPR_ASSERTING_INT_CAST(UINT16, len);
 		MsInterface->bInterfaceClass = LibusbAltsetting->bInterfaceClass;
 		MsInterface->bInterfaceSubClass = LibusbAltsetting->bInterfaceSubClass;
 		MsInterface->bInterfaceProtocol = LibusbAltsetting->bInterfaceProtocol;
@@ -695,10 +703,11 @@ libusb_udev_complete_msconfig_setup(IUDEVICE* idev, MSUSB_CONFIG_DESCRIPTOR* MsC
 			 * ||  bus_number  |  dev_number  |      bEndpointAddress       ||
 			 * ---------------------------------------------------------------
 			 * ***********************/
-			MsPipe->PipeHandle = LibusbEndpoint->bEndpointAddress | (pdev->dev_number << 16) |
-			                     (pdev->bus_number << 24);
+			MsPipe->PipeHandle = LibusbEndpoint->bEndpointAddress |
+			                     (((uint32_t)pdev->dev_number << 16) & 0xFF0000) |
+			                     (((uint32_t)pdev->bus_number << 24) & 0xFF000000);
 			/* count endpoint max packet size */
-			int max = LibusbEndpoint->wMaxPacketSize & 0x07ff;
+			unsigned max = LibusbEndpoint->wMaxPacketSize & 0x07ff;
 			BYTE attr = LibusbEndpoint->bmAttributes;
 
 			if ((attr & 0x3) == 1 || (attr & 0x3) == 3)
@@ -706,7 +715,7 @@ libusb_udev_complete_msconfig_setup(IUDEVICE* idev, MSUSB_CONFIG_DESCRIPTOR* MsC
 				max *= (1 + ((LibusbEndpoint->wMaxPacketSize >> 11) & 3));
 			}
 
-			MsPipe->MaximumPacketSize = max;
+			MsPipe->MaximumPacketSize = WINPR_ASSERTING_INT_CAST(uint16_t, max);
 			MsPipe->bEndpointAddress = LibusbEndpoint->bEndpointAddress;
 			MsPipe->bInterval = LibusbEndpoint->bInterval;
 			MsPipe->PipeType = attr & 0x3;
@@ -714,7 +723,7 @@ libusb_udev_complete_msconfig_setup(IUDEVICE* idev, MSUSB_CONFIG_DESCRIPTOR* MsC
 		}
 	}
 
-	MsConfig->MsOutSize = MsOutSize;
+	MsConfig->MsOutSize = WINPR_ASSERTING_INT_CAST(int, MsOutSize);
 	MsConfig->InitCompleted = 1;
 
 	/* replace device's MsConfig */
@@ -756,7 +765,8 @@ static int libusb_udev_select_configuration(IUDEVICE* idev, UINT32 bConfiguratio
 	if (bConfigurationValue == 0)
 		ret = libusb_set_configuration(libusb_handle, -1);
 	else
-		ret = libusb_set_configuration(libusb_handle, bConfigurationValue);
+		ret = libusb_set_configuration(libusb_handle,
+		                               WINPR_ASSERTING_INT_CAST(int, bConfigurationValue));
 
 	if (log_libusb_result(urbdrc->log, WLOG_ERROR, "libusb_set_configuration", ret))
 	{
@@ -778,7 +788,7 @@ static int libusb_udev_select_configuration(IUDEVICE* idev, UINT32 bConfiguratio
 	return 0;
 }
 
-static int libusb_udev_control_pipe_request(IUDEVICE* idev, UINT32 RequestId,
+static int libusb_udev_control_pipe_request(IUDEVICE* idev, WINPR_ATTR_UNUSED UINT32 RequestId,
                                             UINT32 EndpointAddress, UINT32* UsbdStatus, int command)
 {
 	int error = 0;
@@ -922,7 +932,8 @@ static UINT32 libusb_udev_control_query_device_text(IUDEVICE* idev, UINT32 TextT
 	return S_OK;
 }
 
-static int libusb_udev_os_feature_descriptor_request(IUDEVICE* idev, UINT32 RequestId,
+static int libusb_udev_os_feature_descriptor_request(IUDEVICE* idev,
+                                                     WINPR_ATTR_UNUSED UINT32 RequestId,
                                                      BYTE Recipient, BYTE InterfaceNumber,
                                                      BYTE Ms_PageIndex, UINT16 Ms_featureDescIndex,
                                                      UINT32* UsbdStatus, UINT32* BufferSize,
@@ -1212,8 +1223,9 @@ static int libusb_udev_query_device_port_status(IUDEVICE* idev, UINT32* UsbdStat
 
 static int libusb_udev_isoch_transfer(IUDEVICE* idev, GENERIC_CHANNEL_CALLBACK* callback,
                                       UINT32 MessageId, UINT32 RequestId, UINT32 EndpointAddress,
-                                      UINT32 TransferFlags, UINT32 StartFrame, UINT32 ErrorCount,
-                                      BOOL NoAck, const BYTE* packetDescriptorData,
+                                      WINPR_ATTR_UNUSED UINT32 TransferFlags, UINT32 StartFrame,
+                                      UINT32 ErrorCount, BOOL NoAck,
+                                      WINPR_ATTR_UNUSED const BYTE* packetDescriptorData,
                                       UINT32 NumberOfPackets, UINT32 BufferSize, const BYTE* Buffer,
                                       t_isoch_transfer_cb cb, UINT32 Timeout)
 {
@@ -1259,9 +1271,10 @@ static int libusb_udev_isoch_transfer(IUDEVICE* idev, GENERIC_CHANNEL_CALLBACK* 
 	}
 
 	/**  process URB_FUNCTION_IOSCH_TRANSFER */
-	libusb_fill_iso_transfer(iso_transfer, pdev->libusb_handle, EndpointAddress,
-	                         Stream_Pointer(user_data->data), BufferSize, NumberOfPackets,
-	                         func_iso_callback, user_data, Timeout);
+	libusb_fill_iso_transfer(
+	    iso_transfer, pdev->libusb_handle, WINPR_ASSERTING_INT_CAST(uint8_t, EndpointAddress),
+	    Stream_Pointer(user_data->data), WINPR_ASSERTING_INT_CAST(int, BufferSize),
+	    WINPR_ASSERTING_INT_CAST(int, NumberOfPackets), func_iso_callback, user_data, Timeout);
 	set_stream_id_for_buffer(iso_transfer, streamID);
 	libusb_set_iso_packet_lengths(iso_transfer, iso_packet_size);
 
@@ -1279,10 +1292,12 @@ static int libusb_udev_isoch_transfer(IUDEVICE* idev, GENERIC_CHANNEL_CALLBACK* 
 	return rc;
 }
 
-static BOOL libusb_udev_control_transfer(IUDEVICE* idev, UINT32 RequestId, UINT32 EndpointAddress,
-                                         UINT32 TransferFlags, BYTE bmRequestType, BYTE Request,
-                                         UINT16 Value, UINT16 Index, UINT32* UrbdStatus,
-                                         UINT32* BufferSize, BYTE* Buffer, UINT32 Timeout)
+static BOOL libusb_udev_control_transfer(IUDEVICE* idev, WINPR_ATTR_UNUSED UINT32 RequestId,
+                                         WINPR_ATTR_UNUSED UINT32 EndpointAddress,
+                                         WINPR_ATTR_UNUSED UINT32 TransferFlags, BYTE bmRequestType,
+                                         BYTE Request, UINT16 Value, UINT16 Index,
+                                         UINT32* UrbdStatus, UINT32* BufferSize, BYTE* Buffer,
+                                         UINT32 Timeout)
 {
 	int status = 0;
 	UDEVICE* pdev = (UDEVICE*)idev;
@@ -1362,16 +1377,18 @@ static int libusb_udev_bulk_or_interrupt_transfer(IUDEVICE* idev,
 	{
 		case BULK_TRANSFER:
 			/** Bulk Transfer */
-			libusb_fill_bulk_transfer(transfer, pdev->libusb_handle, EndpointAddress,
-			                          Stream_Pointer(user_data->data), BufferSize,
-			                          func_bulk_transfer_cb, user_data, Timeout);
+			libusb_fill_bulk_transfer(
+			    transfer, pdev->libusb_handle, WINPR_ASSERTING_INT_CAST(uint8_t, EndpointAddress),
+			    Stream_Pointer(user_data->data), WINPR_ASSERTING_INT_CAST(int, BufferSize),
+			    func_bulk_transfer_cb, user_data, Timeout);
 			break;
 
 		case INTERRUPT_TRANSFER:
 			/**  Interrupt Transfer */
-			libusb_fill_interrupt_transfer(transfer, pdev->libusb_handle, EndpointAddress,
-			                               Stream_Pointer(user_data->data), BufferSize,
-			                               func_bulk_transfer_cb, user_data, Timeout);
+			libusb_fill_interrupt_transfer(
+			    transfer, pdev->libusb_handle, WINPR_ASSERTING_INT_CAST(uint8_t, EndpointAddress),
+			    Stream_Pointer(user_data->data), WINPR_ASSERTING_INT_CAST(int, BufferSize),
+			    func_bulk_transfer_cb, user_data, Timeout);
 			break;
 
 		default:
@@ -1632,7 +1649,7 @@ static int udev_get_device_handle(URBDRC_PLUGIN* urbdrc, libusb_context* ctx, UD
 }
 
 static int udev_get_hub_handle(URBDRC_PLUGIN* urbdrc, libusb_context* ctx, UDEVICE* pdev,
-                               UINT16 bus_number, UINT16 dev_number)
+                               UINT16 bus_number, WINPR_ATTR_UNUSED UINT16 dev_number)
 {
 	int error = -1;
 	LIBUSB_DEVICE** libusb_list = NULL;
@@ -1743,7 +1760,10 @@ static IUDEVICE* udev_init(URBDRC_PLUGIN* urbdrc, libusb_context* context, LIBUS
 		status = libusb_get_config_descriptor(pdev->libusb_dev, 0, &pdev->LibusbConfig);
 
 	if (status < 0)
+	{
+		log_libusb_result(urbdrc->log, WLOG_ERROR, "libusb_get_config_descriptor", status);
 		goto fail;
+	}
 
 	config_temp = pdev->LibusbConfig;
 	/* get the first interface and first altsetting */
@@ -1800,21 +1820,29 @@ fail:
 size_t udev_new_by_id(URBDRC_PLUGIN* urbdrc, libusb_context* ctx, UINT16 idVendor, UINT16 idProduct,
                       IUDEVICE*** devArray)
 {
-	LIBUSB_DEVICE** libusb_list = NULL;
-	UDEVICE** array = NULL;
-	ssize_t total_device = 0;
-	size_t num = 0;
+	WINPR_ASSERT(urbdrc);
+	WINPR_ASSERT(devArray);
 
-	if (!urbdrc || !devArray)
-		return 0;
+	size_t num = 0;
+	LIBUSB_DEVICE** libusb_list = NULL;
+
+	*devArray = NULL;
 
 	WLog_Print(urbdrc->log, WLOG_INFO, "VID: 0x%04" PRIX16 ", PID: 0x%04" PRIX16 "", idVendor,
 	           idProduct);
-	total_device = libusb_get_device_list(ctx, &libusb_list);
+	const ssize_t total_device = libusb_get_device_list(ctx, &libusb_list);
 	if (total_device < 0)
+	{
+		WLog_Print(urbdrc->log, WLOG_ERROR, "libusb_get_device_list -> [%" PRIdz "]", total_device);
 		return 0;
+	}
+	if (total_device == 0)
+	{
+		WLog_Print(urbdrc->log, WLOG_WARN, "libusb_get_device_list -> [%" PRIdz "]", total_device);
+		return 0;
+	}
 
-	array = (UDEVICE**)calloc((size_t)total_device, sizeof(UDEVICE*));
+	UDEVICE** array = (UDEVICE**)calloc((size_t)total_device, sizeof(UDEVICE*));
 
 	if (!array)
 		goto fail;
@@ -1826,11 +1854,17 @@ size_t udev_new_by_id(URBDRC_PLUGIN* urbdrc, libusb_context* ctx, UINT16 idVendo
 
 		if ((descriptor->idVendor == idVendor) && (descriptor->idProduct == idProduct))
 		{
-			array[num] = (PUDEVICE)udev_init(urbdrc, ctx, dev, libusb_get_bus_number(dev),
-			                                 libusb_get_device_address(dev));
+			const uint8_t nr = libusb_get_bus_number(dev);
+			const uint8_t addr = libusb_get_device_address(dev);
+			array[num] = (PUDEVICE)udev_init(urbdrc, ctx, dev, nr, addr);
 
 			if (array[num] != NULL)
 				num++;
+			else
+			{
+				WLog_Print(urbdrc->log, WLOG_WARN,
+				           "udev_init(nr=%" PRIu8 ", addr=%" PRIu8 ") failed", nr, addr);
+			}
 		}
 		else
 			libusb_unref_device(dev);

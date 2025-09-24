@@ -23,12 +23,9 @@
 #include <winpr/winpr.h>
 #include <winpr/wtypes.h>
 #include <winpr/windows.h>
+#include <winpr/cast.h>
 
-#ifdef __cplusplus
-#define STATUS_CAST(t, val) static_cast<t>(val)
-#else
-#define STATUS_CAST(t, val) (t)(val)
-#endif
+#define STATUS_CAST(t, val) WINPR_CXX_COMPAT_CAST(t, val)
 
 #ifndef _WIN32
 
@@ -1330,7 +1327,7 @@ typedef enum
 	FileMailslotSetInformation,
 	FileCompressionInformation,
 	FileObjectIdInformation,
-	FileUnknownInformation1,
+	FileCompletionInformation,
 	FileMoveClusterInformation,
 	FileQuotaInformation,
 	FileReparsePointInformation,
@@ -1565,8 +1562,17 @@ extern "C"
 {
 #endif
 
-	WINPR_API const char* NtStatus2Tag(DWORD ntstatus);
+	WINPR_API const char* NtStatus2Tag(NTSTATUS ntstatus);
 	WINPR_API const char* Win32ErrorCode2Tag(UINT16 code);
+
+	/** @brief convert a \ref FILE_INFORMATION_CLASS to a string
+	 *
+	 *  @param value The \ref FILE_INFORMATION_CLASS to convert
+	 *
+	 *  @return A string representation of the value or "UNKNOWN" for invalid values
+	 *  @since version 3.13.0
+	 */
+	WINPR_API const char* FSInformationClass2Tag(FILE_INFORMATION_CLASS value);
 
 #ifdef __cplusplus
 }

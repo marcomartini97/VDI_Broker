@@ -16,12 +16,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-set(SRCS
-	rdpsnd_common.h
-	rdpsnd_common.c)
+set(SRCS rdpsnd_common.h rdpsnd_common.c)
 
 # Library currently header only
 add_library(rdpsnd-common STATIC ${SRCS})
+set_property(TARGET rdpsnd-common PROPERTY FOLDER "Channels/${CHANNEL_NAME}/Common")
 
-channel_install(rdpsnd-common  ${FREERDP_ADDIN_PATH} "FreeRDPTargets")
-
+freerdp_client_pc_add_library_private(rdpsnd-common)
+channel_install(rdpsnd-common ${FREERDP_ADDIN_PATH} "FreeRDPTargets")

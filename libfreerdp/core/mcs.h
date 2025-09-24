@@ -131,6 +131,7 @@ struct rdp_mcs
 
 	UINT16 userId;
 	UINT16 baseChannelId;
+	UINT16 IOChannelId;
 	UINT16 messageChannelId;
 
 	UINT32 flags;
@@ -147,6 +148,7 @@ struct rdp_mcs
 	UINT32 channelCount;
 	UINT32 channelMaxCount;
 	rdpMcsChannel* channels;
+	wLog* log;
 };
 
 #define MCS_SEND_DATA_HEADER_MAX_LENGTH 8
@@ -172,7 +174,8 @@ FREERDP_LOCAL BOOL mcs_send_channel_join_request(rdpMcs* mcs, UINT16 channelId);
 FREERDP_LOCAL BOOL mcs_recv_channel_join_confirm(rdpMcs* mcs, wStream* s, UINT16* channelId);
 FREERDP_LOCAL BOOL mcs_send_channel_join_confirm(rdpMcs* mcs, UINT16 channelId);
 FREERDP_LOCAL BOOL mcs_recv_disconnect_provider_ultimatum(rdpMcs* mcs, wStream* s, int* reason);
-FREERDP_LOCAL BOOL mcs_send_disconnect_provider_ultimatum(rdpMcs* mcs);
+FREERDP_LOCAL BOOL mcs_send_disconnect_provider_ultimatum(rdpMcs* mcs,
+                                                          enum Disconnect_Ultimatum reason);
 
 FREERDP_LOCAL BOOL mcs_write_domain_mcspdu_header(wStream* s, DomainMCSPDU domainMCSPDU,
                                                   UINT16 length, BYTE options);

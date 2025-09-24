@@ -105,7 +105,7 @@ typedef struct
 
 static void printer_cups_get_printjob_name(char* buf, size_t size, size_t id)
 {
-	struct tm tres;
+	struct tm tres = { 0 };
 	const time_t tt = time(NULL);
 	const struct tm* t = localtime_r(&tt, &tres);
 
@@ -347,7 +347,7 @@ static void printer_cups_release_enum_printers(rdpPrinter** printers)
 			(*cur)->ReleaseRef(*cur);
 		cur++;
 	}
-	free(printers);
+	free((void*)printers);
 }
 
 static rdpPrinter** printer_cups_enum_printers(rdpPrinterDriver* driver)

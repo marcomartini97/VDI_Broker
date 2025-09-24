@@ -22,6 +22,7 @@
  */
 
 #include <winpr/assert.h>
+#include <winpr/cast.h>
 #include <freerdp/config.h>
 
 #include <freerdp/codec/interleaved.h>
@@ -97,6 +98,7 @@ static const BYTE g_MaskSpecialFgBg2 = 0x05;
 static const BYTE g_MaskRegularRunLength = 0x1F;
 static const BYTE g_MaskLiteRunLength = 0x0F;
 
+#if defined(WITH_DEBUG_CODECS)
 static const char* rle_code_str(UINT32 code)
 {
 	switch (code)
@@ -145,13 +147,7 @@ static const char* rle_code_str(UINT32 code)
 			return "UNKNOWN";
 	}
 }
-
-static const char* rle_code_str_buffer(UINT32 code, char* buffer, size_t size)
-{
-	const char* str = rle_code_str(code);
-	(void)_snprintf(buffer, size, "%s [0x%08" PRIx32 "]", str, code);
-	return buffer;
-}
+#endif
 
 #define buffer_within_range(pbSrc, size, pbEnd) \
 	buffer_within_range_((pbSrc), (size), (pbEnd), __func__, __FILE__, __LINE__)
@@ -288,7 +284,7 @@ static UINT ExtractRunLengthMegaMega(const BYTE* pbOrderHdr, const BYTE* pbEnd, 
 		return 0;
 	}
 
-	runLength = ((UINT16)pbOrderHdr[1]) | (((UINT16)pbOrderHdr[2]) << 8);
+	runLength = ((UINT16)pbOrderHdr[1]) | ((((UINT16)pbOrderHdr[2]) << 8) & 0xFF00);
 	(*advance) += 2;
 
 	return runLength;
@@ -325,6 +321,10 @@ static INLINE UINT32 ExtractRunLength(UINT32 code, const BYTE* pbOrderHdr, const
 	WINPR_ASSERT(pbOrderHdr);
 	WINPR_ASSERT(pbEnd);
 	WINPR_ASSERT(advance);
+
+#if defined(WITH_DEBUG_CODECS)
+	WLog_VRB(TAG, "extracting %s", rle_code_str(code));
+#endif
 
 	*advance = 0;
 	if (!buffer_within_range(pbOrderHdr, 0, pbEnd))
@@ -376,7 +376,8 @@ static INLINE UINT32 ExtractRunLength(UINT32 code, const BYTE* pbOrderHdr, const
 #define ensure_capacity(start, end, size, base) \
 	ensure_capacity_((start), (end), (size), (base), __func__, __FILE__, __LINE__)
 static INLINE BOOL ensure_capacity_(const BYTE* start, const BYTE* end, size_t size, size_t base,
-                                    const char* fkt, const char* file, size_t line)
+                                    const char* fkt, WINPR_ATTR_UNUSED const char* file,
+                                    size_t line)
 {
 	const size_t available = (uintptr_t)end - (uintptr_t)start;
 	const BOOL rc = available >= size * base;
@@ -466,11 +467,11 @@ static INLINE void write_pixel_16(BYTE* _buf, UINT16 _pix)
 		(_buf) += 2;                \
 	} while (0)
 #define DESTREADPIXEL(_pix, _buf) _pix = ((UINT16*)(_buf))[0]
-#define SRCREADPIXEL(_pix, _buf)               \
-	do                                         \
-	{                                          \
-		(_pix) = (_buf)[0] | ((_buf)[1] << 8); \
-		(_buf) += 2;                           \
+#define SRCREADPIXEL(_pix, _buf)                                                            \
+	do                                                                                      \
+	{                                                                                       \
+		(_pix) = WINPR_ASSERTING_INT_CAST(UINT16, (_buf)[0] | (((_buf)[1] << 8) & 0xFF00)); \
+		(_buf) += 2;                                                                        \
 	} while (0)
 #define WRITEFGBGIMAGE WriteFgBgImage16to16
 #define WRITEFIRSTLINEFGBGIMAGE WriteFirstLineFgBgImage16to16
@@ -499,12 +500,13 @@ static INLINE void write_pixel_16(BYTE* _buf, UINT16 _pix)
 		write_pixel_24(_buf, _pix); \
 		(_buf) += 3;                \
 	} while (0)
-#define DESTREADPIXEL(_pix, _buf) _pix = (_buf)[0] | ((_buf)[1] << 8) | ((_buf)[2] << 16)
-#define SRCREADPIXEL(_pix, _buf)                                   \
-	do                                                             \
-	{                                                              \
-		(_pix) = (_buf)[0] | ((_buf)[1] << 8) | ((_buf)[2] << 16); \
-		(_buf) += 3;                                               \
+#define DESTREADPIXEL(_pix, _buf) \
+	_pix = (_buf)[0] | (((_buf)[1] << 8) & 0xFF00) | (((_buf)[2] << 16) & 0xFF0000)
+#define SRCREADPIXEL(_pix, _buf)                                                           \
+	do                                                                                     \
+	{                                                                                      \
+		(_pix) = (_buf)[0] | (((_buf)[1] << 8) & 0xFF00) | (((_buf)[2] << 16) & 0xFF0000); \
+		(_buf) += 3;                                                                       \
 	} while (0)
 
 #define WRITEFGBGIMAGE WriteFgBgImage24to24
@@ -715,7 +717,7 @@ BOOL bitmap_interleaved_context_reset(BITMAP_INTERLEAVED_CONTEXT* WINPR_RESTRICT
 	return TRUE;
 }
 
-BITMAP_INTERLEAVED_CONTEXT* bitmap_interleaved_context_new(BOOL Compressor)
+BITMAP_INTERLEAVED_CONTEXT* bitmap_interleaved_context_new(WINPR_ATTR_UNUSED BOOL Compressor)
 {
 	BITMAP_INTERLEAVED_CONTEXT* interleaved = NULL;
 	interleaved = (BITMAP_INTERLEAVED_CONTEXT*)winpr_aligned_recalloc(

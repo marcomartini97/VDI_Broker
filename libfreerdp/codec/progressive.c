@@ -22,6 +22,7 @@
 #include <freerdp/config.h>
 
 #include <winpr/assert.h>
+#include <winpr/cast.h>
 #include <winpr/crt.h>
 #include <winpr/print.h>
 #include <winpr/bitstream.h>
@@ -75,20 +76,6 @@ progressive_component_codec_quant_read(wStream* WINPR_RESTRICT s,
 	Stream_Read_UINT8(s, b);
 	quantVal->LH1 = b & 0x0F;
 	quantVal->HH1 = b >> 4;
-}
-
-static INLINE void progressive_rfx_quant_ladd(RFX_COMPONENT_CODEC_QUANT* WINPR_RESTRICT q, int val)
-{
-	q->HL1 += val; /* HL1 */
-	q->LH1 += val; /* LH1 */
-	q->HH1 += val; /* HH1 */
-	q->HL2 += val; /* HL2 */
-	q->LH2 += val; /* LH2 */
-	q->HH2 += val; /* HH2 */
-	q->HL3 += val; /* HL3 */
-	q->LH3 += val; /* LH3 */
-	q->HH3 += val; /* HH3 */
-	q->LL3 += val; /* LL3 */
 }
 
 static INLINE void progressive_rfx_quant_add(const RFX_COMPONENT_CODEC_QUANT* WINPR_RESTRICT q1,
@@ -174,43 +161,6 @@ progressive_rfx_quant_lcmp_less_equal(const RFX_COMPONENT_CODEC_QUANT* WINPR_RES
 }
 
 static INLINE BOOL
-progressive_rfx_quant_cmp_less_equal(const RFX_COMPONENT_CODEC_QUANT* WINPR_RESTRICT q1,
-                                     const RFX_COMPONENT_CODEC_QUANT* WINPR_RESTRICT q2)
-{
-	if (q1->HL1 > q2->HL1)
-		return FALSE; /* HL1 */
-
-	if (q1->LH1 > q2->LH1)
-		return FALSE; /* LH1 */
-
-	if (q1->HH1 > q2->HH1)
-		return FALSE; /* HH1 */
-
-	if (q1->HL2 > q2->HL2)
-		return FALSE; /* HL2 */
-
-	if (q1->LH2 > q2->LH2)
-		return FALSE; /* LH2 */
-
-	if (q1->HH2 > q2->HH2)
-		return FALSE; /* HH2 */
-
-	if (q1->HL3 > q2->HL3)
-		return FALSE; /* HL3 */
-
-	if (q1->LH3 > q2->LH3)
-		return FALSE; /* LH3 */
-
-	if (q1->HH3 > q2->HH3)
-		return FALSE; /* HH3 */
-
-	if (q1->LL3 > q2->LL3)
-		return FALSE; /* LL3 */
-
-	return TRUE;
-}
-
-static INLINE BOOL
 progressive_rfx_quant_lcmp_greater_equal(const RFX_COMPONENT_CODEC_QUANT* WINPR_RESTRICT q, int val)
 {
 	if (q->HL1 < val)
@@ -241,43 +191,6 @@ progressive_rfx_quant_lcmp_greater_equal(const RFX_COMPONENT_CODEC_QUANT* WINPR_
 		return FALSE; /* HH3 */
 
 	if (q->LL3 < val)
-		return FALSE; /* LL3 */
-
-	return TRUE;
-}
-
-static INLINE BOOL
-progressive_rfx_quant_cmp_greater_equal(const RFX_COMPONENT_CODEC_QUANT* WINPR_RESTRICT q1,
-                                        const RFX_COMPONENT_CODEC_QUANT* WINPR_RESTRICT q2)
-{
-	if (q1->HL1 < q2->HL1)
-		return FALSE; /* HL1 */
-
-	if (q1->LH1 < q2->LH1)
-		return FALSE; /* LH1 */
-
-	if (q1->HH1 < q2->HH1)
-		return FALSE; /* HH1 */
-
-	if (q1->HL2 < q2->HL2)
-		return FALSE; /* HL2 */
-
-	if (q1->LH2 < q2->LH2)
-		return FALSE; /* LH2 */
-
-	if (q1->HH2 < q2->HH2)
-		return FALSE; /* HH2 */
-
-	if (q1->HL3 < q2->HL3)
-		return FALSE; /* HL3 */
-
-	if (q1->LH3 < q2->LH3)
-		return FALSE; /* LH3 */
-
-	if (q1->HH3 < q2->HH3)
-		return FALSE; /* HH3 */
-
-	if (q1->LL3 < q2->LL3)
 		return FALSE; /* LL3 */
 
 	return TRUE;
@@ -372,7 +285,7 @@ static void progressive_surface_context_free(void* ptr)
 		}
 	}
 
-	winpr_aligned_free(surface->tiles);
+	winpr_aligned_free((void*)surface->tiles);
 	winpr_aligned_free(surface->updatedTileIndices);
 	winpr_aligned_free(surface);
 }
@@ -425,12 +338,12 @@ progressive_allocate_tile_cache(PROGRESSIVE_SURFACE_CONTEXT* WINPR_RESTRICT surf
 			surface->gridSize += 1024;
 	}
 
-	void* tmp = winpr_aligned_recalloc(surface->tiles, surface->gridSize,
+	void* tmp = winpr_aligned_recalloc((void*)surface->tiles, surface->gridSize,
 	                                   sizeof(RFX_PROGRESSIVE_TILE*), 32);
 	if (!tmp)
 		return FALSE;
 	surface->tilesSize = surface->gridSize;
-	surface->tiles = tmp;
+	surface->tiles = (RFX_PROGRESSIVE_TILE**)tmp;
 
 	for (size_t x = oldIndex; x < surface->tilesSize; x++)
 	{
@@ -605,27 +518,32 @@ int progressive_delete_surface_context(PROGRESSIVE_CONTEXT* WINPR_RESTRICT progr
  * LL3      4015        9x9         81
  */
 
+static int16_t clampi16(int val)
+{
+	if (val < INT16_MIN)
+		return INT16_MIN;
+	if (val > INT16_MAX)
+		return INT16_MAX;
+	return (int16_t)val;
+}
+
 static INLINE void progressive_rfx_idwt_x(const INT16* WINPR_RESTRICT pLowBand, size_t nLowStep,
                                           const INT16* WINPR_RESTRICT pHighBand, size_t nHighStep,
                                           INT16* WINPR_RESTRICT pDstBand, size_t nDstStep,
                                           size_t nLowCount, size_t nHighCount, size_t nDstCount)
 {
-	INT16 L0 = 0;
-	INT16 H0 = 0;
 	INT16 H1 = 0;
-	INT16 X0 = 0;
 	INT16 X1 = 0;
-	INT16 X2 = 0;
 
 	for (size_t i = 0; i < nDstCount; i++)
 	{
 		const INT16* pL = pLowBand;
 		const INT16* pH = pHighBand;
 		INT16* pX = pDstBand;
-		H0 = *pH++;
-		L0 = *pL++;
-		X0 = L0 - H0;
-		X2 = L0 - H0;
+		INT16 H0 = *pH++;
+		INT16 L0 = *pL++;
+		INT16 X0 = clampi16((int32_t)L0 - H0);
+		INT16 X2 = clampi16((int32_t)L0 - H0);
 
 		for (size_t j = 0; j < (nHighCount - 1); j++)
 		{
@@ -633,8 +551,8 @@ static INLINE void progressive_rfx_idwt_x(const INT16* WINPR_RESTRICT pLowBand, 
 			pH++;
 			L0 = *pL;
 			pL++;
-			X2 = L0 - ((H0 + H1) / 2);
-			X1 = ((X0 + X2) / 2) + (2 * H0);
+			X2 = clampi16((int32_t)L0 - ((H0 + H1) / 2));
+			X1 = clampi16((int32_t)((X0 + X2) / 2) + (2 * H0));
 			pX[0] = X0;
 			pX[1] = X1;
 			pX += 2;
@@ -647,15 +565,15 @@ static INLINE void progressive_rfx_idwt_x(const INT16* WINPR_RESTRICT pLowBand, 
 			if (nLowCount <= nHighCount)
 			{
 				pX[0] = X2;
-				pX[1] = X2 + (2 * H0);
+				pX[1] = clampi16((int32_t)X2 + (2 * H0));
 			}
 			else
 			{
 				L0 = *pL;
 				pL++;
-				X0 = L0 - H0;
+				X0 = clampi16((int32_t)L0 - H0);
 				pX[0] = X2;
-				pX[1] = ((X0 + X2) / 2) + (2 * H0);
+				pX[1] = clampi16((int32_t)((X0 + X2) / 2) + (2 * H0));
 				pX[2] = X0;
 			}
 		}
@@ -663,13 +581,13 @@ static INLINE void progressive_rfx_idwt_x(const INT16* WINPR_RESTRICT pLowBand, 
 		{
 			L0 = *pL;
 			pL++;
-			X0 = L0 - (H0 / 2);
+			X0 = clampi16((int32_t)L0 - (H0 / 2));
 			pX[0] = X2;
-			pX[1] = ((X0 + X2) / 2) + (2 * H0);
+			pX[1] = clampi16((int32_t)((X0 + X2) / 2) + (2 * H0));
 			pX[2] = X0;
 			L0 = *pL;
 			pL++;
-			pX[3] = (X0 + L0) / 2;
+			pX[3] = clampi16((int32_t)(X0 + L0) / 2);
 		}
 
 		pLowBand += nLowStep;
@@ -683,24 +601,19 @@ static INLINE void progressive_rfx_idwt_y(const INT16* WINPR_RESTRICT pLowBand, 
                                           INT16* WINPR_RESTRICT pDstBand, size_t nDstStep,
                                           size_t nLowCount, size_t nHighCount, size_t nDstCount)
 {
-	INT16 L0 = 0;
-	INT16 H0 = 0;
-	INT16 H1 = 0;
-	INT16 X0 = 0;
-	INT16 X1 = 0;
-	INT16 X2 = 0;
-
 	for (size_t i = 0; i < nDstCount; i++)
 	{
+		INT16 H1 = 0;
+		INT16 X1 = 0;
 		const INT16* pL = pLowBand;
 		const INT16* pH = pHighBand;
 		INT16* pX = pDstBand;
-		H0 = *pH;
+		INT16 H0 = *pH;
 		pH += nHighStep;
-		L0 = *pL;
+		INT16 L0 = *pL;
 		pL += nLowStep;
-		X0 = L0 - H0;
-		X2 = L0 - H0;
+		int16_t X0 = clampi16((int32_t)L0 - H0);
+		int16_t X2 = clampi16((int32_t)L0 - H0);
 
 		for (size_t j = 0; j < (nHighCount - 1); j++)
 		{
@@ -708,8 +621,8 @@ static INLINE void progressive_rfx_idwt_y(const INT16* WINPR_RESTRICT pLowBand, 
 			pH += nHighStep;
 			L0 = *pL;
 			pL += nLowStep;
-			X2 = L0 - ((H0 + H1) / 2);
-			X1 = ((X0 + X2) / 2) + (2 * H0);
+			X2 = clampi16((int32_t)L0 - ((H0 + H1) / 2));
+			X1 = clampi16((int32_t)((X0 + X2) / 2) + (2 * H0));
 			*pX = X0;
 			pX += nDstStep;
 			*pX = X1;
@@ -724,15 +637,15 @@ static INLINE void progressive_rfx_idwt_y(const INT16* WINPR_RESTRICT pLowBand, 
 			{
 				*pX = X2;
 				pX += nDstStep;
-				*pX = X2 + (2 * H0);
+				*pX = clampi16((int32_t)X2 + (2 * H0));
 			}
 			else
 			{
 				L0 = *pL;
-				X0 = L0 - H0;
+				X0 = clampi16((int32_t)L0 - H0);
 				*pX = X2;
 				pX += nDstStep;
-				*pX = ((X0 + X2) / 2) + (2 * H0);
+				*pX = clampi16((int32_t)((X0 + X2) / 2) + (2 * H0));
 				pX += nDstStep;
 				*pX = X0;
 			}
@@ -741,15 +654,15 @@ static INLINE void progressive_rfx_idwt_y(const INT16* WINPR_RESTRICT pLowBand, 
 		{
 			L0 = *pL;
 			pL += nLowStep;
-			X0 = L0 - (H0 / 2);
+			X0 = clampi16((int32_t)L0 - (H0 / 2));
 			*pX = X2;
 			pX += nDstStep;
-			*pX = ((X0 + X2) / 2) + (2 * H0);
+			*pX = clampi16((int32_t)((X0 + X2) / 2) + (2 * H0));
 			pX += nDstStep;
 			*pX = X0;
 			pX += nDstStep;
 			L0 = *pL;
-			*pX = (X0 + L0) / 2;
+			*pX = clampi16((int32_t)(X0 + L0) / 2);
 		}
 
 		pLowBand++;
@@ -833,8 +746,8 @@ static INLINE int progressive_rfx_dwt_2d_decode(PROGRESSIVE_CONTEXT* WINPR_RESTR
 	if (!progressive || !buffer || !current)
 		return -1;
 
-	const size_t belements = 4096;
-	const size_t bsize = belements * sizeof(INT16);
+	const uint32_t belements = 4096;
+	const uint32_t bsize = belements * sizeof(INT16);
 	if (reverse)
 		memcpy(buffer, current, bsize);
 	else if (!coeffDiff)
@@ -870,11 +783,13 @@ static INLINE void progressive_rfx_decode_block(const primitives_t* prims,
 	prims->lShiftC_16s_inplace(buffer, shift, length);
 }
 
-static INLINE int progressive_rfx_decode_component(
-    PROGRESSIVE_CONTEXT* WINPR_RESTRICT progressive,
-    const RFX_COMPONENT_CODEC_QUANT* WINPR_RESTRICT shift, const BYTE* WINPR_RESTRICT data,
-    UINT32 length, INT16* WINPR_RESTRICT buffer, INT16* WINPR_RESTRICT current,
-    INT16* WINPR_RESTRICT sign, BOOL coeffDiff, BOOL subbandDiff, BOOL extrapolate)
+static INLINE int
+progressive_rfx_decode_component(PROGRESSIVE_CONTEXT* WINPR_RESTRICT progressive,
+                                 const RFX_COMPONENT_CODEC_QUANT* WINPR_RESTRICT shift,
+                                 const BYTE* WINPR_RESTRICT data, UINT32 length,
+                                 INT16* WINPR_RESTRICT buffer, INT16* WINPR_RESTRICT current,
+                                 INT16* WINPR_RESTRICT sign, BOOL coeffDiff,
+                                 WINPR_ATTR_UNUSED BOOL subbandDiff, BOOL extrapolate)
 {
 	int status = 0;
 	const primitives_t* prims = primitives_get();
@@ -1101,7 +1016,8 @@ static INLINE INT16 progressive_rfx_srl_read(RFX_PROGRESSIVE_UPGRADE_STATE* WINP
 			if (k)
 			{
 				bs->mask = ((1 << k) - 1);
-				state->nz = ((bs->accumulator >> (32u - k)) & bs->mask);
+				state->nz =
+				    WINPR_ASSERTING_INT_CAST(int16_t, ((bs->accumulator >> (32u - k)) & bs->mask));
 				BitStream_Shift(bs, k);
 			}
 
@@ -1177,15 +1093,14 @@ progressive_rfx_upgrade_state_finish(RFX_PROGRESSIVE_UPGRADE_STATE* WINPR_RESTRI
 static INLINE int progressive_rfx_upgrade_block(RFX_PROGRESSIVE_UPGRADE_STATE* WINPR_RESTRICT state,
                                                 INT16* WINPR_RESTRICT buffer,
                                                 INT16* WINPR_RESTRICT sign, UINT32 length,
-                                                UINT32 shift, UINT32 bitPos, UINT32 numBits)
+                                                UINT32 shift, WINPR_ATTR_UNUSED UINT32 bitPos,
+                                                UINT32 numBits)
 {
-	INT16 input = 0;
-	wBitStream* raw = NULL;
-
 	if (!numBits)
 		return 1;
 
-	raw = state->raw;
+	wBitStream* raw = state->raw;
+	int32_t input = 0;
 
 	if (!state->nonLL)
 	{
@@ -1194,7 +1109,11 @@ static INLINE int progressive_rfx_upgrade_block(RFX_PROGRESSIVE_UPGRADE_STATE* W
 			raw->mask = ((1 << numBits) - 1);
 			input = (INT16)((raw->accumulator >> (32 - numBits)) & raw->mask);
 			BitStream_Shift(raw, numBits);
-			buffer[index] += (input << shift);
+
+			const int32_t shifted = input << shift;
+			const int32_t val = buffer[index] + shifted;
+			const int16_t ival = WINPR_ASSERTING_INT_CAST(int16_t, val);
+			buffer[index] = ival;
 		}
 
 		return 1;
@@ -1221,24 +1140,25 @@ static INLINE int progressive_rfx_upgrade_block(RFX_PROGRESSIVE_UPGRADE_STATE* W
 		{
 			/* sign == 0, read from srl */
 			input = progressive_rfx_srl_read(state, numBits);
-			sign[index] = input;
+			sign[index] = WINPR_ASSERTING_INT_CAST(int16_t, input);
 		}
 
-		buffer[index] += (INT16)((UINT32)input << shift);
+		const int32_t val = input << shift;
+		const int32_t ival = buffer[index] + val;
+		buffer[index] = WINPR_ASSERTING_INT_CAST(INT16, ival);
 	}
 
 	return 1;
 }
 
-static INLINE int
-progressive_rfx_upgrade_component(PROGRESSIVE_CONTEXT* WINPR_RESTRICT progressive,
-                                  const RFX_COMPONENT_CODEC_QUANT* WINPR_RESTRICT shift,
-                                  const RFX_COMPONENT_CODEC_QUANT* WINPR_RESTRICT bitPos,
-                                  const RFX_COMPONENT_CODEC_QUANT* WINPR_RESTRICT numBits,
-                                  INT16* WINPR_RESTRICT buffer, INT16* WINPR_RESTRICT current,
-                                  INT16* WINPR_RESTRICT sign, const BYTE* WINPR_RESTRICT srlData,
-                                  UINT32 srlLen, const BYTE* WINPR_RESTRICT rawData, UINT32 rawLen,
-                                  BOOL coeffDiff, BOOL subbandDiff, BOOL extrapolate)
+static INLINE int progressive_rfx_upgrade_component(
+    PROGRESSIVE_CONTEXT* WINPR_RESTRICT progressive,
+    const RFX_COMPONENT_CODEC_QUANT* WINPR_RESTRICT shift,
+    const RFX_COMPONENT_CODEC_QUANT* WINPR_RESTRICT bitPos,
+    const RFX_COMPONENT_CODEC_QUANT* WINPR_RESTRICT numBits, INT16* WINPR_RESTRICT buffer,
+    INT16* WINPR_RESTRICT current, INT16* WINPR_RESTRICT sign, const BYTE* WINPR_RESTRICT srlData,
+    UINT32 srlLen, const BYTE* WINPR_RESTRICT rawData, UINT32 rawLen, BOOL coeffDiff,
+    WINPR_ATTR_UNUSED BOOL subbandDiff, BOOL extrapolate)
 {
 	int rc = 0;
 	UINT32 aRawLen = 0;
@@ -1509,7 +1429,7 @@ static INLINE BOOL progressive_tile_read_upgrade(
     PROGRESSIVE_CONTEXT* WINPR_RESTRICT progressive, wStream* WINPR_RESTRICT s, UINT16 blockType,
     UINT32 blockLen, PROGRESSIVE_SURFACE_CONTEXT* WINPR_RESTRICT surface,
     PROGRESSIVE_BLOCK_REGION* WINPR_RESTRICT region,
-    const PROGRESSIVE_BLOCK_CONTEXT* WINPR_RESTRICT context)
+    WINPR_ATTR_UNUSED const PROGRESSIVE_BLOCK_CONTEXT* WINPR_RESTRICT context)
 {
 	RFX_PROGRESSIVE_TILE tile = { 0 };
 	const size_t expect = 20;
@@ -1583,12 +1503,11 @@ static INLINE BOOL progressive_tile_read_upgrade(
 	return progressive_surface_tile_replace(surface, region, &tile, TRUE);
 }
 
-static INLINE BOOL progressive_tile_read(PROGRESSIVE_CONTEXT* WINPR_RESTRICT progressive,
-                                         BOOL simple, wStream* WINPR_RESTRICT s, UINT16 blockType,
-                                         UINT32 blockLen,
-                                         PROGRESSIVE_SURFACE_CONTEXT* WINPR_RESTRICT surface,
-                                         PROGRESSIVE_BLOCK_REGION* WINPR_RESTRICT region,
-                                         const PROGRESSIVE_BLOCK_CONTEXT* WINPR_RESTRICT context)
+static INLINE BOOL progressive_tile_read(
+    PROGRESSIVE_CONTEXT* WINPR_RESTRICT progressive, BOOL simple, wStream* WINPR_RESTRICT s,
+    UINT16 blockType, UINT32 blockLen, PROGRESSIVE_SURFACE_CONTEXT* WINPR_RESTRICT surface,
+    PROGRESSIVE_BLOCK_REGION* WINPR_RESTRICT region,
+    WINPR_ATTR_UNUSED const PROGRESSIVE_BLOCK_CONTEXT* WINPR_RESTRICT context)
 {
 	RFX_PROGRESSIVE_TILE tile = { 0 };
 	size_t expect = simple ? 16 : 17;
@@ -1709,8 +1628,8 @@ static INLINE SSIZE_T progressive_process_tiles(
 
 		if (blockLen < 6)
 		{
-			WLog_Print(progressive->log, WLOG_ERROR, "Expected >= %" PRIu32 " remaining %" PRIuz, 6,
-			           blockLen);
+			WLog_Print(progressive->log, WLOG_ERROR, "Expected >= %" PRIu32 " remaining %" PRIu32,
+			           6u, blockLen);
 			return -1003;
 		}
 		if (!Stream_CheckAndLogRequiredLength(TAG, s, blockLen - 6))
@@ -1779,9 +1698,8 @@ static INLINE SSIZE_T progressive_process_tiles(
 
 		if (progressive->rfx_context->priv->UseThreads)
 		{
-			progressive->work_objects[idx] =
-			    CreateThreadpoolWork(progressive_process_tiles_tile_work_callback, (void*)param,
-			                         &progressive->rfx_context->priv->ThreadPoolEnv);
+			progressive->work_objects[idx] = CreateThreadpoolWork(
+			    progressive_process_tiles_tile_work_callback, (void*)param, NULL);
 			if (!progressive->work_objects[idx])
 			{
 				WLog_Print(progressive->log, WLOG_ERROR,
@@ -1791,7 +1709,8 @@ static INLINE SSIZE_T progressive_process_tiles(
 			}
 
 			SubmitThreadpoolWork(progressive->work_objects[idx]);
-			close_cnt = idx + 1;
+
+			close_cnt = WINPR_ASSERTING_INT_CAST(UINT16, idx + 1);
 		}
 		else
 		{
@@ -1838,7 +1757,7 @@ static INLINE SSIZE_T progressive_wb_sync(PROGRESSIVE_CONTEXT* WINPR_RESTRICT pr
 	{
 		WLog_Print(progressive->log, WLOG_ERROR,
 		           "PROGRESSIVE_BLOCK_SYNC::blockLen = 0x%08" PRIx32 " != 0x%08" PRIx32,
-		           sync.blockLen, 12);
+		           sync.blockLen, 12u);
 		return -1005;
 	}
 
@@ -1888,7 +1807,7 @@ static INLINE SSIZE_T progressive_wb_frame_begin(PROGRESSIVE_CONTEXT* WINPR_REST
 	{
 		WLog_Print(progressive->log, WLOG_ERROR,
 		           " RFX_PROGRESSIVE_FRAME_BEGIN::blockLen = 0x%08" PRIx32 " != 0x%08" PRIx32,
-		           frameBegin.blockLen, 12);
+		           frameBegin.blockLen, 12u);
 		return -1005;
 	}
 
@@ -1940,15 +1859,15 @@ static INLINE SSIZE_T progressive_wb_frame_end(PROGRESSIVE_CONTEXT* WINPR_RESTRI
 	{
 		WLog_Print(progressive->log, WLOG_ERROR,
 		           " RFX_PROGRESSIVE_FRAME_END::blockLen = 0x%08" PRIx32 " != 0x%08" PRIx32,
-		           frameEnd.blockLen, 6);
+		           frameEnd.blockLen, 6u);
 		return -1005;
 	}
 
 	if (Stream_GetRemainingLength(s) != 0)
 	{
 		WLog_Print(progressive->log, WLOG_ERROR,
-		           "ProgressiveFrameEnd short %" PRIuz ", expected %" PRIuz,
-		           Stream_GetRemainingLength(s), 0);
+		           "ProgressiveFrameEnd short %" PRIuz ", expected %u",
+		           Stream_GetRemainingLength(s), 0U);
 		return -1008;
 	}
 
@@ -1976,8 +1895,8 @@ static INLINE SSIZE_T progressive_wb_context(PROGRESSIVE_CONTEXT* WINPR_RESTRICT
 	if (context->blockLen != 10)
 	{
 		WLog_Print(progressive->log, WLOG_ERROR,
-		           "RFX_PROGRESSIVE_CONTEXT::blockLen = 0x%08" PRIx32 " != 0x%08" PRIx32,
-		           context->blockLen, 10);
+		           "RFX_PROGRESSIVE_CONTEXT::blockLen = 0x%08" PRIx32 " != 0x%08x",
+		           context->blockLen, 10u);
 		return -1005;
 	}
 
@@ -2035,8 +1954,7 @@ static INLINE SSIZE_T progressive_wb_read_region_header(
 	if (region->tileSize != 64)
 	{
 		WLog_Print(progressive->log, WLOG_ERROR,
-		           "ProgressiveRegion tile size %" PRIu8 ", expected %" PRIuz, region->tileSize,
-		           64);
+		           "ProgressiveRegion tile size %" PRIu8 ", expected %u", region->tileSize, 64U);
 		return -1012;
 	}
 
@@ -2050,12 +1968,12 @@ static INLINE SSIZE_T progressive_wb_read_region_header(
 	if (region->numQuant > 7)
 	{
 		WLog_Print(progressive->log, WLOG_ERROR,
-		           "ProgressiveRegion quant count too high %" PRIu8 ", expected < %" PRIuz,
-		           region->numQuant, 7);
+		           "ProgressiveRegion quant count too high %" PRIu8 ", expected < %u",
+		           region->numQuant, 7U);
 		return -1014;
 	}
 
-	const SSIZE_T rc = Stream_GetRemainingLength(s);
+	const SSIZE_T rc = WINPR_ASSERTING_INT_CAST(SSIZE_T, Stream_GetRemainingLength(s));
 	const SSIZE_T expect = region->numRects * 8ll + region->numQuant * 5ll +
 	                       region->numProgQuant * 16ll + region->tileDataSize;
 	SSIZE_T len = rc;
@@ -2112,7 +2030,7 @@ static INLINE SSIZE_T progressive_wb_skip_region(PROGRESSIVE_CONTEXT* WINPR_REST
 	if (rc < 0)
 		return rc;
 
-	if (!Stream_SafeSeek(s, rc))
+	if (!Stream_SafeSeek(s, WINPR_ASSERTING_INT_CAST(size_t, rc)))
 		return -1111;
 
 	return rc;
@@ -2201,8 +2119,8 @@ static INLINE SSIZE_T progressive_wb_region(PROGRESSIVE_CONTEXT* WINPR_RESTRICT 
 	           region->numQuant, region->numProgQuant);
 #endif
 
-	boxLeft = surface->gridWidth;
-	boxTop = surface->gridHeight;
+	boxLeft = WINPR_ASSERTING_INT_CAST(UINT16, surface->gridWidth);
+	boxTop = WINPR_ASSERTING_INT_CAST(UINT16, surface->gridHeight);
 	boxRight = 0;
 	boxBottom = 0;
 
@@ -2236,7 +2154,7 @@ static INLINE SSIZE_T progressive_wb_region(PROGRESSIVE_CONTEXT* WINPR_RESTRICT 
 	const SSIZE_T res = progressive_process_tiles(progressive, s, region, surface, context);
 	if (res < 0)
 		return -1;
-	return (size_t)rc;
+	return rc;
 }
 
 static INLINE SSIZE_T progressive_parse_block(PROGRESSIVE_CONTEXT* WINPR_RESTRICT progressive,
@@ -2344,8 +2262,11 @@ static INLINE BOOL update_tiles(PROGRESSIVE_CONTEXT* WINPR_RESTRICT progressive,
 		RFX_PROGRESSIVE_TILE* tile = surface->tiles[index];
 		WINPR_ASSERT(tile);
 
-		updateRect.left = nXDst + tile->x;
-		updateRect.top = nYDst + tile->y;
+		const UINT32 dl = nXDst + tile->x;
+		updateRect.left = WINPR_ASSERTING_INT_CAST(UINT16, dl);
+
+		const UINT32 dt = nYDst + tile->y;
+		updateRect.top = WINPR_ASSERTING_INT_CAST(UINT16, dt);
 		updateRect.right = updateRect.left + 64;
 		updateRect.bottom = updateRect.top + 64;
 
@@ -2356,18 +2277,19 @@ static INLINE BOOL update_tiles(PROGRESSIVE_CONTEXT* WINPR_RESTRICT progressive,
 
 		for (UINT32 j = 0; j < nbUpdateRects; j++)
 		{
+			rc = FALSE;
 			const RECTANGLE_16* rect = &updateRects[j];
 			if (rect->left < updateRect.left)
-				goto fail;
+				break;
 			const UINT32 nXSrc = rect->left - updateRect.left;
 			const UINT32 nYSrc = rect->top - updateRect.top;
 			const UINT32 width = rect->right - rect->left;
 			const UINT32 height = rect->bottom - rect->top;
 
 			if (rect->left + width > surface->width)
-				goto fail;
+				break;
 			if (rect->top + height > surface->height)
-				goto fail;
+				break;
 			rc = freerdp_image_copy_no_overlap(
 			    pDstData, DstFormat, nDstStep, rect->left, rect->top, width, height, tile->data,
 			    progressive->format, tile->stride, nXSrc, nYSrc, NULL, FREERDP_KEEP_DST_ALPHA);
@@ -2379,6 +2301,8 @@ static INLINE BOOL update_tiles(PROGRESSIVE_CONTEXT* WINPR_RESTRICT progressive,
 		}
 
 		region16_uninit(&updateRegion);
+		if (!rc)
+			goto fail;
 		tile->dirty = FALSE;
 	}
 
@@ -2456,8 +2380,9 @@ fail:
 	return rc;
 }
 
-BOOL progressive_rfx_write_message_progressive_simple(PROGRESSIVE_CONTEXT* progressive, wStream* s,
-                                                      const RFX_MESSAGE* msg)
+BOOL progressive_rfx_write_message_progressive_simple(
+    PROGRESSIVE_CONTEXT* WINPR_RESTRICT progressive, wStream* WINPR_RESTRICT s,
+    const RFX_MESSAGE* WINPR_RESTRICT msg)
 {
 	RFX_CONTEXT* context = NULL;
 
@@ -2478,8 +2403,6 @@ int progressive_compress(PROGRESSIVE_CONTEXT* WINPR_RESTRICT progressive,
 	int res = -6;
 	wStream* s = NULL;
 	UINT32 numRects = 0;
-	UINT32 x = 0;
-	UINT32 y = 0;
 	RFX_RECT* rects = NULL;
 	RFX_MESSAGE* message = NULL;
 
@@ -2516,12 +2439,15 @@ int progressive_compress(PROGRESSIVE_CONTEXT* WINPR_RESTRICT progressive,
 		numRects *= (Height + 63) / 64;
 	}
 	else
-		numRects = region16_n_rects(invalidRegion);
+	{
+		const int nr = region16_n_rects(invalidRegion);
+		numRects = WINPR_ASSERTING_INT_CAST(uint32_t, nr);
+	}
 
 	if (numRects == 0)
 		return 0;
 
-	if (!Stream_EnsureCapacity(progressive->rects, numRects * sizeof(RFX_RECT)))
+	if (!Stream_EnsureRemainingCapacity(progressive->rects, numRects * sizeof(RFX_RECT)))
 		return -5;
 	rects = Stream_BufferAs(progressive->rects, RFX_RECT);
 	if (invalidRegion)
@@ -2540,17 +2466,21 @@ int progressive_compress(PROGRESSIVE_CONTEXT* WINPR_RESTRICT progressive,
 	}
 	else
 	{
-		x = 0;
-		y = 0;
+		UINT16 x = 0;
+		UINT16 y = 0;
+
 		for (UINT32 i = 0; i < numRects; i++)
 		{
 			RFX_RECT* r = &rects[i];
 			r->x = x;
 			r->y = y;
-			r->width = MIN(64, Width - x);
-			r->height = MIN(64, Height - y);
 
-			if (x + 64 >= Width)
+			WINPR_ASSERT(Width >= x);
+			WINPR_ASSERT(Height >= y);
+			r->width = MIN(64, WINPR_ASSERTING_INT_CAST(UINT16, Width - x));
+			r->height = MIN(64, WINPR_ASSERTING_INT_CAST(UINT16, Height - y));
+
+			if (x + 64UL >= Width)
 			{
 				y += 64;
 				x = 0;
@@ -2568,8 +2498,9 @@ int progressive_compress(PROGRESSIVE_CONTEXT* WINPR_RESTRICT progressive,
 	Stream_SetPosition(s, 0);
 
 	progressive->rfx_context->mode = RLGR1;
-	progressive->rfx_context->width = Width;
-	progressive->rfx_context->height = Height;
+
+	progressive->rfx_context->width = WINPR_ASSERTING_INT_CAST(UINT16, Width);
+	progressive->rfx_context->height = WINPR_ASSERTING_INT_CAST(UINT16, Height);
 	rfx_context_set_pixel_format(progressive->rfx_context, SrcFormat);
 	message = rfx_encode_message(progressive->rfx_context, rects, numRects, pSrcData, Width, Height,
 	                             ScanLine);

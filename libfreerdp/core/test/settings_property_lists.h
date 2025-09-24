@@ -64,6 +64,7 @@ static const size_t bool_list_indices[] = {
 	FreeRDP_FrameMarkerCommandEnabled,
 	FreeRDP_Fullscreen,
 	FreeRDP_GatewayArmTransport,
+	FreeRDP_GatewayAvdUseTenantid,
 	FreeRDP_GatewayBypassLocal,
 	FreeRDP_GatewayEnabled,
 	FreeRDP_GatewayHttpExtAuthSspiNtlm,
@@ -147,6 +148,7 @@ static const size_t bool_list_indices[] = {
 	FreeRDP_RemoteFxImageCodec,
 	FreeRDP_RemoteFxOnly,
 	FreeRDP_RestrictedAdminModeRequired,
+	FreeRDP_RestrictedAdminModeSupported,
 	FreeRDP_SaltedChecksum,
 	FreeRDP_SendPreconnectionPdu,
 	FreeRDP_ServerLicenseRequired,
@@ -280,8 +282,6 @@ static const size_t uint32_list_indices[] = {
 	FreeRDP_MonitorCount,
 	FreeRDP_MonitorDefArraySize,
 	FreeRDP_MonitorFlags,
-	FreeRDP_MonitorLocalShiftX,
-	FreeRDP_MonitorLocalShiftY,
 	FreeRDP_MultifragMaxRequestSize,
 	FreeRDP_MultitransportFlags,
 	FreeRDP_NSCodecColorLossLevel,
@@ -347,12 +347,15 @@ static const size_t uint32_list_indices[] = {
 
 #define have_int32_list_indices
 static const size_t int32_list_indices[] = {
+	FreeRDP_MonitorLocalShiftX,
+	FreeRDP_MonitorLocalShiftY,
 	FreeRDP_XPan,
 	FreeRDP_YPan,
 };
 
 #define have_uint64_list_indices
 static const size_t uint64_list_indices[] = {
+	FreeRDP_MonitorOverrideFlags,
 	FreeRDP_ParentWindowId,
 };
 
@@ -388,12 +391,17 @@ static const size_t string_list_indices[] = {
 	FreeRDP_GatewayAcceptedCert,
 	FreeRDP_GatewayAccessToken,
 	FreeRDP_GatewayAvdAadtenantid,
+	FreeRDP_GatewayAvdAccessAadFormat,
+	FreeRDP_GatewayAvdAccessTokenFormat,
 	FreeRDP_GatewayAvdActivityhint,
 	FreeRDP_GatewayAvdArmpath,
+	FreeRDP_GatewayAvdClientID,
 	FreeRDP_GatewayAvdDiagnosticserviceurl,
 	FreeRDP_GatewayAvdGeo,
 	FreeRDP_GatewayAvdHubdiscoverygeourl,
+	FreeRDP_GatewayAvdScope,
 	FreeRDP_GatewayAvdWvdEndpointPool,
+	FreeRDP_GatewayAzureActiveDirectory,
 	FreeRDP_GatewayDomain,
 	FreeRDP_GatewayHostname,
 	FreeRDP_GatewayHttpExtAuthBearer,

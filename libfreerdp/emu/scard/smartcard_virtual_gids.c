@@ -77,15 +77,15 @@
 // #define VGIDS_SE_ALGOID_CT_RSA_4096 0x09
 
 #define VGIDS_SE_ALGOID_DST_PAD_PKCS1 0x40
-#define VGIDS_SE_ALGOID_DST_RSA_1024 0x06
-#define VGIDS_SE_ALGOID_DST_RSA_2048 0x07
-#define VGIDS_SE_ALGOID_DST_RSA_3072 0x08
-#define VGIDS_SE_ALGOID_DST_RSA_4096 0x09
-#define VGIDS_SE_ALGOID_DST_ECDSA_P192 0x0A
-#define VGIDS_SE_ALGOID_DST_ECDSA_P224 0x0B
-#define VGIDS_SE_ALGOID_DST_ECDSA_P256 0x0C
-#define VGIDS_SE_ALGOID_DST_ECDSA_P384 0x0D
-#define VGIDS_SE_ALGOID_DST_ECDSA_P512 0x0E
+// #define VGIDS_SE_ALGOID_DST_RSA_1024 0x06
+// #define VGIDS_SE_ALGOID_DST_RSA_2048 0x07
+// #define VGIDS_SE_ALGOID_DST_RSA_3072 0x08
+// #define VGIDS_SE_ALGOID_DST_RSA_4096 0x09
+// #define VGIDS_SE_ALGOID_DST_ECDSA_P192 0x0A
+// #define VGIDS_SE_ALGOID_DST_ECDSA_P224 0x0B
+// #define VGIDS_SE_ALGOID_DST_ECDSA_P256 0x0C
+// #define VGIDS_SE_ALGOID_DST_ECDSA_P384 0x0D
+// #define VGIDS_SE_ALGOID_DST_ECDSA_P512 0x0E
 
 #define VGIDS_DEFAULT_KEY_REF 0x81
 
@@ -461,7 +461,7 @@ static BOOL vgids_prepare_certificate(const rdpCertificate* cert, BYTE** kxc, DW
 
 	size_t certSize = 0;
 	BYTE* certData = freerdp_certificate_get_der(cert, &certSize);
-	if (!certData || (certSize == 0))
+	if (!certData || (certSize == 0) || (certSize > UINT16_MAX))
 	{
 		WLog_ERR(TAG, "Failed to get certificate size");
 		goto handle_error;
@@ -475,8 +475,9 @@ static BOOL vgids_prepare_certificate(const rdpCertificate* cert, BYTE** kxc, DW
 	}
 
 	/* compress certificate data */
-	destSize = certSize;
-	if (compress(comprData, &destSize, certData, certSize) != Z_OK)
+	destSize = WINPR_ASSERTING_INT_CAST(uint16_t, certSize);
+	if (compress(comprData, &destSize, certData, WINPR_ASSERTING_INT_CAST(uint16_t, certSize)) !=
+	    Z_OK)
 	{
 		WLog_ERR(TAG, "Failed to compress certificate data");
 		goto handle_error;
@@ -485,7 +486,7 @@ static BOOL vgids_prepare_certificate(const rdpCertificate* cert, BYTE** kxc, DW
 	/* Write container data */
 	s = Stream_New(NULL, destSize + 4);
 	Stream_Write_UINT16(s, 0x0001);
-	Stream_Write_UINT16(s, (UINT16)certSize);
+	Stream_Write_UINT16(s, WINPR_ASSERTING_INT_CAST(uint16_t, certSize));
 	Stream_Write(s, comprData, destSize);
 	Stream_SealLength(s);
 
@@ -1498,7 +1499,7 @@ BOOL vgids_init(vgidsContext* ctx, const char* cert, const char* privateKey, con
 	if (!ctx->certificate)
 		goto init_failed;
 
-	ctx->privateKey = freerdp_key_new_from_pem(privateKey);
+	ctx->privateKey = freerdp_key_new_from_pem_enc(privateKey, NULL);
 	if (!ctx->privateKey)
 		goto init_failed;
 

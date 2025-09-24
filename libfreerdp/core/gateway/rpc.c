@@ -25,6 +25,7 @@
 
 #include <winpr/crt.h>
 #include <winpr/assert.h>
+#include <winpr/cast.h>
 #include <winpr/tchar.h>
 #include <winpr/synch.h>
 #include <winpr/dsparse.h>
@@ -481,10 +482,18 @@ SSIZE_T rpc_channel_read(RpcChannel* channel, wStream* s, size_t length)
 	return -1;
 }
 
-SSIZE_T rpc_channel_write(RpcChannel* channel, const BYTE* data, size_t length)
+SSIZE_T rpc_channel_write_int(RpcChannel* channel, const BYTE* data, size_t length,
+                              const char* file, size_t line, const char* fkt)
 {
-	if (!channel)
-		return -1;
+	WINPR_ASSERT(channel);
+	WINPR_ASSERT(channel->rpc);
+
+	const DWORD level = WLOG_TRACE;
+	if (WLog_IsLevelActive(channel->rpc->log, level))
+	{
+		WLog_PrintTextMessage(channel->rpc->log, level, line, file, fkt,
+		                      "Sending [%s] %" PRIuz " bytes", fkt, length);
+	}
 
 	return freerdp_tls_write_all(channel->tls, data, length);
 }
@@ -752,8 +761,9 @@ static BOOL rpc_channel_tls_connect(RpcChannel* channel, UINT32 timeout)
 
 	if (channel->client->isProxy)
 	{
+		WINPR_ASSERT(settings->GatewayPort <= UINT16_MAX);
 		if (!proxy_connect(context, bufferedBio, proxyUsername, proxyPassword,
-		                   settings->GatewayHostname, settings->GatewayPort))
+		                   settings->GatewayHostname, (UINT16)settings->GatewayPort))
 		{
 			BIO_free_all(bufferedBio);
 			return FALSE;
@@ -767,7 +777,7 @@ static BOOL rpc_channel_tls_connect(RpcChannel* channel, UINT32 timeout)
 		return FALSE;
 
 	tls->hostname = settings->GatewayHostname;
-	tls->port = MIN(UINT16_MAX, settings->GatewayPort);
+	tls->port = WINPR_ASSERTING_INT_CAST(int32_t, MIN(UINT16_MAX, settings->GatewayPort));
 	tls->isGatewayTransport = TRUE;
 	int tlsStatus = freerdp_tls_connect(tls, bufferedBio);
 
@@ -822,7 +832,7 @@ static int rpc_in_channel_connect(RpcInChannel* inChannel, UINT32 timeout)
 	return 1;
 }
 
-static int rpc_out_channel_connect(RpcOutChannel* outChannel, int timeout)
+static int rpc_out_channel_connect(RpcOutChannel* outChannel, UINT32 timeout)
 {
 	rdpContext* context = NULL;
 
@@ -854,7 +864,7 @@ static int rpc_out_channel_connect(RpcOutChannel* outChannel, int timeout)
 	return 1;
 }
 
-int rpc_out_channel_replacement_connect(RpcOutChannel* outChannel, int timeout)
+int rpc_out_channel_replacement_connect(RpcOutChannel* outChannel, uint32_t timeout)
 {
 	rdpContext* context = NULL;
 

@@ -14,6 +14,8 @@
  */
 
 #include <freerdp/config.h>
+#include <winpr/assert.h>
+#include <winpr/cast.h>
 
 #include <freerdp/types.h>
 #include <freerdp/primitives.h>
@@ -24,7 +26,8 @@
 /* ------------------------------------------------------------------------- */
 static INLINE INT16 shift(INT16 val, UINT32 sh)
 {
-	return val << sh;
+	const INT16 rc = (int16_t)(((UINT32)val << sh) & 0xFFFF);
+	return WINPR_ASSERTING_INT_CAST(INT16, rc);
 }
 
 static INLINE pstatus_t general_lShiftC_16s_inplace(INT16* WINPR_RESTRICT pSrcDst, UINT32 val,
@@ -41,7 +44,8 @@ static INLINE pstatus_t general_lShiftC_16s_inplace(INT16* WINPR_RESTRICT pSrcDs
 	return PRIMITIVES_SUCCESS;
 }
 
-static INLINE pstatus_t general_lShiftC_16s(const INT16* pSrc, UINT32 val, INT16* pDst, UINT32 len)
+static INLINE pstatus_t general_lShiftC_16s(const INT16* WINPR_RESTRICT pSrc, UINT32 val,
+                                            INT16* WINPR_RESTRICT pDst, UINT32 len)
 {
 	if (val == 0)
 		return PRIMITIVES_SUCCESS;
@@ -55,71 +59,74 @@ static INLINE pstatus_t general_lShiftC_16s(const INT16* pSrc, UINT32 val, INT16
 }
 
 /* ------------------------------------------------------------------------- */
-static INLINE pstatus_t general_rShiftC_16s(const INT16* pSrc, UINT32 val, INT16* pDst, UINT32 len)
+static INLINE pstatus_t general_rShiftC_16s(const INT16* WINPR_RESTRICT pSrc, UINT32 val,
+                                            INT16* WINPR_RESTRICT pDst, UINT32 len)
 {
 	if (val == 0)
 		return PRIMITIVES_SUCCESS;
 	if (val >= 16)
 		return -1;
 
-	while (len--)
-		*pDst++ = *pSrc++ >> val;
+	for (UINT32 x = 0; x < len; x++)
+		pDst[x] = WINPR_ASSERTING_INT_CAST(int16_t, pSrc[x] >> val);
 
 	return PRIMITIVES_SUCCESS;
 }
 
 /* ------------------------------------------------------------------------- */
-static INLINE pstatus_t general_lShiftC_16u(const UINT16* pSrc, UINT32 val, UINT16* pDst,
-                                            UINT32 len)
+static INLINE pstatus_t general_lShiftC_16u(const UINT16* WINPR_RESTRICT pSrc, UINT32 val,
+                                            UINT16* WINPR_RESTRICT pDst, UINT32 len)
 {
 	if (val == 0)
 		return PRIMITIVES_SUCCESS;
 	if (val >= 16)
 		return -1;
 
-	while (len--)
-		*pDst++ = (INT16)(*pSrc++ << val);
+	for (UINT32 x = 0; x < len; x++)
+		pDst[x] = WINPR_ASSERTING_INT_CAST(UINT16, ((pSrc[x] << val) & 0xFFFF));
 
 	return PRIMITIVES_SUCCESS;
 }
 
 /* ------------------------------------------------------------------------- */
-static INLINE pstatus_t general_rShiftC_16u(const UINT16* pSrc, UINT32 val, UINT16* pDst,
-                                            UINT32 len)
+static INLINE pstatus_t general_rShiftC_16u(const UINT16* WINPR_RESTRICT pSrc, UINT32 val,
+                                            UINT16* WINPR_RESTRICT pDst, UINT32 len)
 {
 	if (val == 0)
 		return PRIMITIVES_SUCCESS;
 	if (val >= 16)
 		return -1;
 
-	while (len--)
-		*pDst++ = *pSrc++ >> val;
+	for (UINT32 x = 0; x < len; x++)
+		pDst[x] = pSrc[x] >> val;
 
 	return PRIMITIVES_SUCCESS;
 }
 
 /* ------------------------------------------------------------------------- */
-static INLINE pstatus_t general_shiftC_16s(const INT16* pSrc, INT32 val, INT16* pDst, UINT32 len)
+static INLINE pstatus_t general_shiftC_16s(const INT16* WINPR_RESTRICT pSrc, INT32 val,
+                                           INT16* WINPR_RESTRICT pDst, UINT32 len)
 {
 	if (val == 0)
 		return PRIMITIVES_SUCCESS;
 
 	if (val < 0)
-		return general_rShiftC_16s(pSrc, -val, pDst, len);
+		return general_rShiftC_16s(pSrc, WINPR_ASSERTING_INT_CAST(UINT32, -val), pDst, len);
 	else
-		return general_lShiftC_16s(pSrc, val, pDst, len);
+		return general_lShiftC_16s(pSrc, WINPR_ASSERTING_INT_CAST(UINT32, val), pDst, len);
 }
 
 /* ------------------------------------------------------------------------- */
-static INLINE pstatus_t general_shiftC_16u(const UINT16* pSrc, INT32 val, UINT16* pDst, UINT32 len)
+static INLINE pstatus_t general_shiftC_16u(const UINT16* WINPR_RESTRICT pSrc, INT32 val,
+                                           UINT16* WINPR_RESTRICT pDst, UINT32 len)
 {
 	if (val == 0)
 		return PRIMITIVES_SUCCESS;
 
 	if (val < 0)
-		return general_rShiftC_16u(pSrc, -val, pDst, len);
+		return general_rShiftC_16u(pSrc, WINPR_ASSERTING_INT_CAST(UINT32, -val), pDst, len);
 	else
-		return general_lShiftC_16u(pSrc, val, pDst, len);
+		return general_lShiftC_16u(pSrc, WINPR_ASSERTING_INT_CAST(UINT32, val), pDst, len);
 }
 
 /* ------------------------------------------------------------------------- */
@@ -138,5 +145,6 @@ void primitives_init_shift(primitives_t* WINPR_RESTRICT prims)
 
 void primitives_init_shift_opt(primitives_t* WINPR_RESTRICT prims)
 {
+	primitives_init_shift(prims);
 	primitives_init_shift_sse3(prims);
 }

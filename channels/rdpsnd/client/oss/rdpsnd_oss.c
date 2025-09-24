@@ -227,23 +227,6 @@ static BOOL rdpsnd_oss_open(rdpsndDevicePlugin* device, const AUDIO_FORMAT* form
 		return FALSE;
 	}
 
-#if 0 /* FreeBSD OSS implementation at this moment (2015.03) does not set PCM_CAP_OUTPUT flag. */
-	int mask = 0;
-
-	if (ioctl(oss->pcm_handle, SNDCTL_DSP_GETCAPS, &mask) == -1)
-	{
-		OSS_LOG_ERR("SNDCTL_DSP_GETCAPS failed, try ignored", errno);
-	}
-	else if ((mask & PCM_CAP_OUTPUT) == 0)
-	{
-		OSS_LOG_ERR("Device does not supports playback", EOPNOTSUPP);
-		close(oss->pcm_handle);
-		oss->pcm_handle = -1;
-		return;
-	}
-
-#endif
-
 	if (ioctl(oss->pcm_handle, SNDCTL_DSP_GETFMTS, &oss->supported_formats) == -1)
 	{
 		OSS_LOG_ERR("SNDCTL_DSP_GETFMTS failed", errno);
@@ -292,15 +275,14 @@ static void rdpsnd_oss_free(rdpsndDevicePlugin* device)
 
 static UINT32 rdpsnd_oss_get_volume(rdpsndDevicePlugin* device)
 {
-	int vol = 0;
-	UINT32 dwVolume = 0;
-	UINT16 dwVolumeLeft = 0;
-	UINT16 dwVolumeRight = 0;
 	rdpsndOssPlugin* oss = (rdpsndOssPlugin*)device;
+	WINPR_ASSERT(oss);
+	int vol = 0;
+
 	/* On error return 50% volume. */
-	dwVolumeLeft = ((50 * 0xFFFF) / 100);  /* 50% */
-	dwVolumeRight = ((50 * 0xFFFF) / 100); /* 50% */
-	dwVolume = ((dwVolumeLeft << 16) | dwVolumeRight);
+	UINT32 dwVolumeLeft = ((50 * 0xFFFF) / 100);  /* 50% */
+	UINT32 dwVolumeRight = ((50 * 0xFFFF) / 100); /* 50% */
+	UINT32 dwVolume = ((dwVolumeLeft << 16) | dwVolumeRight);
 
 	if (device == NULL || oss->mixer_handle == -1)
 		return dwVolume;

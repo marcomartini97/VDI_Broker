@@ -138,8 +138,9 @@ out:
  *
  * @return 0 on success, otherwise a Win32 error code
  */
-static UINT remdesk_recv_ctl_version_info_pdu(RemdeskServerContext* context, wStream* s,
-                                              REMDESK_CHANNEL_HEADER* header)
+static UINT remdesk_recv_ctl_version_info_pdu(WINPR_ATTR_UNUSED RemdeskServerContext* context,
+                                              wStream* s,
+                                              WINPR_ATTR_UNUSED REMDESK_CHANNEL_HEADER* header)
 {
 	UINT32 versionMajor = 0;
 	UINT32 versionMinor = 0;
@@ -167,8 +168,7 @@ static UINT remdesk_recv_ctl_version_info_pdu(RemdeskServerContext* context, wSt
 static UINT remdesk_recv_ctl_remote_control_desktop_pdu(RemdeskServerContext* context, wStream* s,
                                                         REMDESK_CHANNEL_HEADER* header)
 {
-	SSIZE_T cchStringW = 0;
-	SSIZE_T cbRaConnectionStringW = 0;
+	size_t cchStringW = 0;
 	REMDESK_CTL_REMOTE_CONTROL_DESKTOP_PDU pdu = { 0 };
 	UINT error = 0;
 	UINT32 msgLength = header->DataLength - 4;
@@ -185,7 +185,7 @@ static UINT remdesk_recv_ctl_remote_control_desktop_pdu(RemdeskServerContext* co
 		return ERROR_INVALID_DATA;
 
 	cchStringW++;
-	cbRaConnectionStringW = cchStringW * 2;
+	const size_t cbRaConnectionStringW = cchStringW * 2;
 	pdu.raConnectionString =
 	    ConvertWCharNToUtf8Alloc(raConnectionStringW, cbRaConnectionStringW / sizeof(WCHAR), NULL);
 	if (!pdu.raConnectionString)
@@ -205,34 +205,31 @@ static UINT remdesk_recv_ctl_remote_control_desktop_pdu(RemdeskServerContext* co
  *
  * @return 0 on success, otherwise a Win32 error code
  */
-static UINT remdesk_recv_ctl_authenticate_pdu(RemdeskServerContext* context, wStream* s,
-                                              REMDESK_CHANNEL_HEADER* header)
+static UINT remdesk_recv_ctl_authenticate_pdu(WINPR_ATTR_UNUSED RemdeskServerContext* context,
+                                              wStream* s, REMDESK_CHANNEL_HEADER* header)
 {
-	int cchStringW = 0;
-	UINT32 msgLength = 0;
-	int cbExpertBlobW = 0;
+	size_t cchTmpStringW = 0;
 	const WCHAR* expertBlobW = NULL;
-	int cbRaConnectionStringW = 0;
 	REMDESK_CTL_AUTHENTICATE_PDU pdu = { 0 };
-	msgLength = header->DataLength - 4;
+	UINT32 msgLength = header->DataLength - 4;
 	const WCHAR* pStringW = Stream_ConstPointer(s);
 	const WCHAR* raConnectionStringW = pStringW;
 
-	while ((msgLength > 0) && pStringW[cchStringW])
+	while ((msgLength > 0) && pStringW[cchTmpStringW])
 	{
 		msgLength -= 2;
-		cchStringW++;
+		cchTmpStringW++;
 	}
 
-	if (pStringW[cchStringW] || !cchStringW)
+	if (pStringW[cchTmpStringW] || !cchTmpStringW)
 		return ERROR_INVALID_DATA;
 
-	cchStringW++;
-	cbRaConnectionStringW = cchStringW * 2;
-	pStringW += cchStringW;
+	cchTmpStringW++;
+	const size_t cbRaConnectionStringW = cchTmpStringW * sizeof(WCHAR);
+	pStringW += cchTmpStringW;
 	expertBlobW = pStringW;
-	cchStringW = 0;
 
+	size_t cchStringW = 0;
 	while ((msgLength > 0) && pStringW[cchStringW])
 	{
 		msgLength -= 2;
@@ -243,7 +240,7 @@ static UINT remdesk_recv_ctl_authenticate_pdu(RemdeskServerContext* context, wSt
 		return ERROR_INVALID_DATA;
 
 	cchStringW++;
-	cbExpertBlobW = cchStringW * 2;
+	const size_t cbExpertBlobW = cchStringW * 2;
 	pdu.raConnectionString =
 	    ConvertWCharNToUtf8Alloc(raConnectionStringW, cbRaConnectionStringW / sizeof(WCHAR), NULL);
 	if (!pdu.raConnectionString)
@@ -270,26 +267,27 @@ static UINT remdesk_recv_ctl_authenticate_pdu(RemdeskServerContext* context, wSt
 static UINT remdesk_recv_ctl_verify_password_pdu(RemdeskServerContext* context, wStream* s,
                                                  REMDESK_CHANNEL_HEADER* header)
 {
-	SSIZE_T cbExpertBlobW = 0;
-	REMDESK_CTL_VERIFY_PASSWORD_PDU pdu;
-	UINT error = 0;
+	REMDESK_CTL_VERIFY_PASSWORD_PDU pdu = { 0 };
 
 	if (!Stream_CheckAndLogRequiredLength(TAG, s, 8))
 		return ERROR_INVALID_DATA;
 
 	const WCHAR* expertBlobW = Stream_ConstPointer(s);
-	cbExpertBlobW = header->DataLength - 4;
+	if (header->DataLength < 4)
+		return ERROR_INVALID_PARAMETER;
+
+	const size_t cbExpertBlobW = header->DataLength - 4;
 
 	pdu.expertBlob = ConvertWCharNToUtf8Alloc(expertBlobW, cbExpertBlobW / sizeof(WCHAR), NULL);
-	if (pdu.expertBlob)
+	if (!pdu.expertBlob)
 		return ERROR_INTERNAL_ERROR;
 
 	WLog_INFO(TAG, "ExpertBlob: %s", pdu.expertBlob);
 
-	if ((error = remdesk_send_ctl_result_pdu(context, 0)))
-		WLog_ERR(TAG, "remdesk_send_ctl_result_pdu failed with error %" PRIu32 "!", error);
+	// TODO: Callback?
 
-	return error;
+	free(pdu.expertBlob);
+	return remdesk_send_ctl_result_pdu(context, 0);
 }
 
 /**
@@ -389,10 +387,6 @@ static UINT remdesk_server_receive_pdu(RemdeskServerContext* context, wStream* s
 {
 	UINT error = CHANNEL_RC_OK;
 	REMDESK_CHANNEL_HEADER header;
-#if 0
-	WLog_INFO(TAG, "RemdeskReceive: %"PRIuz"", Stream_GetRemainingLength(s));
-	winpr_HexDump(WCHAR* expertBlobW = NULL;(s), Stream_GetRemainingLength(s));
-#endif
 
 	if ((error = remdesk_read_channel_header(s, &header)))
 	{
@@ -432,22 +426,14 @@ static UINT remdesk_server_receive_pdu(RemdeskServerContext* context, wStream* s
 
 static DWORD WINAPI remdesk_server_thread(LPVOID arg)
 {
-	wStream* s = NULL;
-	DWORD status = 0;
-	DWORD nCount = 0;
 	void* buffer = NULL;
-	UINT32* pHeader = NULL;
-	UINT32 PduLength = 0;
-	HANDLE events[8];
+	HANDLE events[8] = { 0 };
 	HANDLE ChannelEvent = NULL;
 	DWORD BytesReturned = 0;
-	RemdeskServerContext* context = NULL;
 	UINT error = 0;
-	context = (RemdeskServerContext*)arg;
-	buffer = NULL;
-	BytesReturned = 0;
-	ChannelEvent = NULL;
-	s = Stream_New(NULL, 4096);
+	RemdeskServerContext* context = (RemdeskServerContext*)arg;
+	WINPR_ASSERT(context);
+	wStream* s = Stream_New(NULL, 4096);
 
 	if (!s)
 	{
@@ -460,7 +446,7 @@ static DWORD WINAPI remdesk_server_thread(LPVOID arg)
 	                           &BytesReturned) == TRUE)
 	{
 		if (BytesReturned == sizeof(HANDLE))
-			CopyMemory(&ChannelEvent, buffer, sizeof(HANDLE));
+			ChannelEvent = *(HANDLE*)buffer;
 
 		WTSFreeMemory(buffer);
 	}
@@ -471,7 +457,7 @@ static DWORD WINAPI remdesk_server_thread(LPVOID arg)
 		goto out;
 	}
 
-	nCount = 0;
+	DWORD nCount = 0;
 	events[nCount++] = ChannelEvent;
 	events[nCount++] = context->priv->StopEvent;
 
@@ -483,7 +469,7 @@ static DWORD WINAPI remdesk_server_thread(LPVOID arg)
 
 	while (1)
 	{
-		status = WaitForMultipleObjects(nCount, events, FALSE, INFINITE);
+		DWORD status = WaitForMultipleObjects(nCount, events, FALSE, INFINITE);
 
 		if (status == WAIT_FAILED)
 		{
@@ -530,8 +516,8 @@ static DWORD WINAPI remdesk_server_thread(LPVOID arg)
 
 		if (Stream_GetPosition(s) >= 8)
 		{
-			pHeader = Stream_BufferAs(s, UINT32);
-			PduLength = pHeader[0] + pHeader[1] + 8;
+			const UINT32* pHeader = Stream_BufferAs(s, UINT32);
+			const UINT32 PduLength = pHeader[0] + pHeader[1] + 8;
 
 			if (PduLength >= Stream_GetPosition(s))
 			{
@@ -550,8 +536,8 @@ static DWORD WINAPI remdesk_server_thread(LPVOID arg)
 		}
 	}
 
-	Stream_Free(s, TRUE);
 out:
+	Stream_Free(s, TRUE);
 
 	if (error && context->rdpcontext)
 		setChannelError(context->rdpcontext, error, "remdesk_server_thread reported an error");

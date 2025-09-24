@@ -25,21 +25,21 @@
 #include "prim_set.h"
 
 /* ========================================================================= */
-static pstatus_t general_set_8u(BYTE val, BYTE* pDst, UINT32 len)
+static pstatus_t general_set_8u(BYTE val, BYTE* WINPR_RESTRICT pDst, UINT32 len)
 {
 	memset((void*)pDst, (int)val, (size_t)len);
 	return PRIMITIVES_SUCCESS;
 }
 
 /* ------------------------------------------------------------------------- */
-static pstatus_t general_zero(void* pDst, size_t len)
+static pstatus_t general_zero(void* WINPR_RESTRICT pDst, size_t len)
 {
 	memset(pDst, 0, len);
 	return PRIMITIVES_SUCCESS;
 }
 
 /* ========================================================================= */
-static pstatus_t general_set_32s(INT32 val, INT32* pDst, UINT32 len)
+static pstatus_t general_set_32s(INT32 val, INT32* WINPR_RESTRICT pDst, UINT32 len)
 {
 	INT32* dptr = pDst;
 	size_t span = 0;
@@ -78,7 +78,7 @@ static pstatus_t general_set_32s(INT32 val, INT32* pDst, UINT32 len)
 }
 
 /* ------------------------------------------------------------------------- */
-static pstatus_t general_set_32u(UINT32 val, UINT32* pDst, UINT32 len)
+static pstatus_t general_set_32u(UINT32 val, UINT32* WINPR_RESTRICT pDst, UINT32 len)
 {
 	UINT32* dptr = pDst;
 	size_t span = 0;
@@ -128,5 +128,6 @@ void primitives_init_set(primitives_t* WINPR_RESTRICT prims)
 
 void primitives_init_set_opt(primitives_t* WINPR_RESTRICT prims)
 {
+	primitives_init_set(prims);
 	primitives_init_set_sse2(prims);
 }

@@ -56,43 +56,11 @@ WINPR_PRAGMA_DIAG_POP
 #include <winpr/wlog.h>
 #include <winpr/debug.h>
 
-#ifndef MIN
-#define MIN(a, b) (a) < (b) ? (a) : (b)
-#endif
-
 #define TAG "com.winpr.utils.debug"
-#define LOGT(...)                                           \
-	do                                                      \
-	{                                                       \
-		WLog_Print(WLog_Get(TAG), WLOG_TRACE, __VA_ARGS__); \
-	} while (0)
-#define LOGD(...)                                           \
-	do                                                      \
-	{                                                       \
-		WLog_Print(WLog_Get(TAG), WLOG_DEBUG, __VA_ARGS__); \
-	} while (0)
-#define LOGI(...)                                          \
-	do                                                     \
-	{                                                      \
-		WLog_Print(WLog_Get(TAG), WLOG_INFO, __VA_ARGS__); \
-	} while (0)
-#define LOGW(...)                                          \
-	do                                                     \
-	{                                                      \
-		WLog_Print(WLog_Get(TAG), WLOG_WARN, __VA_ARGS__); \
-	} while (0)
-#define LOGE(...)                                           \
-	do                                                      \
-	{                                                       \
-		WLog_Print(WLog_Get(TAG), WLOG_ERROR, __VA_ARGS__); \
-	} while (0)
-#define LOGF(...)                                           \
-	do                                                      \
-	{                                                       \
-		WLog_Print(WLog_Get(TAG), WLOG_FATAL, __VA_ARGS__); \
-	} while (0)
 
-static const char* support_msg = "Invalid stacktrace buffer! check if platform is supported!";
+#define LINE_LENGTH_MAX 2048
+
+static const char support_msg[] = "Invalid stacktrace buffer! check if platform is supported!";
 
 void winpr_backtrace_free(void* buffer)
 {
@@ -109,7 +77,7 @@ void winpr_backtrace_free(void* buffer)
 	winpr_win_backtrace_free(buffer);
 #else
 	free(buffer);
-	LOGF(support_msg);
+	WLog_FATAL(TAG, "%s", support_msg);
 #endif
 }
 
@@ -124,10 +92,10 @@ void* winpr_backtrace(DWORD size)
 #elif (defined(_WIN32) || defined(_WIN64)) && !defined(_UWP)
 	return winpr_win_backtrace(size);
 #else
-	LOGF(support_msg);
+	WLog_FATAL(TAG, "%s", support_msg);
 	/* return a non NULL buffer to allow the backtrace function family to succeed without failing
 	 */
-	return _strdup(support_msg);
+	return strndup(support_msg, sizeof(support_msg));
 #endif
 }
 
@@ -138,7 +106,7 @@ char** winpr_backtrace_symbols(void* buffer, size_t* used)
 
 	if (!buffer)
 	{
-		LOGF(support_msg);
+		WLog_FATAL(TAG, "%s", support_msg);
 		return NULL;
 	}
 
@@ -151,7 +119,7 @@ char** winpr_backtrace_symbols(void* buffer, size_t* used)
 #elif (defined(_WIN32) || defined(_WIN64)) && !defined(_UWP)
 	return winpr_win_backtrace_symbols(buffer, used);
 #else
-	LOGF(support_msg);
+	WLog_FATAL(TAG, "%s", support_msg);
 
 	/* We return a char** on heap that is compatible with free:
 	 *
@@ -159,7 +127,7 @@ char** winpr_backtrace_symbols(void* buffer, size_t* used)
 	 * 2. The first sizeof(char*) bytes contain the pointer to the string following the pointer.
 	 * 3. The at data + sizeof(char*) contains the actual string
 	 */
-	size_t len = strlen(support_msg);
+	size_t len = strnlen(support_msg, sizeof(support_msg));
 	char* ppmsg = calloc(sizeof(char*) + len + 1, sizeof(char));
 	if (!ppmsg)
 		return NULL;
@@ -177,7 +145,7 @@ void winpr_backtrace_symbols_fd(void* buffer, int fd)
 {
 	if (!buffer)
 	{
-		LOGF(support_msg);
+		WLog_FATAL(TAG, "%s", support_msg);
 		return;
 	}
 
@@ -192,11 +160,11 @@ void winpr_backtrace_symbols_fd(void* buffer, int fd)
 			return;
 
 		for (size_t i = 0; i < used; i++)
-			(void)_write(fd, lines[i], (unsigned)strnlen(lines[i], UINT32_MAX));
-		free(lines);
+			(void)_write(fd, lines[i], (unsigned)strnlen(lines[i], LINE_LENGTH_MAX));
+		free((void*)lines);
 	}
 #else
-	LOGF(support_msg);
+	WLog_FATAL(TAG, "%s", support_msg);
 #endif
 }
 
@@ -205,7 +173,7 @@ void winpr_log_backtrace(const char* tag, DWORD level, DWORD size)
 	winpr_log_backtrace_ex(WLog_Get(tag), level, size);
 }
 
-void winpr_log_backtrace_ex(wLog* log, DWORD level, DWORD size)
+void winpr_log_backtrace_ex(wLog* log, DWORD level, WINPR_ATTR_UNUSED DWORD size)
 {
 	size_t used = 0;
 	char** msg = NULL;
@@ -224,7 +192,7 @@ void winpr_log_backtrace_ex(wLog* log, DWORD level, DWORD size)
 		for (size_t x = 0; x < used; x++)
 			WLog_Print(log, level, "%" PRIuz ": %s", x, msg[x]);
 	}
-	free(msg);
+	free((void*)msg);
 
 fail:
 	winpr_backtrace_free(stack);

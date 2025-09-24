@@ -35,14 +35,13 @@ typedef struct
 	SOCKET sock;
 } wLogUdpAppender;
 
-static BOOL WLog_UdpAppender_Open(wLog* log, wLogAppender* appender)
+static BOOL WLog_UdpAppender_Open(WINPR_ATTR_UNUSED wLog* log, wLogAppender* appender)
 {
 	wLogUdpAppender* udpAppender = NULL;
 	char addressString[256] = { 0 };
 	struct addrinfo hints = { 0 };
 	struct addrinfo* result = { 0 };
 	int status = 0;
-	size_t addrLen = 0;
 	char* colonPos = NULL;
 
 	if (!appender)
@@ -58,7 +57,7 @@ static BOOL WLog_UdpAppender_Open(wLog* log, wLogAppender* appender)
 	if (!colonPos)
 		return FALSE;
 
-	addrLen = (colonPos - udpAppender->host);
+	const size_t addrLen = WINPR_ASSERTING_INT_CAST(size_t, (colonPos - udpAppender->host));
 	memcpy(addressString, udpAppender->host, addrLen);
 	addressString[addrLen] = '\0';
 	hints.ai_family = AF_INET;

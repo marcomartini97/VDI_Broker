@@ -23,24 +23,17 @@
 #include <vector>
 
 #include <SDL3/SDL.h>
-#include "sdl_widget.hpp"
+#include "sdl_selectable_widget.hpp"
 
-class SdlSelectWidget : public SdlWidget
+class SdlSelectWidget : public SdlSelectableWidget
 {
   public:
-	SdlSelectWidget(SDL_Renderer* renderer, std::string label, const SDL_FRect& rect);
+	SdlSelectWidget(std::shared_ptr<SDL_Renderer>& renderer, const std::string& label,
+	                const SDL_FRect& rect);
 	SdlSelectWidget(SdlSelectWidget&& other) noexcept;
 	SdlSelectWidget(const SdlSelectWidget& other) = delete;
+	~SdlSelectWidget() override;
 
 	SdlSelectWidget& operator=(const SdlSelectWidget& other) = delete;
 	SdlSelectWidget& operator=(SdlSelectWidget&& other) = delete;
-
-	virtual bool set_mouseover(SDL_Renderer* renderer, bool mouseOver);
-	virtual bool set_highlight(SDL_Renderer* renderer, bool highlight);
-	virtual bool update_text(SDL_Renderer* renderer);
-
-  private:
-	std::string _text;
-	bool _mouseover;
-	bool _highlight;
 };

@@ -730,7 +730,7 @@ BOOL WSASetEvent(HANDLE hEvent)
 	return SetEvent(hEvent);
 }
 
-BOOL WSAResetEvent(HANDLE hEvent)
+BOOL WSAResetEvent(WINPR_ATTR_UNUSED HANDLE hEvent)
 {
 	/* POSIX systems auto reset the socket,
 	 * if no more data is available. */
@@ -776,8 +776,9 @@ DWORD WSAWaitForMultipleEvents(DWORD cEvents, const HANDLE* lphEvents, BOOL fWai
 	return WaitForMultipleObjectsEx(cEvents, lphEvents, fWaitAll, dwTimeout, fAlertable);
 }
 
-SOCKET WSASocketA(int af, int type, int protocol, LPWSAPROTOCOL_INFOA lpProtocolInfo, GROUP g,
-                  DWORD dwFlags)
+SOCKET WSASocketA(int af, int type, int protocol,
+                  WINPR_ATTR_UNUSED LPWSAPROTOCOL_INFOA lpProtocolInfo, WINPR_ATTR_UNUSED GROUP g,
+                  WINPR_ATTR_UNUSED DWORD dwFlags)
 {
 	SOCKET s = 0;
 	s = _socket(af, type, protocol);
@@ -790,9 +791,10 @@ SOCKET WSASocketW(int af, int type, int protocol, LPWSAPROTOCOL_INFOW lpProtocol
 	return WSASocketA(af, type, protocol, (LPWSAPROTOCOL_INFOA)lpProtocolInfo, g, dwFlags);
 }
 
-int WSAIoctl(SOCKET s, DWORD dwIoControlCode, LPVOID lpvInBuffer, DWORD cbInBuffer,
-             LPVOID lpvOutBuffer, DWORD cbOutBuffer, LPDWORD lpcbBytesReturned,
-             LPWSAOVERLAPPED lpOverlapped, LPWSAOVERLAPPED_COMPLETION_ROUTINE lpCompletionRoutine)
+int WSAIoctl(SOCKET s, DWORD dwIoControlCode, WINPR_ATTR_UNUSED LPVOID lpvInBuffer,
+             WINPR_ATTR_UNUSED DWORD cbInBuffer, LPVOID lpvOutBuffer, DWORD cbOutBuffer,
+             LPDWORD lpcbBytesReturned, WINPR_ATTR_UNUSED LPWSAOVERLAPPED lpOverlapped,
+             WINPR_ATTR_UNUSED LPWSAOVERLAPPED_COMPLETION_ROUTINE lpCompletionRoutine)
 {
 	int fd = 0;
 	int index = 0;
@@ -1005,12 +1007,11 @@ int WSAIoctl(SOCKET s, DWORD dwIoControlCode, LPVOID lpvInBuffer, DWORD cbInBuff
 
 SOCKET _accept(SOCKET s, struct sockaddr* addr, int* addrlen)
 {
-	int status = 0;
-	int fd = (int)s;
+	int fd = WINPR_ASSERTING_INT_CAST(int, s);
 	socklen_t s_addrlen = (socklen_t)*addrlen;
-	status = accept(fd, addr, &s_addrlen);
+	const int status = accept(fd, addr, &s_addrlen);
 	*addrlen = (int)s_addrlen;
-	return status;
+	return (SOCKET)status;
 }
 
 int _bind(SOCKET s, const struct sockaddr* addr, int namelen)
@@ -1114,11 +1115,12 @@ u_short _htons(u_short hostshort)
 
 unsigned long _inet_addr(const char* cp)
 {
-	return (long)inet_addr(cp);
+	return WINPR_ASSERTING_INT_CAST(unsigned long, inet_addr(cp));
 }
 
 char* _inet_ntoa(struct in_addr in)
 {
+	// NOLINTNEXTLINE(concurrency-mt-unsafe)
 	return inet_ntoa(in);
 }
 
@@ -1248,14 +1250,15 @@ SOCKET _socket(int af, int type, int protocol)
 struct hostent* _gethostbyaddr(const char* addr, int len, int type)
 {
 	struct hostent* host = NULL;
+	// NOLINTNEXTLINE(concurrency-mt-unsafe)
 	host = gethostbyaddr((const void*)addr, (socklen_t)len, type);
 	return host;
 }
 
 struct hostent* _gethostbyname(const char* name)
 {
-	struct hostent* host = NULL;
-	host = gethostbyname(name);
+	// NOLINTNEXTLINE(concurrency-mt-unsafe)
+	struct hostent* host = gethostbyname(name);
 	return host;
 }
 
@@ -1266,32 +1269,30 @@ int _gethostname(char* name, int namelen)
 	return status;
 }
 
-struct servent* _getservbyport(int port, const char* proto)
+struct servent* /* codespell:ignore servent */ _getservbyport(int port, const char* proto)
 {
-	struct servent* serv = NULL;
-	serv = getservbyport(port, proto);
-	return serv;
+	// NOLINTNEXTLINE(concurrency-mt-unsafe)
+	return getservbyport(port, proto);
 }
 
-struct servent* _getservbyname(const char* name, const char* proto)
+struct servent*                                     /* codespell:ignore servent */
+_getservbyname(const char* name, const char* proto) // codespell:ignore servent
+
 {
-	struct servent* serv = NULL;
-	serv = getservbyname(name, proto);
-	return serv;
+	// NOLINTNEXTLINE(concurrency-mt-unsafe)
+	return getservbyname(name, proto);
 }
 
 struct protoent* _getprotobynumber(int number)
 {
-	struct protoent* proto = NULL;
-	proto = getprotobynumber(number);
-	return proto;
+	// NOLINTNEXTLINE(concurrency-mt-unsafe)
+	return getprotobynumber(number);
 }
 
 struct protoent* _getprotobyname(const char* name)
 {
-	struct protoent* proto = NULL;
-	proto = getprotobyname(name);
-	return proto;
+	// NOLINTNEXTLINE(concurrency-mt-unsafe)
+	return getprotobyname(name);
 }
 
 #endif /* _WIN32 */

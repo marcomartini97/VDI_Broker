@@ -103,12 +103,6 @@ typedef struct
 static int transport_bio_simple_init(BIO* bio, SOCKET socket, int shutdown);
 static int transport_bio_simple_uninit(BIO* bio);
 
-static long transport_bio_simple_callback(BIO* bio, int mode, const char* argp, int argi, long argl,
-                                          long ret)
-{
-	return 1;
-}
-
 static int transport_bio_simple_write(BIO* bio, const char* buf, int size)
 {
 	int error = 0;
@@ -178,12 +172,13 @@ static int transport_bio_simple_read(BIO* bio, char* buf, int size)
 	return -1;
 }
 
-static int transport_bio_simple_puts(BIO* bio, const char* str)
+static int transport_bio_simple_puts(WINPR_ATTR_UNUSED BIO* bio, WINPR_ATTR_UNUSED const char* str)
 {
-	return 1;
+	return -2;
 }
 
-static int transport_bio_simple_gets(BIO* bio, char* str, int size)
+static int transport_bio_simple_gets(WINPR_ATTR_UNUSED BIO* bio, WINPR_ATTR_UNUSED char* str,
+                                     WINPR_ATTR_UNUSED int size)
 {
 	return 1;
 }
@@ -461,12 +456,6 @@ typedef struct
 	RingBuffer xmitBuffer;
 } WINPR_BIO_BUFFERED_SOCKET;
 
-static long transport_bio_buffered_callback(BIO* bio, int mode, const char* argp, int argi,
-                                            long argl, long ret)
-{
-	return 1;
-}
-
 static int transport_bio_buffered_write(BIO* bio, const char* buf, int num)
 {
 	int ret = num;
@@ -478,6 +467,8 @@ static int transport_bio_buffered_write(BIO* bio, const char* buf, int num)
 
 	WINPR_ASSERT(bio);
 	WINPR_ASSERT(ptr);
+	if (num < 0)
+		return num;
 
 	ptr->writeBlocked = FALSE;
 	BIO_clear_flags(bio, BIO_FLAGS_WRITE);
@@ -485,7 +476,7 @@ static int transport_bio_buffered_write(BIO* bio, const char* buf, int num)
 	/* we directly append extra bytes in the xmit buffer, this could be prevented
 	 * but for now it makes the code more simple.
 	 */
-	if (buf && num && !ringbuffer_write(&ptr->xmitBuffer, (const BYTE*)buf, num))
+	if (buf && (num > 0) && !ringbuffer_write(&ptr->xmitBuffer, (const BYTE*)buf, (size_t)num))
 	{
 		WLog_ERR(TAG, "an error occurred when writing (num: %d)", num);
 		return -1;
@@ -565,12 +556,14 @@ out:
 	return status;
 }
 
-static int transport_bio_buffered_puts(BIO* bio, const char* str)
+static int transport_bio_buffered_puts(WINPR_ATTR_UNUSED BIO* bio,
+                                       WINPR_ATTR_UNUSED const char* str)
 {
 	return 1;
 }
 
-static int transport_bio_buffered_gets(BIO* bio, char* str, int size)
+static int transport_bio_buffered_gets(WINPR_ATTR_UNUSED BIO* bio, WINPR_ATTR_UNUSED char* str,
+                                       WINPR_ATTR_UNUSED int size)
 {
 	return 1;
 }
@@ -591,7 +584,7 @@ static long transport_bio_buffered_ctrl(BIO* bio, int cmd, long arg1, void* arg2
 			break;
 
 		case BIO_CTRL_WPENDING:
-			status = ringbuffer_used(&ptr->xmitBuffer);
+			status = WINPR_ASSERTING_INT_CAST(long, ringbuffer_used(&ptr->xmitBuffer));
 			break;
 
 		case BIO_CTRL_PENDING:
@@ -813,9 +806,8 @@ static BOOL freerdp_tcp_connect_timeout(rdpContext* context, int sockfd, struct 
                                         socklen_t addrlen, UINT32 timeout)
 {
 	BOOL rc = FALSE;
-	HANDLE handles[2];
-	int status = 0;
-	int count = 0;
+	HANDLE handles[2] = { 0 };
+	DWORD count = 0;
 	u_long arg = 0;
 	DWORD tout = (timeout > 0) ? timeout : INFINITE;
 
@@ -824,22 +816,23 @@ static BOOL freerdp_tcp_connect_timeout(rdpContext* context, int sockfd, struct 
 	if (!handles[count])
 		return FALSE;
 
-	status = WSAEventSelect(sockfd, handles[count++], FD_READ | FD_WRITE | FD_CONNECT | FD_CLOSE);
+	const int wsastatus = WSAEventSelect((SOCKET)sockfd, handles[count++],
+	                                     FD_READ | FD_WRITE | FD_CONNECT | FD_CLOSE);
 
-	if (status < 0)
+	if (wsastatus < 0)
 	{
 		WLog_ERR(TAG, "WSAEventSelect failed with %d", WSAGetLastError());
 		goto fail;
 	}
 
 	handles[count++] = utils_get_abort_event(context->rdp);
-	status = _connect(sockfd, addr, addrlen);
+	const int constatus = _connect((SOCKET)sockfd, addr, WINPR_ASSERTING_INT_CAST(int, addrlen));
 
-	if (status < 0)
+	if (constatus < 0)
 	{
-		status = WSAGetLastError();
+		const int estatus = WSAGetLastError();
 
-		switch (status)
+		switch (estatus)
 		{
 			case WSAEINPROGRESS:
 			case WSAEWOULDBLOCK:
@@ -850,9 +843,9 @@ static BOOL freerdp_tcp_connect_timeout(rdpContext* context, int sockfd, struct 
 		}
 	}
 
-	status = WaitForMultipleObjects(count, handles, FALSE, tout);
+	const DWORD wstatus = WaitForMultipleObjects(count, handles, FALSE, tout);
 
-	if (WAIT_OBJECT_0 != status)
+	if (WAIT_OBJECT_0 != wstatus)
 		goto fail;
 
 	const SSIZE_T res = recv(sockfd, NULL, 0, 0);
@@ -863,7 +856,7 @@ static BOOL freerdp_tcp_connect_timeout(rdpContext* context, int sockfd, struct 
 			goto fail;
 	}
 
-	status = WSAEventSelect(sockfd, handles[0], 0);
+	const int status = WSAEventSelect((SOCKET)sockfd, handles[0], 0);
 
 	if (status < 0)
 	{
@@ -871,7 +864,7 @@ static BOOL freerdp_tcp_connect_timeout(rdpContext* context, int sockfd, struct 
 		goto fail;
 	}
 
-	if (_ioctlsocket(sockfd, FIONBIO, &arg) != 0)
+	if (_ioctlsocket((SOCKET)sockfd, FIONBIO, &arg) != 0)
 		goto fail;
 
 	rc = TRUE;
@@ -898,10 +891,9 @@ static void peer_free(t_peer* peer)
 }
 
 static int freerdp_tcp_connect_multi(rdpContext* context, char** hostnames, const UINT32* ports,
-                                     UINT32 count, UINT16 port, UINT32 timeout)
+                                     UINT32 count, UINT16 port, WINPR_ATTR_UNUSED UINT32 timeout)
 {
 	UINT32 sindex = count;
-	int status = -1;
 	SOCKET sockfd = INVALID_SOCKET;
 	struct addrinfo* addr = NULL;
 	struct addrinfo* result = NULL;
@@ -912,7 +904,7 @@ static int freerdp_tcp_connect_multi(rdpContext* context, char** hostnames, cons
 	if (!peers || !events || (count < 1))
 	{
 		free(peers);
-		free(events);
+		free((void*)events);
 		return -1;
 	}
 
@@ -921,7 +913,7 @@ static int freerdp_tcp_connect_multi(rdpContext* context, char** hostnames, cons
 		int curPort = port;
 
 		if (ports)
-			curPort = ports[index];
+			curPort = WINPR_ASSERTING_INT_CAST(int, ports[index]);
 
 		result = freerdp_tcp_resolve_host(hostnames[index], curPort, 0);
 
@@ -963,9 +955,10 @@ static int freerdp_tcp_connect_multi(rdpContext* context, char** hostnames, cons
 			continue;
 
 		/* blocking tcp connect */
-		status = _connect(sockfd, addr->ai_addr, addr->ai_addrlen);
+		const int rc =
+		    _connect(sockfd, addr->ai_addr, WINPR_ASSERTING_INT_CAST(int, addr->ai_addrlen));
 
-		if (status >= 0)
+		if (rc >= 0)
 		{
 			/* connection success */
 			sindex = index;
@@ -985,7 +978,7 @@ static int freerdp_tcp_connect_multi(rdpContext* context, char** hostnames, cons
 		peer_free(&peers[index]);
 
 	free(peers);
-	free(events);
+	free((void*)events);
 	return (int)sockfd;
 }
 
@@ -1100,8 +1093,6 @@ static int get_next_addrinfo(rdpContext* context, struct addrinfo* input, struct
 			const int family = (IPvX == 4) ? AF_INET : AF_INET6;
 			while (addr && (addr->ai_family != family))
 				addr = addr->ai_next;
-			if (!addr)
-				goto fail;
 		}
 		break;
 		default:
@@ -1124,8 +1115,6 @@ int freerdp_tcp_default_connect(rdpContext* context, rdpSettings* settings, cons
                                 int port, DWORD timeout)
 {
 	int sockfd = 0;
-	UINT32 optval = 0;
-	socklen_t optlen = 0;
 	BOOL ipcSocket = FALSE;
 	BOOL useExternalDefinedSocket = FALSE;
 
@@ -1150,7 +1139,6 @@ int freerdp_tcp_default_connect(rdpContext* context, rdpSettings* settings, cons
 		if (sockfd < 0)
 		{
 			freerdp_set_last_error_if_not(context, FREERDP_ERROR_CONNECT_FAILED);
-
 			return -1;
 		}
 	}
@@ -1161,10 +1149,19 @@ int freerdp_tcp_default_connect(rdpContext* context, rdpSettings* settings, cons
 #if defined(HAVE_AF_VSOCK_H)
 		hostname = vsock;
 		sockfd = socket(AF_VSOCK, SOCK_STREAM, 0);
+		if (sockfd < 0)
+		{
+			char buffer[256] = { 0 };
+			WLog_WARN(TAG, "socket(AF_VSOCK, SOCK_STREAM, 0) failed with %s [%d]",
+			          winpr_strerror(errno, buffer, sizeof(buffer)));
+			freerdp_set_last_error_if_not(context, FREERDP_ERROR_CONNECT_FAILED);
+			return -1;
+		}
+
 		struct sockaddr_vm addr = { 0 };
 
 		addr.svm_family = AF_VSOCK;
-		addr.svm_port = port;
+		addr.svm_port = WINPR_ASSERTING_INT_CAST(typeof(addr.svm_port), port);
 
 		errno = 0;
 		char* ptr = NULL;
@@ -1176,7 +1173,7 @@ int freerdp_tcp_default_connect(rdpContext* context, rdpSettings* settings, cons
 			         winpr_strerror(errno, ebuffer, sizeof(ebuffer)));
 			return -1;
 		}
-		addr.svm_cid = val;
+		addr.svm_cid = WINPR_ASSERTING_INT_CAST(typeof(addr.svm_cid), val);
 		if (addr.svm_cid == 2)
 		{
 			addr.svm_flags = VMADDR_FLAG_TO_HOST;
@@ -1288,16 +1285,14 @@ int freerdp_tcp_default_connect(rdpContext* context, rdpSettings* settings, cons
 		}
 	}
 
-	optval = 1;
-	optlen = sizeof(optval);
-
 	if (!ipcSocket && !useExternalDefinedSocket)
 	{
-		if (setsockopt(sockfd, IPPROTO_TCP, TCP_NODELAY, (void*)&optval, optlen) < 0)
-			WLog_ERR(TAG, "unable to set TCP_NODELAY");
+		(void)freerdp_tcp_set_nodelay(WLog_Get(TAG), WLOG_ERROR, sockfd);
 	}
 
 	/* receive buffer must be a least 32 K */
+	UINT32 optval = 0;
+	socklen_t optlen = 0;
 	if (getsockopt(sockfd, SOL_SOCKET, SO_RCVBUF, (void*)&optval, &optlen) == 0)
 	{
 		if (optval < (1024 * 32))
@@ -1355,29 +1350,17 @@ static int freerdp_tcp_layer_read(void* userContext, void* data, int bytes)
 
 	rdpTcpLayer* tcpLayer = (rdpTcpLayer*)userContext;
 
-	int error = 0;
-	int status = 0;
-
 	(void)WSAResetEvent(tcpLayer->hEvent);
-	status = _recv(tcpLayer->sockfd, data, bytes, 0);
+	const int status = _recv((SOCKET)tcpLayer->sockfd, data, bytes, 0);
 
 	if (status > 0)
 		return status;
 
-	if (status == 0)
-		return -1; /* socket closed */
-
-	error = WSAGetLastError();
+	const int error = WSAGetLastError();
 
 	if ((error == WSAEWOULDBLOCK) || (error == WSAEINTR) || (error == WSAEINPROGRESS) ||
 	    (error == WSAEALREADY))
-	{
-		status = 0;
-	}
-	else
-	{
-		status = -1;
-	}
+		errno = EAGAIN;
 
 	return status;
 }
@@ -1391,25 +1374,15 @@ static int freerdp_tcp_layer_write(void* userContext, const void* data, int byte
 
 	rdpTcpLayer* tcpLayer = (rdpTcpLayer*)userContext;
 
-	int error = 0;
-	int status = 0;
+	const int status = _send((SOCKET)tcpLayer->sockfd, data, bytes, 0);
+	if (status > 0)
+		return status;
 
-	status = _send(tcpLayer->sockfd, data, bytes, 0);
+	const int error = WSAGetLastError();
 
-	if (status <= 0)
-	{
-		error = WSAGetLastError();
-
-		if ((error == WSAEWOULDBLOCK) || (error == WSAEINTR) || (error == WSAEINPROGRESS) ||
-		    (error == WSAEALREADY))
-		{
-			status = 0;
-		}
-		else
-		{
-			status = -1;
-		}
-	}
+	if ((error == WSAEWOULDBLOCK) || (error == WSAEINTR) || (error == WSAEINPROGRESS) ||
+	    (error == WSAEALREADY))
+		errno = EAGAIN;
 
 	return status;
 }
@@ -1422,7 +1395,7 @@ static BOOL freerdp_tcp_layer_close(void* userContext)
 	rdpTcpLayer* tcpLayer = (rdpTcpLayer*)userContext;
 
 	if (tcpLayer->sockfd >= 0)
-		closesocket(tcpLayer->sockfd);
+		closesocket((SOCKET)tcpLayer->sockfd);
 	if (tcpLayer->hEvent)
 		(void)CloseHandle(tcpLayer->hEvent);
 
@@ -1519,7 +1492,7 @@ rdpTransportLayer* freerdp_tcp_connect_layer(rdpContext* context, const char* ho
 		goto fail;
 
 	/* WSAEventSelect automatically sets the socket in non-blocking mode */
-	if (WSAEventSelect(sockfd, tcpLayer->hEvent, FD_READ | FD_ACCEPT | FD_CLOSE))
+	if (WSAEventSelect((SOCKET)sockfd, tcpLayer->hEvent, FD_READ | FD_ACCEPT | FD_CLOSE))
 	{
 		WLog_ERR(TAG, "WSAEventSelect returned 0x%08X", WSAGetLastError());
 		goto fail;
@@ -1531,7 +1504,45 @@ rdpTransportLayer* freerdp_tcp_connect_layer(rdpContext* context, const char* ho
 
 fail:
 	if (sockfd >= 0)
-		closesocket(sockfd);
+		closesocket((SOCKET)sockfd);
 	transport_layer_free(layer);
 	return NULL;
+}
+
+BOOL freerdp_tcp_set_nodelay(wLog* log, DWORD level, int sockfd)
+{
+	WINPR_ASSERT(log);
+
+	int type = -1;
+	socklen_t typelen = sizeof(type);
+	const int rc = getsockopt(sockfd, SOL_SOCKET, SO_TYPE, &type, &typelen);
+	if (rc < 0)
+	{
+		char buffer[128] = { 0 };
+		WLog_Print(log, level, "can't get SOL_SOCKET|SO_TYPE (%s)",
+		           winpr_strerror(errno, buffer, sizeof(buffer)));
+		return FALSE;
+	}
+	else if (type == SOCK_STREAM)
+	{
+		int option_value = -1;
+		const socklen_t option_len = sizeof(option_value);
+		const int sr =
+		    setsockopt(sockfd, IPPROTO_TCP, TCP_NODELAY, (void*)&option_value, option_len);
+		if (sr < 0)
+		{
+			/* local unix sockets don't have the TCP_NODELAY implemented, so don't make this
+			 * error fatal */
+			char buffer[128] = { 0 };
+			WLog_Print(log, level, "can't set TCP_NODELAY (%s)",
+			           winpr_strerror(errno, buffer, sizeof(buffer)));
+			return FALSE;
+		}
+	}
+	else
+	{
+		WLog_Print(log, level, "Socket SOL_SOCKET|SO_TYPE %d unsupported", type);
+		return FALSE;
+	}
+	return TRUE;
 }

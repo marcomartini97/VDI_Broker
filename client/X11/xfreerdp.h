@@ -53,6 +53,7 @@ typedef struct xf_context xfContext;
 #include <freerdp/codec/h264.h>
 #include <freerdp/codec/progressive.h>
 #include <freerdp/codec/region.h>
+#include <freerdp/locale/keyboard.h>
 
 #if !defined(XcursorUInt)
 typedef unsigned int XcursorUInt;
@@ -64,17 +65,17 @@ typedef XcursorUInt XcursorPixel;
 
 struct xf_FullscreenMonitors
 {
-	UINT32 top;
-	UINT32 bottom;
-	UINT32 left;
-	UINT32 right;
+	INT32 top;
+	INT32 bottom;
+	INT32 left;
+	INT32 right;
 };
 typedef struct xf_FullscreenMonitors xfFullscreenMonitors;
 
 struct xf_WorkArea
 {
-	UINT32 x;
-	UINT32 y;
+	INT32 x;
+	INT32 y;
 	UINT32 width;
 	UINT32 height;
 };
@@ -199,7 +200,6 @@ struct xf_context
 	BOOL focused;
 	BOOL mouse_active;
 	BOOL fullscreen_toggle;
-	UINT32 KeyboardLayout;
 	BOOL KeyboardState[256];
 	XModifierKeymap* modifierMap;
 	wArrayList* keyCombinations;
@@ -219,46 +219,46 @@ struct xf_context
 
 	Atom UTF8_STRING;
 
-	Atom _XWAYLAND_MAY_GRAB_KEYBOARD;
+	Atom XWAYLAND_MAY_GRAB_KEYBOARD;
 
-	Atom _NET_WM_ICON;
-	Atom _MOTIF_WM_HINTS;
-	Atom _NET_NUMBER_OF_DESKTOPS;
-	Atom _NET_CURRENT_DESKTOP;
-	Atom _NET_WORKAREA;
+	Atom NET_WM_ICON;
+	Atom MOTIF_WM_HINTS;
+	Atom NET_NUMBER_OF_DESKTOPS;
+	Atom NET_CURRENT_DESKTOP;
+	Atom NET_WORKAREA;
 
-	Atom _NET_SUPPORTED;
-	Atom _NET_SUPPORTING_WM_CHECK;
+	Atom NET_SUPPORTED;
+	Atom NET_SUPPORTING_WM_CHECK;
 
-	Atom _NET_WM_STATE;
-	Atom _NET_WM_STATE_MODAL;
-	Atom _NET_WM_STATE_STICKY;
-	Atom _NET_WM_STATE_MAXIMIZED_VERT;
-	Atom _NET_WM_STATE_MAXIMIZED_HORZ;
-	Atom _NET_WM_STATE_SHADED;
-	Atom _NET_WM_STATE_SKIP_TASKBAR;
-	Atom _NET_WM_STATE_SKIP_PAGER;
-	Atom _NET_WM_STATE_HIDDEN;
-	Atom _NET_WM_STATE_FULLSCREEN;
-	Atom _NET_WM_STATE_ABOVE;
-	Atom _NET_WM_STATE_BELOW;
-	Atom _NET_WM_STATE_DEMANDS_ATTENTION;
+	Atom NET_WM_STATE;
+	Atom NET_WM_STATE_MODAL;
+	Atom NET_WM_STATE_STICKY;
+	Atom NET_WM_STATE_MAXIMIZED_VERT;
+	Atom NET_WM_STATE_MAXIMIZED_HORZ;
+	Atom NET_WM_STATE_SHADED;
+	Atom NET_WM_STATE_SKIP_TASKBAR;
+	Atom NET_WM_STATE_SKIP_PAGER;
+	Atom NET_WM_STATE_HIDDEN;
+	Atom NET_WM_STATE_FULLSCREEN;
+	Atom NET_WM_STATE_ABOVE;
+	Atom NET_WM_STATE_BELOW;
+	Atom NET_WM_STATE_DEMANDS_ATTENTION;
 
-	Atom _NET_WM_FULLSCREEN_MONITORS;
+	Atom NET_WM_FULLSCREEN_MONITORS;
 
-	Atom _NET_WM_NAME;
-	Atom _NET_WM_PID;
+	Atom NET_WM_NAME;
+	Atom NET_WM_PID;
 
-	Atom _NET_WM_WINDOW_TYPE;
-	Atom _NET_WM_WINDOW_TYPE_NORMAL;
-	Atom _NET_WM_WINDOW_TYPE_DIALOG;
-	Atom _NET_WM_WINDOW_TYPE_UTILITY;
-	Atom _NET_WM_WINDOW_TYPE_POPUP;
-	Atom _NET_WM_WINDOW_TYPE_POPUP_MENU;
-	Atom _NET_WM_WINDOW_TYPE_DROPDOWN_MENU;
+	Atom NET_WM_WINDOW_TYPE;
+	Atom NET_WM_WINDOW_TYPE_NORMAL;
+	Atom NET_WM_WINDOW_TYPE_DIALOG;
+	Atom NET_WM_WINDOW_TYPE_UTILITY;
+	Atom NET_WM_WINDOW_TYPE_POPUP;
+	Atom NET_WM_WINDOW_TYPE_POPUP_MENU;
+	Atom NET_WM_WINDOW_TYPE_DROPDOWN_MENU;
 
-	Atom _NET_WM_MOVERESIZE;
-	Atom _NET_MOVERESIZE_WINDOW;
+	Atom NET_WM_MOVERESIZE;
+	Atom NET_MOVERESIZE_WINDOW;
 
 	Atom WM_STATE;
 	Atom WM_PROTOCOLS;
@@ -315,9 +315,15 @@ struct xf_context
 	BOOL xi_event;
 	HANDLE pipethread;
 	wLog* log;
+	FREERDP_REMAP_TABLE* remap_table;
+	DWORD X11_KEYCODE_TO_VIRTUAL_SCANCODE[256];
+	bool isCursorHidden;
+	bool isActionScriptAllowed;
 };
 
 BOOL xf_create_window(xfContext* xfc);
+void xf_destroy_window(xfContext* xfc);
+
 BOOL xf_create_image(xfContext* xfc);
 void xf_toggle_fullscreen(xfContext* xfc);
 void xf_minimize(xfContext* xfc);

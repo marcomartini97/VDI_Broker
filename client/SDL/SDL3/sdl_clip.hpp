@@ -91,6 +91,12 @@ class sdlClip
 	explicit sdlClip(SdlContext* sdl);
 	virtual ~sdlClip();
 
+	sdlClip(const sdlClip&) = delete;
+	sdlClip(sdlClip&&) = delete;
+
+	sdlClip& operator=(const sdlClip&) = delete;
+	sdlClip& operator=(sdlClip&&) = delete;
+
 	BOOL init(CliprdrClientContext* clip);
 	BOOL uninit(CliprdrClientContext* clip);
 
@@ -105,6 +111,8 @@ class sdlClip
 
 	std::string getServerFormat(uint32_t id);
 	uint32_t serverIdForMime(const std::string& mime);
+
+	bool contains(const char** mime_types, Sint32 count);
 
 	static UINT MonitorReady(CliprdrClientContext* context,
 	                         const CLIPRDR_MONITOR_READY* monitorReady);
@@ -128,6 +136,7 @@ class sdlClip
 	static bool mime_is_file(const std::string& mime);
 	static bool mime_is_text(const std::string& mime);
 	static bool mime_is_image(const std::string& mime);
+	static bool mime_is_bmp(const std::string& mime);
 	static bool mime_is_html(const std::string& mime);
 
 	SdlContext* _sdl = nullptr;
@@ -137,6 +146,7 @@ class sdlClip
 	wClipboard* _system = nullptr;
 	std::atomic<bool> _sync = false;
 	HANDLE _event;
+	Uint64 _last_timestamp = 0;
 
 	std::vector<CliprdrFormat> _serverFormats;
 	CriticalSection _lock;
@@ -153,4 +163,7 @@ class sdlClip
 		std::shared_ptr<void> ptr;
 	};
 	std::map<std::string, cache_entry> _cache_data;
+	std::vector<const char*> _current_mimetypes;
+	std::string _uuid;
+	std::string _mime_uuid;
 };

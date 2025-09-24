@@ -134,8 +134,34 @@ extern "C"
 		ACCESS_TOKEN_TYPE_AVD  /**!< oauth2 access token for Azure Virtual Desktop */
 	} AccessTokenType;
 
+	/** @brief A function to be implemented by a client. It is called whenever the connection
+	 * requires an access token.
+	 *  @param instance The instance the function is called for
+	 *  @param tokenType The type of token requested
+	 *  @param token A pointer that will hold the (allocated) token string
+	 *  @param count The number of arguments following
+	 *
+	 *  @return \b TRUE for success, \b FALSE otherwise
+	 *  @since version 3.0.0
+	 */
 	typedef BOOL (*pGetAccessToken)(freerdp* instance, AccessTokenType tokenType, char** token,
 	                                size_t count, ...);
+
+	/** @brief The function is called whenever the connection requires an access token.
+	 *  It differs from \ref pGetAccessToken and is not meant to be implemented by a client
+	 * directly. The client-common library will use this to provide common means to retrieve a token
+	 * and only if that fails the instanc->GetAccessToken callback will be called.
+	 *
+	 *  @param context The context the function is called for
+	 *  @param tokenType The type of token requested
+	 *  @param token A pointer that will hold the (allocated) token string
+	 *  @param count The number of arguments following
+	 *
+	 *  @return \b TRUE for success, \b FALSE otherwise
+	 *  @since version 3.16.0
+	 */
+	typedef BOOL (*pGetCommonAccessToken)(rdpContext* context, AccessTokenType tokenType,
+	                                      char** token, size_t count, ...);
 
 	/** @brief Callback used to inform about a reconnection attempt
 	 *
@@ -347,6 +373,8 @@ extern "C"
 	/**
 	 *  Defines the possible disconnect reasons in the MCS Disconnect Provider
 	 *  Ultimatum PDU
+	 *
+	 *  [T.125] 7 Structure of Version 2 MCSPDUs Reason ::= ENUMERATED
 	 */
 
 	enum Disconnect_Ultimatum
@@ -567,20 +595,37 @@ owned by rdpRdp */
 
 	FREERDP_API BOOL freerdp_connect(freerdp* instance);
 
+#if !defined(WITHOUT_FREERDP_3x_DEPRECATED)
 	WINPR_DEPRECATED_VAR("use freerdp_abort_connect_context instead",
 	                     FREERDP_API BOOL freerdp_abort_connect(freerdp* instance));
+#endif
 
 	FREERDP_API BOOL freerdp_abort_connect_context(rdpContext* context);
 	FREERDP_API HANDLE freerdp_abort_event(rdpContext* context);
 
+#if !defined(WITHOUT_FREERDP_3x_DEPRECATED)
 	WINPR_DEPRECATED_VAR("use freerdp_shall_disconnect_context instead",
 	                     FREERDP_API BOOL freerdp_shall_disconnect(freerdp* instance));
+#endif
 
 	FREERDP_API BOOL freerdp_shall_disconnect_context(const rdpContext* context);
 	FREERDP_API BOOL freerdp_disconnect(freerdp* instance);
 
+	/** @brief stringify disconnect reason of type Disconnect_Ultimatum
+	 *
+	 *  @param reason the reason of type \b Disconnect_Ultimatum
+	 *
+	 *  @return a string representation of \b reason or rn-unknown
+	 *
+	 *  @since version 3.13.0
+	 */
+	FREERDP_API const char* freerdp_disconnect_reason_string(int reason);
+
+#if !defined(WITHOUT_FREERDP_3x_DEPRECATED)
 	WINPR_DEPRECATED_VAR("use freerdp_disconnect_before_reconnect_context instead",
 	                     FREERDP_API BOOL freerdp_disconnect_before_reconnect(freerdp* instance));
+#endif
+
 	FREERDP_API BOOL freerdp_disconnect_before_reconnect_context(rdpContext* context);
 
 	FREERDP_API BOOL freerdp_reconnect(freerdp* instance);
@@ -589,8 +634,8 @@ owned by rdpRdp */
 	FREERDP_API UINT freerdp_channels_detach(freerdp* instance);
 
 #if defined(WITH_FREERDP_DEPRECATED)
-	FREERDP_API WINPR_DEPRECATED_VAR("Use freerdp_get_event_handles",
-	                                 BOOL freerdp_get_fds(freerdp* instance, void** rfds,
+	WINPR_DEPRECATED_VAR("Use freerdp_get_event_handles",
+	                     FREERDP_API BOOL freerdp_get_fds(freerdp* instance, void** rfds,
 	                                                      int* rcount, void** wfds, int* wcount));
 #endif
 
@@ -735,6 +780,39 @@ owned by rdpRdp */
 
 	FREERDP_API BOOL freerdp_is_valid_mcs_create_request(const BYTE* data, size_t size);
 	FREERDP_API BOOL freerdp_is_valid_mcs_create_response(const BYTE* data, size_t size);
+
+	/** \brief Persist the current credentials (gateway, target server, ...)
+	 *
+	 *  FreeRDP internally keeps a backup of connection settings to revert to whenever a reconnect
+	 * is required. If a client modifies settings during runtime after pre-connect call this
+	 * function or the credentials will be lost on any reconnect, redirect, ...
+	 *
+	 *  \param context The RDP context to use, must not be \b NULL
+	 *
+	 *  \return \b TRUE if successful, \b FALSE if settings could not be applied (wrong session
+	 * state, ...)
+	 *  \since version 3.12.0
+	 */
+	FREERDP_API BOOL freerdp_persist_credentials(rdpContext* context);
+
+	/** @brief set a new function to be called when an access token is requested.
+	 *
+	 * @param context The rdp context to set the function for. Must not be \b NULL
+	 * @param GetCommonAccessToken The function pointer to set, \b NULL to disable
+	 *
+	 * @return \b TRUE for success, \b FALSE otherwise
+	 * @since version 3.16.0
+	 */
+	FREERDP_API BOOL freerdp_set_common_access_token(rdpContext* context,
+	                                                 pGetCommonAccessToken GetCommonAccessToken);
+
+	/** @brief get the current function pointer set as GetCommonAccessToken
+	 *
+	 *  @param context The rdp context to set the function for. Must not be \b NULL
+	 *  @return The current function pointer set or \b NULL
+	 *  @since version 3.16.0
+	 */
+	FREERDP_API pGetCommonAccessToken freerdp_get_common_access_token(rdpContext* context);
 
 #ifdef __cplusplus
 }

@@ -203,14 +203,6 @@ static const test tests[] = {
 	  check_settings_smartcard_no_redirection,
 	  { "testfreerdp", "/sound", "/drive:media,/foo/bar/blabla", "/v:test.freerdp.com", 0 },
 	  { { 0 } } },
-
-#if 0
-	{
-		COMMAND_LINE_STATUS_PRINT, check_settings_smartcard_no_redirection,
-		{"testfreerdp", "-z", "--plugin", "cliprdr", "--plugin", "rdpsnd", "--data", "alsa", "latency:100", "--", "--plugin", "rdpdr", "--data", "disk:w7share:/home/w7share", "--", "--plugin", "drdynvc", "--data", "tsmf:decoder:gstreamer", "--", "-u", "test", "host.example.com", 0},
-		{{0}}
-	},
-#endif
 };
 // NOLINTEND(bugprone-suspicious-missing-comma)
 
@@ -240,13 +232,14 @@ int TestClientCmdLine(int argc, char* argv[])
 
 	WINPR_UNUSED(argc);
 	WINPR_UNUSED(argv);
-	for (size_t i = 0; i < sizeof(tests) / sizeof(tests[0]); i++)
+	for (size_t i = 0; i < ARRAYSIZE(tests); i++)
 	{
 		const test* current = &tests[i];
 		int failure = 0;
 		char** command_line = string_list_copy(current->command_line);
 
-		if (!testcase(__func__, command_line, string_list_length((const char* const*)command_line),
+		const int len = string_list_length((const char* const*)command_line);
+		if (!testcase(__func__, command_line, WINPR_ASSERTING_INT_CAST(size_t, len),
 		              current->expected_status, current->validate_settings))
 		{
 			TEST_FAILURE("parsing arguments.\n");

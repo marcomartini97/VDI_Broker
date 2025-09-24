@@ -32,7 +32,7 @@
 FREERDP_LOCAL const char* CB_MSG_TYPE_STRING(UINT16 type, char* buffer, size_t size);
 FREERDP_LOCAL const char* CB_MSG_FLAGS_STRING(UINT16 msgFlags, char* buffer, size_t size);
 
-FREERDP_LOCAL wStream* cliprdr_packet_new(UINT16 msgType, UINT16 msgFlags, UINT32 dataLen);
+FREERDP_LOCAL wStream* cliprdr_packet_new(UINT16 msgType, UINT16 msgFlags, size_t dataLen);
 FREERDP_LOCAL wStream*
 cliprdr_packet_lock_clipdata_new(const CLIPRDR_LOCK_CLIPBOARD_DATA* lockClipboardData);
 FREERDP_LOCAL wStream*
@@ -56,7 +56,7 @@ FREERDP_LOCAL UINT
 cliprdr_read_file_contents_request(wStream* s, CLIPRDR_FILE_CONTENTS_REQUEST* fileContentsRequest);
 FREERDP_LOCAL UINT cliprdr_read_file_contents_response(wStream* s,
                                                        CLIPRDR_FILE_CONTENTS_RESPONSE* response);
-FREERDP_LOCAL UINT cliprdr_read_format_list(wStream* s, CLIPRDR_FORMAT_LIST* formatList,
+FREERDP_LOCAL UINT cliprdr_read_format_list(wLog* log, wStream* s, CLIPRDR_FORMAT_LIST* formatList,
                                             BOOL useLongFormatNames);
 
 FREERDP_LOCAL void cliprdr_free_format_list(CLIPRDR_FORMAT_LIST* formatList);

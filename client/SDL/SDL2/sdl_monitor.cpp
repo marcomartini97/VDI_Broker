@@ -56,7 +56,7 @@ using VIRTUAL_SCREEN = struct
 /* See MSDN Section on Multiple Display Monitors: http://msdn.microsoft.com/en-us/library/dd145071
  */
 
-int sdl_list_monitors(SdlContext* sdl)
+int sdl_list_monitors([[maybe_unused]] SdlContext* sdl)
 {
 	SDL_Init(SDL_INIT_VIDEO);
 	const int nmonitors = SDL_GetNumVideoDisplays();
@@ -78,30 +78,6 @@ int sdl_list_monitors(SdlContext* sdl)
 	return 0;
 }
 
-static BOOL sdl_is_monitor_id_active(SdlContext* sdl, UINT32 id)
-{
-	const rdpSettings* settings = nullptr;
-
-	WINPR_ASSERT(sdl);
-
-	settings = sdl->context()->settings;
-	WINPR_ASSERT(settings);
-
-	const UINT32 NumMonitorIds = freerdp_settings_get_uint32(settings, FreeRDP_NumMonitorIds);
-	if (!NumMonitorIds)
-		return TRUE;
-
-	for (UINT32 index = 0; index < NumMonitorIds; index++)
-	{
-		auto cur = static_cast<const UINT32*>(
-		    freerdp_settings_get_pointer_array(settings, FreeRDP_MonitorIds, index));
-		if (cur && (*cur == id))
-			return TRUE;
-	}
-
-	return FALSE;
-}
-
 static BOOL sdl_apply_max_size(SdlContext* sdl, UINT32* pMaxWidth, UINT32* pMaxHeight)
 {
 	WINPR_ASSERT(sdl);
@@ -121,31 +97,33 @@ static BOOL sdl_apply_max_size(SdlContext* sdl, UINT32* pMaxWidth, UINT32* pMaxH
 
 		if (freerdp_settings_get_bool(settings, FreeRDP_Fullscreen))
 		{
-			*pMaxWidth = monitor->width;
-			*pMaxHeight = monitor->height;
+			*pMaxWidth = WINPR_ASSERTING_INT_CAST(uint32_t, monitor->width);
+			*pMaxHeight = WINPR_ASSERTING_INT_CAST(uint32_t, monitor->height);
 		}
 		else if (freerdp_settings_get_bool(settings, FreeRDP_Workarea))
 		{
 			SDL_Rect rect = {};
-			SDL_GetDisplayUsableBounds(monitor->orig_screen, &rect);
-			*pMaxWidth = rect.w;
-			*pMaxHeight = rect.h;
+			SDL_GetDisplayUsableBounds(WINPR_ASSERTING_INT_CAST(int, monitor->orig_screen), &rect);
+			*pMaxWidth = WINPR_ASSERTING_INT_CAST(uint32_t, rect.w);
+			*pMaxHeight = WINPR_ASSERTING_INT_CAST(uint32_t, rect.h);
 		}
 		else if (freerdp_settings_get_uint32(settings, FreeRDP_PercentScreen) > 0)
 		{
 			SDL_Rect rect = {};
-			SDL_GetDisplayUsableBounds(monitor->orig_screen, &rect);
+			SDL_GetDisplayUsableBounds(WINPR_ASSERTING_INT_CAST(int, monitor->orig_screen), &rect);
 
-			*pMaxWidth = rect.w;
-			*pMaxHeight = rect.h;
+			*pMaxWidth = WINPR_ASSERTING_INT_CAST(uint32_t, rect.w);
+			*pMaxHeight = WINPR_ASSERTING_INT_CAST(uint32_t, rect.h);
 
 			if (freerdp_settings_get_bool(settings, FreeRDP_PercentScreenUseWidth))
-				*pMaxWidth =
-				    (rect.w * freerdp_settings_get_uint32(settings, FreeRDP_PercentScreen)) / 100;
+				*pMaxWidth = (WINPR_ASSERTING_INT_CAST(uint32_t, rect.w) *
+				              freerdp_settings_get_uint32(settings, FreeRDP_PercentScreen)) /
+				             100;
 
 			if (freerdp_settings_get_bool(settings, FreeRDP_PercentScreenUseHeight))
-				*pMaxHeight =
-				    (rect.h * freerdp_settings_get_uint32(settings, FreeRDP_PercentScreen)) / 100;
+				*pMaxHeight = (WINPR_ASSERTING_INT_CAST(uint32_t, rect.h) *
+				               freerdp_settings_get_uint32(settings, FreeRDP_PercentScreen)) /
+				              100;
 		}
 		else if (freerdp_settings_get_uint32(settings, FreeRDP_DesktopWidth) &&
 		         freerdp_settings_get_uint32(settings, FreeRDP_DesktopHeight))
@@ -194,10 +172,7 @@ static BOOL sdl_apply_display_properties(SdlContext* sdl)
 		return TRUE;
 
 	const UINT32 numIds = freerdp_settings_get_uint32(settings, FreeRDP_NumMonitorIds);
-	if (!freerdp_settings_set_pointer_len(settings, FreeRDP_MonitorDefArray, nullptr, numIds))
-		return FALSE;
-	if (!freerdp_settings_set_uint32(settings, FreeRDP_MonitorCount, numIds))
-		return FALSE;
+	std::vector<rdpMonitor> monitors;
 
 	for (UINT32 x = 0; x < numIds; x++)
 	{
@@ -233,7 +208,7 @@ static BOOL sdl_apply_display_properties(SdlContext* sdl)
 			for (int i = 0; i < SDL_GetNumDisplayModes(*id); i++)
 			{
 				SDL_DisplayMode mode = {};
-				SDL_GetDisplayMode(x, i, &mode);
+				SDL_GetDisplayMode(WINPR_ASSERTING_INT_CAST(int, x), i, &mode);
 
 				if (mode.w > rect.w)
 				{
@@ -263,25 +238,25 @@ static BOOL sdl_apply_display_properties(SdlContext* sdl)
 		const UINT32 rdp_orientation = ORIENTATION_LANDSCAPE;
 #endif
 
-		auto monitor = static_cast<rdpMonitor*>(
-		    freerdp_settings_get_pointer_array_writable(settings, FreeRDP_MonitorDefArray, x));
-		WINPR_ASSERT(monitor);
+		rdpMonitor monitor = {};
 
 		/* windows uses 96 dpi as 'default' and the scale factors are in percent. */
 		const auto factor = ddpi / 96.0f * 100.0f;
-		monitor->orig_screen = x;
-		monitor->x = rect.x;
-		monitor->y = rect.y;
-		monitor->width = rect.w;
-		monitor->height = rect.h;
-		monitor->is_primary = x == 0;
-		monitor->attributes.desktopScaleFactor = static_cast<UINT32>(factor);
-		monitor->attributes.deviceScaleFactor = 100;
-		monitor->attributes.orientation = rdp_orientation;
-		monitor->attributes.physicalWidth = scale(rect.w, hdpi);
-		monitor->attributes.physicalHeight = scale(rect.h, vdpi);
+		monitor.orig_screen = x;
+		monitor.x = rect.x;
+		monitor.y = rect.y;
+		monitor.width = rect.w;
+		monitor.height = rect.h;
+		monitor.is_primary = x == 0;
+		monitor.attributes.desktopScaleFactor = static_cast<UINT32>(factor);
+		monitor.attributes.deviceScaleFactor = 100;
+		monitor.attributes.orientation = rdp_orientation;
+		monitor.attributes.physicalWidth = scale(WINPR_ASSERTING_INT_CAST(uint32_t, rect.w), hdpi);
+		monitor.attributes.physicalHeight = scale(WINPR_ASSERTING_INT_CAST(uint32_t, rect.h), vdpi);
+		monitors.emplace_back(monitor);
 	}
-	return TRUE;
+	return freerdp_settings_set_monitor_def_array_sorted(settings, monitors.data(),
+	                                                     monitors.size());
 }
 
 static BOOL sdl_detect_single_window(SdlContext* sdl, UINT32* pMaxWidth, UINT32* pMaxHeight)
@@ -302,8 +277,10 @@ static BOOL sdl_detect_single_window(SdlContext* sdl, UINT32* pMaxWidth, UINT32*
 		 */
 		if (freerdp_settings_get_uint32(settings, FreeRDP_NumMonitorIds) == 0)
 		{
-			const size_t id =
-			    (!sdl->windows.empty()) ? sdl->windows.begin()->second.displayIndex() : 0;
+			const size_t id = (!sdl->windows.empty())
+			                      ? WINPR_ASSERTING_INT_CAST(
+			                            uint32_t, sdl->windows.begin()->second.displayIndex())
+			                      : 0;
 			if (!freerdp_settings_set_pointer_len(settings, FreeRDP_MonitorIds, &id, 1))
 				return FALSE;
 		}

@@ -119,6 +119,7 @@ static UINT parallel_process_irp_create(PARALLEL_DEVICE* parallel, IRP* irp)
 	Stream_Write_UINT32(irp->output, parallel->id);
 	Stream_Write_UINT8(irp->output, 0);
 	free(path);
+	WINPR_ASSERT(irp->Complete);
 	return irp->Complete(irp);
 }
 
@@ -135,6 +136,7 @@ static UINT parallel_process_irp_close(PARALLEL_DEVICE* parallel, IRP* irp)
 	(void)close(parallel->file);
 
 	Stream_Zero(irp->output, 5); /* Padding(5) */
+	WINPR_ASSERT(irp->Complete);
 	return irp->Complete(irp);
 }
 
@@ -196,6 +198,7 @@ static UINT parallel_process_irp_read(PARALLEL_DEVICE* parallel, IRP* irp)
 	}
 
 	free(buffer);
+	WINPR_ASSERT(irp->Complete);
 	return irp->Complete(irp);
 }
 
@@ -238,12 +241,13 @@ static UINT parallel_process_irp_write(PARALLEL_DEVICE* parallel, IRP* irp)
 			break;
 		}
 
-		Stream_Seek(irp->input, status);
+		Stream_Seek(irp->input, WINPR_ASSERTING_INT_CAST(size_t, status));
 		len -= status;
 	}
 
 	Stream_Write_UINT32(irp->output, Length);
 	Stream_Write_UINT8(irp->output, 0); /* Padding */
+	WINPR_ASSERT(irp->Complete);
 	return irp->Complete(irp);
 }
 
@@ -252,12 +256,14 @@ static UINT parallel_process_irp_write(PARALLEL_DEVICE* parallel, IRP* irp)
  *
  * @return 0 on success, otherwise a Win32 error code
  */
-static UINT parallel_process_irp_device_control(PARALLEL_DEVICE* parallel, IRP* irp)
+static UINT parallel_process_irp_device_control(WINPR_ATTR_UNUSED PARALLEL_DEVICE* parallel,
+                                                IRP* irp)
 {
 	WINPR_ASSERT(parallel);
 	WINPR_ASSERT(irp);
 
 	Stream_Write_UINT32(irp->output, 0); /* OutputBufferLength */
+	WINPR_ASSERT(irp->Complete);
 	return irp->Complete(irp);
 }
 
@@ -297,6 +303,7 @@ static UINT parallel_process_irp(PARALLEL_DEVICE* parallel, IRP* irp)
 
 		default:
 			irp->IoStatus = STATUS_NOT_SUPPORTED;
+			WINPR_ASSERT(irp->Complete);
 			error = irp->Complete(irp);
 			break;
 	}
@@ -309,7 +316,7 @@ static UINT parallel_process_irp(PARALLEL_DEVICE* parallel, IRP* irp)
 	           "[%s|0x%08" PRIx32 "] completed with %s [0x%08" PRIx32 "] (IoStatus %s [0x%08" PRIx32
 	           "])",
 	           rdpdr_irp_string(irp->MajorFunction), irp->MajorFunction, WTSErrorToString(error),
-	           error, NtStatus2Tag(irp->IoStatus), irp->IoStatus);
+	           error, NtStatus2Tag(irp->IoStatus), WINPR_CXX_COMPAT_CAST(UINT32, irp->IoStatus));
 
 	return error;
 }
@@ -481,7 +488,7 @@ FREERDP_ENTRY_POINT(
 		}
 
 		for (size_t i = 0; i <= length; i++)
-			Stream_Write_UINT8(parallel->device.data, name[i] < 0 ? '_' : name[i]);
+			Stream_Write_INT8(parallel->device.data, name[i] < 0 ? '_' : name[i]);
 
 		parallel->path = path;
 		parallel->queue = MessageQueue_New(NULL);

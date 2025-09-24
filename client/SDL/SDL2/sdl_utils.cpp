@@ -125,7 +125,7 @@ const char* sdl_event_type_str(Uint32 type)
 #undef STR
 }
 
-const char* sdl_error_string(Uint32 res)
+const char* sdl_error_string(Sint32 res)
 {
 	if (res == 0)
 		return nullptr;
@@ -133,7 +133,7 @@ const char* sdl_error_string(Uint32 res)
 	return SDL_GetError();
 }
 
-BOOL sdl_log_error_ex(Uint32 res, wLog* log, const char* what, const char* file, size_t line,
+BOOL sdl_log_error_ex(Sint32 res, wLog* log, const char* what, const char* file, size_t line,
                       const char* fkt)
 {
 	const char* msg = sdl_error_string(res);
@@ -231,56 +231,6 @@ BOOL sdl_push_user_event(Uint32 type, ...)
 	}
 	va_end(ap);
 	return SDL_PushEvent(&ev) == 1;
-}
-
-CriticalSection::CriticalSection()
-{
-	InitializeCriticalSection(&_section);
-}
-
-CriticalSection::~CriticalSection()
-{
-	DeleteCriticalSection(&_section);
-}
-
-void CriticalSection::lock()
-{
-	EnterCriticalSection(&_section);
-}
-
-void CriticalSection::unlock()
-{
-	LeaveCriticalSection(&_section);
-}
-
-WinPREvent::WinPREvent(bool initial)
-    : _handle(CreateEventA(nullptr, TRUE, initial ? TRUE : FALSE, nullptr))
-{
-}
-
-WinPREvent::~WinPREvent()
-{
-	(void)CloseHandle(_handle);
-}
-
-void WinPREvent::set()
-{
-	(void)SetEvent(_handle);
-}
-
-void WinPREvent::clear()
-{
-	(void)ResetEvent(_handle);
-}
-
-bool WinPREvent::isSet() const
-{
-	return WaitForSingleObject(_handle, 0) == WAIT_OBJECT_0;
-}
-
-HANDLE WinPREvent::handle() const
-{
-	return _handle;
 }
 
 bool sdl_push_quit()

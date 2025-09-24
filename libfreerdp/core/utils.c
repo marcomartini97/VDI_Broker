@@ -253,6 +253,29 @@ BOOL utils_sync_credentials(rdpSettings* settings, BOOL toGateway)
 	return TRUE;
 }
 
+BOOL utils_persist_credentials(rdpSettings* settings, const rdpSettings* current)
+{
+	if (!settings || !current)
+		return FALSE;
+
+	const SSIZE_T keys[] = { FreeRDP_GatewayUsername, FreeRDP_GatewayDomain,
+		                     FreeRDP_GatewayPassword, FreeRDP_Username,
+		                     FreeRDP_Domain,          FreeRDP_Password };
+
+	for (size_t x = 0; x < ARRAYSIZE(keys); x++)
+	{
+		const SSIZE_T key = keys[x];
+		if (!freerdp_settings_copy_item(settings, current, key))
+		{
+			WLog_ERR(TAG, "Failed to copy %s from current to backup settings",
+			         freerdp_settings_get_name_for_key(key));
+			return FALSE;
+		}
+	}
+
+	return TRUE;
+}
+
 BOOL utils_str_is_empty(const char* str)
 {
 	if (!str)
@@ -351,7 +374,7 @@ static BOOL disable_port(rdpSettings* settings)
 	return remove_rdpdr_type(settings, RDPDR_DTYP_PARALLEL);
 }
 
-static BOOL disable_pnp(rdpSettings* settings)
+static BOOL disable_pnp(WINPR_ATTR_UNUSED rdpSettings* settings)
 {
 	// TODO(akallabeth): [MS-RDPEPNP] related stuff is disabled.
 	return TRUE;
@@ -473,6 +496,7 @@ BOOL utils_reload_channels(rdpContext* context)
 	freerdp_channels_free(context->channels);
 	context->channels = freerdp_channels_new(context->instance);
 	WINPR_ASSERT(context->channels);
+	freerdp_channels_register_instance(context->channels, context->instance);
 
 	BOOL rc = TRUE;
 	IFCALLRET(context->instance->LoadChannels, rc, context->instance);

@@ -141,9 +141,7 @@ static UINT audin_oss_set_format(IAudinDevice* device, const AUDIO_FORMAT* forma
 static DWORD WINAPI audin_oss_thread_func(LPVOID arg)
 {
 	char dev_name[PATH_MAX] = "/dev/dsp";
-	char mixer_name[PATH_MAX] = "/dev/mixer";
 	int pcm_handle = -1;
-	int mixer_handle = 0;
 	BYTE* buffer = NULL;
 	unsigned long tmp = 0;
 	size_t buffer_size = 0;
@@ -158,10 +156,7 @@ static DWORD WINAPI audin_oss_thread_func(LPVOID arg)
 	}
 
 	if (oss->dev_unit != -1)
-	{
 		(void)sprintf_s(dev_name, (PATH_MAX - 1), "/dev/dsp%i", oss->dev_unit);
-		(void)sprintf_s(mixer_name, PATH_MAX - 1, "/dev/mixer%i", oss->dev_unit);
-	}
 
 	WLog_INFO(TAG, "open: %s", dev_name);
 
@@ -172,40 +167,6 @@ static DWORD WINAPI audin_oss_thread_func(LPVOID arg)
 		goto err_out;
 	}
 
-	/* Set rec volume to 100%. */
-	if ((mixer_handle = open(mixer_name, O_RDWR)) < 0)
-	{
-		OSS_LOG_ERR("mixer open failed, not critical", errno);
-	}
-	else
-	{
-		tmp = (100 | (100 << 8));
-
-		if (ioctl(mixer_handle, MIXER_WRITE(SOUND_MIXER_MIC), &tmp) == -1)
-			OSS_LOG_ERR("WRITE_MIXER - SOUND_MIXER_MIC, not critical", errno);
-
-		tmp = (100 | (100 << 8));
-
-		if (ioctl(mixer_handle, MIXER_WRITE(SOUND_MIXER_RECLEV), &tmp) == -1)
-			OSS_LOG_ERR("WRITE_MIXER - SOUND_MIXER_RECLEV, not critical", errno);
-
-		close(mixer_handle);
-	}
-
-#if 0 /* FreeBSD OSS implementation at this moment (2015.03) does not set PCM_CAP_INPUT flag. */
-	tmp = 0;
-
-	if (ioctl(pcm_handle, SNDCTL_DSP_GETCAPS, &tmp) == -1)
-	{
-		OSS_LOG_ERR("SNDCTL_DSP_GETCAPS failed, try ignored", errno);
-	}
-	else if ((tmp & PCM_CAP_INPUT) == 0)
-	{
-		OSS_LOG_ERR("Device does not supports playback", EOPNOTSUPP);
-		goto err_out;
-	}
-
-#endif
 	/* Set format. */
 	tmp = audin_oss_get_format(&oss->format);
 

@@ -40,6 +40,7 @@
  * Virtual Key Codes (Windows):
  * http://msdn.microsoft.com/en-us/library/windows/desktop/dd375731/
  * http://msdn.microsoft.com/en-us/library/ms927178.aspx
+ * https://learn.microsoft.com/en-us/windows/win32/inputdev/virtual-key-codes
  */
 
 /* Mouse buttons */
@@ -74,16 +75,15 @@
 	                    */
 #define VK_HANGUL 0x15 /* IME Hangul mode */
 
-/* 0x16 is undefined */
+#define VK_IME_ON 0x16
 
 #define VK_JUNJA 0x17 /* IME Junja mode */
 #define VK_FINAL 0x18 /* IME final mode */
 #define VK_HANJA 0x19 /* IME Hanja mode */
 #define VK_KANJI 0x19 /* IME Kanji mode */
 
-/* 0x1A is undefined, use it for missing Hiragana/Katakana Toggle */
-
 #define VK_HKTG 0x1A       /* Hiragana/Katakana toggle */
+#define VK_IME_OFF 0x1A
 #define VK_ESCAPE 0x1B     /* ESC key */
 #define VK_CONVERT 0x1C    /* IME convert */
 #define VK_NONCONVERT 0x1D /* IME nonconvert */
@@ -546,6 +546,8 @@
 
 /**
  * Keyboard Type 7
+ *
+ * https://kbdlayout.info/kbdjpn/virtualkeys
  */
 
 #define KBD7_T00 VK_NONE
@@ -574,8 +576,8 @@
 #define KBD7_T17 VK_KEY_I
 #define KBD7_T18 VK_KEY_O
 #define KBD7_T19 VK_KEY_P
-#define KBD7_T1A VK_OEM_4 /* NE */
-#define KBD7_T1B VK_OEM_6 /* NE */
+#define KBD7_T1A VK_OEM_4
+#define KBD7_T1B VK_OEM_6
 #define KBD7_T1C VK_RETURN
 #define KBD7_T1D VK_LCONTROL
 #define KBD7_T1E VK_KEY_A
@@ -589,9 +591,9 @@
 #define KBD7_T26 VK_KEY_L
 #define KBD7_T27 VK_OEM_1
 #define KBD7_T28 VK_OEM_7
-#define KBD7_T29 VK_OEM_3 /* NE */
+#define KBD7_T29 VK_OEM_3
 #define KBD7_T2A VK_LSHIFT
-#define KBD7_T2B VK_OEM_5 /* NE */
+#define KBD7_T2B VK_OEM_5
 #define KBD7_T2C VK_KEY_Z
 #define KBD7_T2D VK_KEY_X
 #define KBD7_T2E VK_KEY_C
@@ -619,35 +621,35 @@
 #define KBD7_T44 VK_F10
 #define KBD7_T45 VK_NUMLOCK
 #define KBD7_T46 VK_SCROLL
-#define KBD7_T47 VK_NUMPAD7 /* VK_HOME */
-#define KBD7_T48 VK_NUMPAD8 /* VK_UP */
-#define KBD7_T49 VK_NUMPAD9 /* VK_PRIOR */
+#define KBD7_T47 VK_HOME
+#define KBD7_T48 VK_UP
+#define KBD7_T49 VK_PRIOR
 #define KBD7_T4A VK_SUBTRACT
-#define KBD7_T4B VK_NUMPAD4 /* VK_LEFT */
-#define KBD7_T4C VK_NUMPAD5 /* VK_CLEAR */
-#define KBD7_T4D VK_NUMPAD6 /* VK_RIGHT */
+#define KBD7_T4B VK_LEFT
+#define KBD7_T4C VK_CLEAR
+#define KBD7_T4D VK_RIGHT
 #define KBD7_T4E VK_ADD
-#define KBD7_T4F VK_NUMPAD1 /* VK_END */
-#define KBD7_T50 VK_NUMPAD2 /* VK_DOWN */
-#define KBD7_T51 VK_NUMPAD3 /* VK_NEXT */
-#define KBD7_T52 VK_NUMPAD0 /* VK_INSERT */
-#define KBD7_T53 VK_DECIMAL /* VK_DELETE */
+#define KBD7_T4F VK_END
+#define KBD7_T50 VK_DOWN
+#define KBD7_T51 VK_NEXT
+#define KBD7_T52 VK_INSERT
+#define KBD7_T53 VK_DELETE
 #define KBD7_T54 VK_SNAPSHOT
 #define KBD7_T55 VK_NONE
 #define KBD7_T56 VK_OEM_102
 #define KBD7_T57 VK_F11
 #define KBD7_T58 VK_F12
 #define KBD7_T59 VK_CLEAR
-#define KBD7_T5A VK_NONAME /* NE */
-#define KBD7_T5B VK_NONAME /* NE */
-#define KBD7_T5C VK_NONAME /* NE */
-#define KBD7_T5D VK_EREOF
-#define KBD7_T5E VK_NONE   /* NE */
-#define KBD7_T5F VK_NONAME /* NE */
+#define KBD7_T5A VK_OEM_WSCTRL
+#define KBD7_T5B VK_DBE_KATAKANA
+#define KBD7_T5C VK_OEM_JUMP
+#define KBD7_T5D VK_DBE_FLUSHSTRING
+#define KBD7_T5E VK_OEM_BACKTAB
+#define KBD7_T5F VK_OEM_AUTO
 #define KBD7_T60 VK_NONE
-#define KBD7_T61 VK_NONE /* NE */
-#define KBD7_T62 VK_NONE /* NE */
-#define KBD7_T63 VK_NONE
+#define KBD7_T61 VK_NONE
+#define KBD7_T62 VK_DBE_NOCODEINPUT
+#define KBD7_T63 VK_HELP
 #define KBD7_T64 VK_F13
 #define KBD7_T65 VK_F14
 #define KBD7_T66 VK_F15
@@ -659,9 +661,9 @@
 #define KBD7_T6C VK_F21
 #define KBD7_T6D VK_F22
 #define KBD7_T6E VK_F23
-#define KBD7_T6F VK_NONE /* NE */
-#define KBD7_T70 VK_HKTG /* NE */
-#define KBD7_T71 VK_NONE /* NE */
+#define KBD7_T6F VK_OEM_PA3
+#define KBD7_T70 VK_NONE
+#define KBD7_T71 VK_OEM_RESET
 #define KBD7_T72 VK_NONE
 #define KBD7_T73 VK_ABNT_C1
 #define KBD7_T74 VK_NONE
@@ -669,11 +671,11 @@
 #define KBD7_T76 VK_F24
 #define KBD7_T77 VK_NONE
 #define KBD7_T78 VK_NONE
-#define KBD7_T79 VK_CONVERT /* NE */
+#define KBD7_T79 VK_NONE
 #define KBD7_T7A VK_NONE
-#define KBD7_T7B VK_NONCONVERT /* NE */
+#define KBD7_T7B VK_OEM_PA1
 #define KBD7_T7C VK_TAB
-#define KBD7_T7D VK_OEM_8
+#define KBD7_T7D VK_NONE
 #define KBD7_T7E VK_ABNT_C2
 #define KBD7_T7F VK_OEM_PA2
 
@@ -709,7 +711,7 @@
 #define KBD7_X5B VK_LWIN
 #define KBD7_X5C VK_RWIN
 #define KBD7_X5D VK_APPS
-#define KBD7_X5E VK_POWER
+#define KBD7_X5E VK_NONE
 #define KBD7_X5F VK_SLEEP
 #define KBD7_X65 VK_BROWSER_SEARCH
 #define KBD7_X66 VK_BROWSER_FAVORITES
@@ -720,10 +722,8 @@
 #define KBD7_X6B VK_LAUNCH_APP1
 #define KBD7_X6C VK_LAUNCH_MAIL
 #define KBD7_X6D VK_LAUNCH_MEDIA_SELECT
-#define KBD7_XF1 VK_NONE /* NE */
-#define KBD7_XF2 VK_NONE /* NE */
-
-#define KBD7_Y1D VK_PAUSE
+#define KBD7_XF1 VK_IME_OFF
+#define KBD7_XF2 VK_IME_ON
 
 /**
  * X11 Keycodes
@@ -875,7 +875,8 @@ extern "C"
 		WINPR_KBD_TYPE_IBM_ENHANCED = 0x00000004, /* IBM enhanced (101-key or 102-key) keyboard */
 		WINPR_KBD_TYPE_NOKIA_1050 = 0x00000005,   /* Nokia 1050 and similar keyboards */
 		WINPR_KBD_TYPE_NOKIA_9140 = 0x00000006,   /* Nokia 9140 and similar keyboards */
-		WINPR_KBD_TYPE_JAPANESE = 0x00000007      /* Japanese keyboard */
+		WINPR_KBD_TYPE_JAPANESE = 0x00000007,     /* Japanese keyboard */
+		WINPR_KBD_TYPE_KOREAN = 0x00000008        /* Korean keyboard */
 	};
 
 	/**

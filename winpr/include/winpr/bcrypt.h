@@ -33,238 +33,100 @@ typedef PVOID BCRYPT_KEY_HANDLE;
 typedef PVOID BCRYPT_HASH_HANDLE;
 typedef PVOID BCRYPT_SECRET_HANDLE;
 
-#define BCRYPT_RSA_ALGORITHM   \
-	(const WCHAR*)"R\x00S\x00" \
-	              "A\x00\x00"
-#define BCRYPT_RSA_SIGN_ALGORITHM \
-	(const WCHAR*)"R\x00S\x00"    \
-	              "A\x00_\x00S\x00I\x00G\x00N\x00\x00"
-#define BCRYPT_DH_ALGORITHM (const WCHAR*)"D\x00H\x00\x00"
-#define BCRYPT_DSA_ALGORITHM   \
-	(const WCHAR*)"D\x00S\x00" \
-	              "A\x00\x00"
-#define BCRYPT_RC2_ALGORITHM \
-	(const WCHAR*)"R\x00"    \
-	              "C\x002\x00\x00"
-#define BCRYPT_RC4_ALGORITHM \
-	(const WCHAR*)"R\x00"    \
-	              "C\x004\x00\x00"
-#define BCRYPT_AES_ALGORITHM \
-	(const WCHAR*)"A\x00"    \
-	              "E\x00S\x00\x00"
-#define BCRYPT_DES_ALGORITHM \
-	(const WCHAR*)"D\x00"    \
-	              "E\x00S\x00\x00"
-#define BCRYPT_DESX_ALGORITHM \
-	(const WCHAR*)"D\x00"     \
-	              "E\x00S\x00X\x00\x00"
-#define BCRYPT_3DES_ALGORITHM \
-	(const WCHAR*)"3\x00"     \
-	              "D\x00"     \
-	              "E\x00S\x00\x00"
-#define BCRYPT_3DES_112_ALGORITHM \
-	(const WCHAR*)"3\x00"         \
-	              "D\x00"         \
-	              "E\x00S\x00_\x001\x001\x002\x00\x00"
-#define BCRYPT_MD2_ALGORITHM \
-	(const WCHAR*)"M\x00"    \
-	              "D\x002\x00\x00"
-#define BCRYPT_MD4_ALGORITHM \
-	(const WCHAR*)"M\x00"    \
-	              "D\x004\x00\x00"
-#define BCRYPT_MD5_ALGORITHM \
-	(const WCHAR*)"M\x00"    \
-	              "D\x005\x00\x00"
-#define BCRYPT_SHA1_ALGORITHM  \
-	(const WCHAR*)"S\x00H\x00" \
-	              "A\x001\x00\x00"
-#define BCRYPT_SHA256_ALGORITHM \
-	(const WCHAR*)"S\x00H\x00"  \
-	              "A\x002\x005\x006\x00\x00"
-#define BCRYPT_SHA384_ALGORITHM \
-	(const WCHAR*)"S\x00H\x00"  \
-	              "A\x003\x008\x004\x00\x00"
-#define BCRYPT_SHA512_ALGORITHM \
-	(const WCHAR*)"S\x00H\x00"  \
-	              "A\x005\x001\x002\x00\x00"
-#define BCRYPT_AES_GMAC_ALGORITHM             \
-	(const WCHAR*)"A\x00"                     \
-	              "E\x00S\x00-\x00G\x00M\x00" \
-	              "A\x00"                     \
-	              "C\x00\x00"
-#define BCRYPT_ECDSA_ALGORITHM \
-	(const WCHAR*)"E\x00"      \
-	              "C\x00"      \
-	              "D\x00S\x00" \
-	              "A\x00\x00"
-#define BCRYPT_ECDSA_P256_ALGORITHM \
-	(const WCHAR*)"E\x00"           \
-	              "C\x00"           \
-	              "D\x00S\x00"      \
-	              "A\x00_\x00P\x002\x005\x006\x00\x00"
-#define BCRYPT_ECDSA_P384_ALGORITHM \
-	(const WCHAR*)"E\x00"           \
-	              "C\x00"           \
-	              "D\x00S\x00"      \
-	              "A\x00_\x00P\x003\x008\x004\x00\x00"
-#define BCRYPT_ECDSA_P521_ALGORITHM \
-	(const WCHAR*)"E\x00"           \
-	              "C\x00"           \
-	              "D\x00S\x00"      \
-	              "A\x00_\x00P\x005\x002\x001\x00\x00"
-#define BCRYPT_ECDH_P256_ALGORITHM \
-	(const WCHAR*)"E\x00"          \
-	              "C\x00"          \
-	              "D\x00S\x00"     \
-	              "A\x00_\x00P\x002\x005\x006\x00\x00"
-#define BCRYPT_ECDH_P384_ALGORITHM \
-	(const WCHAR*)"E\x00"          \
-	              "C\x00"          \
-	              "D\x00S\x00"     \
-	              "A\x00_\x00P\x003\x008\x004\x00\x00"
-#define BCRYPT_ECDH_P521_ALGORITHM \
-	(const WCHAR*)"E\x00"          \
-	              "C\x00"          \
-	              "D\x00S\x00"     \
-	              "A\x00_\x00P\x005\x002\x001\x00\x00"
-#define BCRYPT_RNG_ALGORITHM (const WCHAR*)"R\x00N\x00G\x00\x00"
-#define BCRYPT_RNG_FIPS186_DSA_ALGORITHM                \
-	(const WCHAR*)"F\x00I\x00P\x00S\x001\x008\x006\x00" \
-	              "D\x00S\x00"                          \
-	              "A\x00R\x00N\x00G\x00\x00"
-#define BCRYPT_RNG_DUAL_EC_ALGORITHM \
-	(const WCHAR*)"D\x00U\x00"       \
-	              "A\x00L\x00"       \
-	              "E\x00R\x00N\x00G\x00\x00"
+static const WCHAR BCRYPT_RSA_ALGORITHM[] = { 'R', 'S', 'A', '\0' };
+static const WCHAR BCRYPT_RSA_SIGN_ALGORITHM[] = { 'R', 'S', 'A', '_', 'S', 'I', 'G', 'N', '\0' };
+static const WCHAR BCRYPT_DH_ALGORITHM[] = { 'D', 'H', '\0' };
+static const WCHAR BCRYPT_DSA_ALGORITHM[] = { 'D', 'S', 'A', '\0' };
+static const WCHAR BCRYPT_RC2_ALGORITHM[] = { 'R', 'C', '2', '\0' };
+static const WCHAR BCRYPT_RC4_ALGORITHM[] = { 'R', 'C', '4', '\0' };
+static const WCHAR BCRYPT_AES_ALGORITHM[] = { 'A', 'E', 'S', '\0' };
+static const WCHAR BCRYPT_DES_ALGORITHM[] = { 'D', 'E', 'S', '\0' };
+static const WCHAR BCRYPT_DESX_ALGORITHM[] = { 'D', 'E', 'S', 'X', '\0' };
+static const WCHAR BCRYPT_3DES_ALGORITHM[] = { '3', 'D', 'E', 'S', '\0' };
+static const WCHAR BCRYPT_3DES_112_ALGORITHM[] = { '3', 'D', 'E', 'S', '_', '1', '1', '2', '\0' };
+static const WCHAR BCRYPT_MD2_ALGORITHM[] = { 'M', 'D', '2', '\0' };
+static const WCHAR BCRYPT_MD4_ALGORITHM[] = { 'M', 'D', '4', '\0' };
+static const WCHAR BCRYPT_MD5_ALGORITHM[] = { 'M', 'D', '5', '\0' };
+static const WCHAR BCRYPT_SHA1_ALGORITHM[] = { 'S', 'H', 'A', '1', '\0' };
+static const WCHAR BCRYPT_SHA256_ALGORITHM[] = { 'S', 'H', 'A', '2', '5', '6', '\0' };
+static const WCHAR BCRYPT_SHA384_ALGORITHM[] = { 'S', 'H', 'A', '3', '8', '4', '\0' };
+static const WCHAR BCRYPT_SHA512_ALGORITHM[] = { 'S', 'H', 'A', '5', '1', '2', '\0' };
+static const WCHAR BCRYPT_AES_GMAC_ALGORITHM[] = { 'A', 'E', 'S', '-', 'G', 'M', 'A', 'C', '\0' };
+static const WCHAR BCRYPT_AES_CMAC_ALGORITHM[] = { 'A', 'E', 'S', '-', 'C', 'M', 'A', 'C', '\0' };
+static const WCHAR BCRYPT_ECDSA_P256_ALGORITHM[] = { 'E', 'C', 'D', 'S', 'A', '_',
+	                                                 'P', '2', '5', '6', '\0' };
+static const WCHAR BCRYPT_ECDSA_P384_ALGORITHM[] = { 'E', 'C', 'D', 'S', 'A', '_',
+	                                                 'P', '3', '8', '4', '\0' };
+static const WCHAR BCRYPT_ECDSA_P521_ALGORITHM[] = { 'E', 'C', 'D', 'S', 'A', '_',
+	                                                 'P', '5', '2', '1', '\0' };
+static const WCHAR BCRYPT_ECDH_P256_ALGORITHM[] = { 'E', 'C', 'D', 'S', 'A', '_',
+	                                                'P', '2', '5', '6', '\0' };
+static const WCHAR BCRYPT_ECDH_P384_ALGORITHM[] = { 'E', 'C', 'D', 'S', 'A', '_',
+	                                                'P', '3', '8', '4', '\0' };
+static const WCHAR BCRYPT_ECDH_P521_ALGORITHM[] = { 'E', 'C', 'D', 'S', 'A', '_',
+	                                                'P', '5', '2', '1', '\0' };
+static const WCHAR BCRYPT_RNG_ALGORITHM[] = { 'R', 'N', 'G', '\0' };
+static const WCHAR BCRYPT_RNG_FIPS186_DSA_ALGORITHM[] = { 'F', 'I', 'P', 'S', '1', '8', '6',
+	                                                      'D', 'S', 'A', 'R', 'N', 'G', '\0' };
+static const WCHAR BCRYPT_RNG_DUAL_EC_ALGORITHM[] = { 'D', 'U', 'A', 'L', 'E',
+	                                                  'C', 'R', 'N', 'G', '\0' };
 
-#define MS_PRIMITIVE_PROVIDER                                    \
-	(const WCHAR*)"M\x00i\x00"                                   \
-	              "c\x00r\x00o\x00s\x00o\x00"                    \
-	              "f\x00t\x00 "                                  \
-	              "\x00P\x00r\x00i\x00m\x00i\x00t\x00i\x00v\x00" \
-	              "e\x00 "                                       \
-	              "\x00P\x00r\x00o\x00v\x00i\x00"                \
-	              "d\x00"                                        \
-	              "e\x00r\x00\x00"
+static const WCHAR BCRYPT_ECDSA_ALGORITHM[] = { 'E', 'C', 'D', 'S', 'A', '\0' };
+static const WCHAR BCRYPT_ECDH_ALGORITHM[] = { 'E', 'C', 'D', 'H', '\0' };
+static const WCHAR BCRYPT_XTS_AES_ALGORITHM[] = { 'X', 'T', 'S', '-', 'A', 'E', 'S', '\0' };
+
+static const WCHAR MS_PRIMITIVE_PROVIDER[] = { 'M', 'i', 'c', 'r', 'o', 's', 'o', 'f', 't', ' ',
+	                                           'P', 'r', 'i', 'm', 'i', 't', 'i', 'v', 'e', ' ',
+	                                           'P', 'r', 'o', 'v', 'i', 'd', 'e', 'r', '\0' };
+static const WCHAR MS_PLATFORM_CRYPTO_PROVIDER[] = { 'M', 'i', 'c', 'r', 'o', 's', 'o', 'f', 't',
+	                                                 ' ', 'P', 'l', 'a', 't', 'f', 'o', 'r', 'm',
+	                                                 ' ', 'C', 'r', 'y', 'p', 't', 'o', ' ', 'P',
+	                                                 'r', 'o', 'v', 'i', 'd', 'e', 'r', '\0' };
 
 #define BCRYPT_ALG_HANDLE_HMAC_FLAG 0x00000008
 #define BCRYPT_PROV_DISPATCH 0x00000001
 
-#define BCRYPT_OBJECT_LENGTH        \
-	(const WCHAR*)"O\x00"           \
-	              "b\x00j\x00"      \
-	              "e\x00"           \
-	              "c\x00t\x00L\x00" \
-	              "e\x00n\x00g\x00t\x00h\x00\x00"
-#define BCRYPT_ALGORITHM_NAME                                          \
-	(const WCHAR*)"A\x00l\x00g\x00o\x00r\x00i\x00t\x00h\x00m\x00N\x00" \
-	              "a\x00m\x00"                                         \
-	              "e\x00\x00"
-#define BCRYPT_PROVIDER_HANDLE                \
-	(const WCHAR*)"P\x00r\x00o\x00v\x00i\x00" \
-	              "d\x00"                     \
-	              "e\x00r\x00H\x00"           \
-	              "a\x00n\x00"                \
-	              "d\x00l\x00"                \
-	              "e\x00\x00"
-#define BCRYPT_CHAINING_MODE                                 \
-	(const WCHAR*)"C\x00h\x00"                               \
-	              "a\x00i\x00n\x00i\x00n\x00g\x00M\x00o\x00" \
-	              "d\x00"                                    \
-	              "e\x00\x00"
-#define BCRYPT_BLOCK_LENGTH         \
-	(const WCHAR*)"B\x00l\x00o\x00" \
-	              "c\x00k\x00L\x00" \
-	              "e\x00n\x00g\x00t\x00h\x00\x00"
-#define BCRYPT_KEY_LENGTH           \
-	(const WCHAR*)"K\x00"           \
-	              "e\x00y\x00L\x00" \
-	              "e\x00n\x00g\x00t\x00h\x00\x00"
-#define BCRYPT_KEY_OBJECT_LENGTH              \
-	(const WCHAR*)"K\x00"                     \
-	              "e\x00y\x00O\x00"           \
-	              "b\x00j\x00"                \
-	              "e\x00"                     \
-	              "c\x00t\x00L\x00"           \
-	              "e\x00n\x00g\x00t\x00h\x00" \
-	              "\x00"
-#define BCRYPT_KEY_STRENGTH                   \
-	(const WCHAR*)"K\x00"                     \
-	              "e\x00y\x00S\x00t\x00r\x00" \
-	              "e\x00n\x00g\x00t\x00h\x00\x00"
-#define BCRYPT_KEY_LENGTHS          \
-	(const WCHAR*)"K\x00"           \
-	              "e\x00y\x00L\x00" \
-	              "e\x00n\x00g\x00t\x00h\x00s\x00\x00"
-#define BCRYPT_BLOCK_SIZE_LIST                \
-	(const WCHAR*)"B\x00l\x00o\x00"           \
-	              "c\x00k\x00S\x00i\x00z\x00" \
-	              "e\x00L\x00i\x00s\x00t\x00\x00"
-#define BCRYPT_EFFECTIVE_KEY_LENGTH      \
-	(const WCHAR*)"E\x00"                \
-	              "f\x00"                \
-	              "f\x00"                \
-	              "e\x00"                \
-	              "c\x00t\x00i\x00v\x00" \
-	              "e\x00K\x00"           \
-	              "e\x00y\x00L\x00"      \
-	              "e\x00n\x00g"          \
-	              "\x00t\x00h\x00\x00"
-#define BCRYPT_HASH_LENGTH                \
-	(const WCHAR*)"H\x00"                 \
-	              "a\x00s\x00h\x00"       \
-	              "D\x00i\x00g\x00"       \
-	              "e\x00s\x00t\x00L\x00"  \
-	              "e\x00n\x00g\x00t\x00h" \
-	              "\x00\x00"
-#define BCRYPT_HASH_OID_LIST                  \
-	(const WCHAR*)"H\x00"                     \
-	              "a\x00s\x00h\x00O\x00I\x00" \
-	              "D\x00L\x00i\x00s\x00t\x00\x00"
-#define BCRYPT_PADDING_SCHEMES                \
-	(const WCHAR*)"P\x00"                     \
-	              "a\x00"                     \
-	              "d\x00"                     \
-	              "d\x00i\x00n\x00g\x00S\x00" \
-	              "c\x00h\x00"                \
-	              "e\x00m\x00"                \
-	              "e\x00s\x00\x00"
-#define BCRYPT_SIGNATURE_LENGTH               \
-	(const WCHAR*)"S\x00i\x00g\x00n\x00"      \
-	              "a\x00t\x00u\x00r\x00"      \
-	              "e\x00L\x00"                \
-	              "e\x00n\x00g\x00t\x00h\x00" \
-	              "\x00"
-#define BCRYPT_HASH_BLOCK_LENGTH              \
-	(const WCHAR*)"H\x00"                     \
-	              "a\x00s\x00h\x00"           \
-	              "B\x00l\x00o\x00"           \
-	              "c\x00k\x00L\x00"           \
-	              "e\x00n\x00g\x00t\x00h\x00" \
-	              "\x00"
-#define BCRYPT_AUTH_TAG_LENGTH                \
-	(const WCHAR*)"A\x00u\x00t\x00h\x00T\x00" \
-	              "a\x00g\x00L\x00"           \
-	              "e\x00n\x00g\x00t\x00h\x00\x00"
-#define BCRYPT_PRIMITIVE_TYPE                                \
-	(const WCHAR*)"P\x00r\x00i\x00m\x00i\x00t\x00i\x00v\x00" \
-	              "e\x00T\x00y\x00p\x00"                     \
-	              "e\x00\x00"
-#define BCRYPT_IS_KEYED_HASH        \
-	(const WCHAR*)"I\x00s\x00K\x00" \
-	              "e\x00y\x00"      \
-	              "e\x00"           \
-	              "d\x00H\x00"      \
-	              "a\x00s\x00h\x00\x00"
-
-#define BCRYPT_KEY_DATA_BLOB        \
-	(const WCHAR*)"K\x00"           \
-	              "e\x00y\x00"      \
-	              "D\x00"           \
-	              "a\x00t\x00"      \
-	              "a\x00"           \
-	              "B\x00l\x00o\x00" \
-	              "b\x00\x00"
+static const WCHAR BCRYPT_OBJECT_LENGTH[] = { 'O', 'b', 'j', 'e', 'c', 't', 'L',
+	                                          'e', 'n', 'g', 't', 'h', '\0' };
+static const WCHAR BCRYPT_ALGORITHM_NAME[] = { 'A', 'l', 'g', 'o', 'r', 'i', 't',
+	                                           'h', 'm', 'N', 'a', 'm', 'e', '\0' };
+static const WCHAR BCRYPT_PROVIDER_HANDLE[] = { 'P', 'r', 'o', 'v', 'i', 'd', 'e', 'r',
+	                                            'H', 'a', 'n', 'd', 'l', 'e', '\0' };
+static const WCHAR BCRYPT_CHAINING_MODE[] = { 'C', 'h', 'a', 'i', 'n', 'i', 'n',
+	                                          'g', 'M', 'o', 'd', 'e', '\0' };
+static const WCHAR BCRYPT_BLOCK_LENGTH[] = { 'B', 'l', 'o', 'c', 'k', 'L',
+	                                         'e', 'n', 'g', 't', 'h', '\0' };
+static const WCHAR BCRYPT_KEY_LENGTH[] = { 'K', 'e', 'y', 'L', 'e', 'n', 'g', 't', 'h', '\0' };
+static const WCHAR BCRYPT_KEY_OBJECT_LENGTH[] = { 'K', 'e', 'y', 'O', 'b', 'j', 'e', 'c',
+	                                              't', 'L', 'e', 'n', 'g', 't', 'h', '\0' };
+static const WCHAR BCRYPT_KEY_STRENGTH[] = { 'K', 'e', 'y', 'S', 't', 'r',
+	                                         'e', 'n', 'g', 't', 'h', '\0' };
+static const WCHAR BCRYPT_KEY_LENGTHS[] = {
+	'K', 'e', 'y', 'L', 'e', 'n', 'g', 't', 'h', 's', '\0'
+};
+static const WCHAR BCRYPT_BLOCK_SIZE_LIST[] = { 'B', 'l', 'o', 'c', 'k', 'S', 'i',
+	                                            'z', 'e', 'L', 'i', 's', 't', '\0' };
+static const WCHAR BCRYPT_EFFECTIVE_KEY_LENGTH[] = { 'E', 'f', 'f', 'e', 'c', 't', 'i',
+	                                                 'v', 'e', 'K', 'e', 'y', 'L', 'e',
+	                                                 'n', 'g', 't', 'h', '\0' };
+static const WCHAR BCRYPT_HASH_LENGTH[] = { 'H', 'a', 's', 'h', 'D', 'i', 'g', 'e', 's',
+	                                        't', 'L', 'e', 'n', 'g', 't', 'h', '\0' };
+static const WCHAR BCRYPT_HASH_OID_LIST[] = { 'H', 'a', 's', 'h', 'O', 'I',
+	                                          'D', 'L', 'i', 's', 't', '\0' };
+static const WCHAR BCRYPT_PADDING_SCHEMES[] = { 'P', 'a', 'd', 'd', 'i', 'n', 'g', 'S',
+	                                            'c', 'h', 'e', 'm', 'e', 's', '\0' };
+static const WCHAR BCRYPT_SIGNATURE_LENGTH[] = { 'S', 'i', 'g', 'n', 'a', 't', 'u', 'r',
+	                                             'e', 'L', 'e', 'n', 'g', 't', 'h', '\0' };
+static const WCHAR BCRYPT_HASH_BLOCK_LENGTH[] = { 'H', 'a', 's', 'h', 'B', 'l', 'o', 'c',
+	                                              'k', 'L', 'e', 'n', 'g', 't', 'h', '\0' };
+static const WCHAR BCRYPT_AUTH_TAG_LENGTH[] = { 'A', 'u', 't', 'h', 'T', 'a', 'g',
+	                                            'L', 'e', 'n', 'g', 't', 'h', '\0' };
+static const WCHAR BCRYPT_PRIMITIVE_TYPE[] = { 'P', 'r', 'i', 'm', 'i', 't', 'i',
+	                                           'v', 'e', 'T', 'y', 'p', 'e', '\0' };
+static const WCHAR BCRYPT_IS_KEYED_HASH[] = { 'I', 's', 'K', 'e', 'y', 'e',
+	                                          'd', 'H', 'a', 's', 'h', '\0' };
+static const WCHAR BCRYPT_KEY_DATA_BLOB[] = { 'K', 'e', 'y', 'D', 'a', 't',
+	                                          'a', 'B', 'l', 'o', 'b', '\0' };
 
 #define BCRYPT_BLOCK_PADDING 0x00000001
 

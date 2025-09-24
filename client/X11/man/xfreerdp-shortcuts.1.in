@@ -2,7 +2,11 @@
 .PP
 <Right CTRL>
 .RS 4
-releases keyboard and mouse grab
+releases keyboard and mouse grab.
+.br
+If keyboard is grabbed the local system shortcuts do no longer work and are sent to the remote system.
+.br
+If the Mouse is grabbed (optional) local gesture detection does not work and the mouse might not be able to leave the RDP window. Mouse events are not altered.
 .RE
 .PP
 <CTRL>+<ALT>+<Return>
@@ -18,6 +22,11 @@ Minimizes the application
 <CTRL>+<ALT>+c
 .RS 4
 toggles remote control in a remote assistance session
+.RE
+.PP
+<CTRL>+<ALT>+<d>
+.RS 4
+Disconnect the session and terminate application
 .RE
 .PP
 Action Script

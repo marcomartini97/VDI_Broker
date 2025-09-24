@@ -24,7 +24,6 @@
 #include "../sdl_freerdp.hpp"
 #include "res/sdl3_resource_manager.hpp"
 
-static const SDL_Color backgroundcolor = { 0x38, 0x36, 0x35, 0xff };
 static const SDL_Color textcolor = { 0xd1, 0xcf, 0xcd, 0xff };
 static const SDL_Color infocolor = { 0x43, 0xe0, 0x0f, 0x60 };
 static const SDL_Color warncolor = { 0xcd, 0xca, 0x35, 0x60 };
@@ -35,7 +34,6 @@ static const Uint32 hpadding = 5;
 
 SDLConnectionDialog::SDLConnectionDialog(rdpContext* context) : _context(context)
 {
-	SDL_Init(SDL_INIT_EVENTS | SDL_INIT_VIDEO);
 	hide();
 }
 
@@ -43,16 +41,6 @@ SDLConnectionDialog::~SDLConnectionDialog()
 {
 	resetTimer();
 	destroyWindow();
-	SDL_Quit();
-}
-
-bool SDLConnectionDialog::visible() const
-{
-	if (!_window || !_renderer)
-		return false;
-
-	auto flags = SDL_GetWindowFlags(_window);
-	return (flags & (SDL_WINDOW_HIDDEN | SDL_WINDOW_MINIMIZED)) == 0;
 }
 
 bool SDLConnectionDialog::setTitle(const char* fmt, ...)
@@ -63,14 +51,14 @@ bool SDLConnectionDialog::setTitle(const char* fmt, ...)
 	_title = print(fmt, ap);
 	va_end(ap);
 
-	return show(MSG_NONE);
+	return show(SdlConnectionDialogWrapper::MSG_NONE);
 }
 
 bool SDLConnectionDialog::showInfo(const char* fmt, ...)
 {
 	va_list ap = {};
 	va_start(ap, fmt);
-	auto rc = show(MSG_INFO, fmt, ap);
+	auto rc = show(SdlConnectionDialogWrapper::MSG_INFO, fmt, ap);
 	va_end(ap);
 	return rc;
 }
@@ -79,7 +67,7 @@ bool SDLConnectionDialog::showWarn(const char* fmt, ...)
 {
 	va_list ap = {};
 	va_start(ap, fmt);
-	auto rc = show(MSG_WARN, fmt, ap);
+	auto rc = show(SdlConnectionDialogWrapper::MSG_WARN, fmt, ap);
 	va_end(ap);
 	return rc;
 }
@@ -88,7 +76,7 @@ bool SDLConnectionDialog::showError(const char* fmt, ...)
 {
 	va_list ap = {};
 	va_start(ap, fmt);
-	auto rc = show(MSG_ERROR, fmt, ap);
+	auto rc = show(SdlConnectionDialogWrapper::MSG_ERROR, fmt, ap);
 	va_end(ap);
 	if (!rc)
 		return rc;
@@ -104,7 +92,7 @@ bool SDLConnectionDialog::show()
 bool SDLConnectionDialog::hide()
 {
 	std::lock_guard lock(_mux);
-	return show(MSG_DISCARD);
+	return show(SdlConnectionDialogWrapper::MSG_DISCARD);
 }
 
 bool SDLConnectionDialog::running() const
@@ -113,29 +101,27 @@ bool SDLConnectionDialog::running() const
 	return _running;
 }
 
-bool SDLConnectionDialog::update()
+bool SDLConnectionDialog::updateMsg(SdlConnectionDialogWrapper::MsgType type)
 {
-	std::lock_guard lock(_mux);
-	switch (_type)
+	switch (type)
 	{
-		case MSG_INFO:
-		case MSG_WARN:
-		case MSG_ERROR:
-			_type_active = _type;
+		case SdlConnectionDialogWrapper::MSG_INFO:
+		case SdlConnectionDialogWrapper::MSG_WARN:
+		case SdlConnectionDialogWrapper::MSG_ERROR:
+			_type_active = type;
 			createWindow();
 			break;
-		case MSG_DISCARD:
+		case SdlConnectionDialogWrapper::MSG_DISCARD:
 			resetTimer();
 			destroyWindow();
 			break;
 		default:
 			if (_window)
 			{
-				SDL_SetWindowTitle(_window, _title.c_str());
+				SDL_SetWindowTitle(_window.get(), _title.c_str());
 			}
 			break;
 	}
-	_type = MSG_NONE;
 	return true;
 }
 
@@ -148,45 +134,22 @@ bool SDLConnectionDialog::setModal()
 			return true;
 
 		auto parent = sdl->windows.begin()->second.window();
-		SDL_SetWindowParent(_window, parent);
-		SDL_SetWindowModal(_window, true);
-		SDL_RaiseWindow(_window);
+		SDL_SetWindowParent(_window.get(), parent);
+		SDL_SetWindowModal(_window.get(), true);
+		SDL_RaiseWindow(_window.get());
 	}
 	return true;
 }
 
-bool SDLConnectionDialog::clearWindow(SDL_Renderer* renderer)
-{
-	assert(renderer);
-
-	const int drc = SDL_SetRenderDrawColor(renderer, backgroundcolor.r, backgroundcolor.g,
-	                                       backgroundcolor.b, backgroundcolor.a);
-	if (widget_log_error(drc, "SDL_SetRenderDrawColor"))
-		return false;
-
-	const int rcls = SDL_RenderClear(renderer);
-	return !widget_log_error(rcls, "SDL_RenderClear");
-}
-
-bool SDLConnectionDialog::update(SDL_Renderer* renderer)
+bool SDLConnectionDialog::updateInternal()
 {
 	std::lock_guard lock(_mux);
-	if (!renderer)
-		return false;
-
-	if (!clearWindow(renderer))
-		return false;
-
 	for (auto& btn : _list)
 	{
-		if (!btn.widget.update_text(renderer, _msg, btn.fgcolor, btn.bgcolor))
+		if (!btn.widget.update_text(_msg))
 			return false;
 	}
 
-	if (!_buttons.update(renderer))
-		return false;
-
-	SDL_RenderPresent(renderer);
 	return true;
 }
 
@@ -209,13 +172,17 @@ bool SDLConnectionDialog::handle(const SDL_Event& event)
 	Uint32 windowID = 0;
 	if (_window)
 	{
-		windowID = SDL_GetWindowID(_window);
+		windowID = SDL_GetWindowID(_window.get());
 	}
 
 	switch (event.type)
 	{
 		case SDL_EVENT_USER_RETRY_DIALOG:
-			return update();
+		{
+			std::lock_guard lock(_mux);
+			auto type = static_cast<SdlConnectionDialogWrapper::MsgType>(event.user.code);
+			return updateMsg(type);
+		}
 		case SDL_EVENT_QUIT:
 			resetTimer();
 			destroyWindow();
@@ -225,7 +192,7 @@ bool SDLConnectionDialog::handle(const SDL_Event& event)
 			if (visible())
 			{
 				auto& ev = reinterpret_cast<const SDL_KeyboardEvent&>(event);
-				update(_renderer);
+				update();
 				switch (event.key.key)
 				{
 					case SDLK_RETURN:
@@ -254,7 +221,7 @@ bool SDLConnectionDialog::handle(const SDL_Event& event)
 				auto& ev = reinterpret_cast<const SDL_MouseMotionEvent&>(event);
 
 				_buttons.set_mouseover(event.button.x, event.button.y);
-				update(_renderer);
+				update();
 				return windowID == ev.windowID;
 			}
 			return false;
@@ -263,7 +230,7 @@ bool SDLConnectionDialog::handle(const SDL_Event& event)
 			if (visible())
 			{
 				auto& ev = reinterpret_cast<const SDL_MouseButtonEvent&>(event);
-				update(_renderer);
+				update();
 
 				auto button = _buttons.get_selected(event.button);
 				if (button)
@@ -282,7 +249,7 @@ bool SDLConnectionDialog::handle(const SDL_Event& event)
 			if (visible())
 			{
 				auto& ev = reinterpret_cast<const SDL_MouseWheelEvent&>(event);
-				update(_renderer);
+				update();
 				return windowID == ev.windowID;
 			}
 			return false;
@@ -291,7 +258,7 @@ bool SDLConnectionDialog::handle(const SDL_Event& event)
 			if (visible())
 			{
 				auto& ev = reinterpret_cast<const SDL_TouchFingerEvent&>(event);
-				update(_renderer);
+				update();
 				return windowID == ev.windowID;
 			}
 			return false;
@@ -309,7 +276,7 @@ bool SDLConnectionDialog::handle(const SDL_Event& event)
 						}
 						break;
 					default:
-						update(_renderer);
+						update();
 						setModal();
 						break;
 				}
@@ -320,40 +287,40 @@ bool SDLConnectionDialog::handle(const SDL_Event& event)
 	}
 }
 
+bool SDLConnectionDialog::visible() const
+{
+	std::lock_guard lock(_mux);
+	return SdlWidgetList::visible();
+}
+
 bool SDLConnectionDialog::createWindow()
 {
 	destroyWindow();
 
-	const int widget_height = 50;
-	const int widget_width = 600;
-	const int total_height = 300;
+	const size_t widget_height = 50;
+	const size_t widget_width = 600;
+	const size_t total_height = 300;
 
-	auto rc = SDL_CreateWindowAndRenderer(_title.c_str(), widget_width, total_height,
-	                                      SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WINDOW_MOUSE_FOCUS |
-	                                          SDL_WINDOW_INPUT_FOCUS,
-	                                      &_window, &_renderer);
-	if (rc != 0)
-	{
-		widget_log_error(rc, "SDL_CreateWindowAndRenderer");
+	if (!reset(_title, widget_width, total_height))
 		return false;
-	}
+
 	setModal();
 
 	SDL_Color res_bgcolor;
 	switch (_type_active)
 	{
-		case MSG_INFO:
+		case SdlConnectionDialogWrapper::MSG_INFO:
 			res_bgcolor = infocolor;
 			break;
-		case MSG_WARN:
+		case SdlConnectionDialogWrapper::MSG_WARN:
 			res_bgcolor = warncolor;
 			break;
-		case MSG_ERROR:
+		case SdlConnectionDialogWrapper::MSG_ERROR:
 			res_bgcolor = errorcolor;
 			break;
-		case MSG_DISCARD:
+		case SdlConnectionDialogWrapper::MSG_DISCARD:
 		default:
-			res_bgcolor = backgroundcolor;
+			res_bgcolor = _backgroundcolor;
 			break;
 	}
 
@@ -361,22 +328,22 @@ bool SDLConnectionDialog::createWindow()
 	std::string res_name;
 	switch (_type_active)
 	{
-		case MSG_INFO:
+		case SdlConnectionDialogWrapper::MSG_INFO:
 			res_name = "icon_info.svg";
 			break;
-		case MSG_WARN:
+		case SdlConnectionDialogWrapper::MSG_WARN:
 			res_name = "icon_warning.svg";
 			break;
-		case MSG_ERROR:
+		case SdlConnectionDialogWrapper::MSG_ERROR:
 			res_name = "icon_error.svg";
 			break;
-		case MSG_DISCARD:
+		case SdlConnectionDialogWrapper::MSG_DISCARD:
 		default:
 			res_name = "";
 			break;
 	}
 
-	int height = (total_height - 3ul * vpadding) / 2ul;
+	const auto height = (total_height - 3ul * vpadding) / 2ul;
 	SDL_FRect iconRect{ hpadding, vpadding, widget_width / 4ul - 2ul * hpadding,
 		                static_cast<float>(height) };
 	widget_cfg_t icon{ textcolor,
@@ -388,7 +355,7 @@ bool SDLConnectionDialog::createWindow()
 	iconRect.y += static_cast<float>(height);
 
 	widget_cfg_t logo{ textcolor,
-		               backgroundcolor,
+		               _backgroundcolor,
 		               { _renderer, iconRect,
 		                 SDL3ResourceManager::get(SDLResourceManager::typeImages(),
 		                                          "FreeRDP_Icon.svg") } };
@@ -401,7 +368,7 @@ bool SDLConnectionDialog::createWindow()
 		               total_height - 2ul * vpadding };
 #endif
 
-	widget_cfg_t w{ textcolor, backgroundcolor, { _renderer, rect, false } };
+	widget_cfg_t w{ textcolor, _backgroundcolor, { _renderer, rect } };
 	w.widget.set_wrap(true, widget_width);
 	_list.emplace_back(std::move(w));
 	rect.y += widget_height + vpadding;
@@ -413,8 +380,8 @@ bool SDLConnectionDialog::createWindow()
 	                  static_cast<Sint32>(widget_width / 2), static_cast<Sint32>(widget_height));
 	_buttons.set_highlight(0);
 
-	SDL_ShowWindow(_window);
-	SDL_RaiseWindow(_window);
+	SDL_ShowWindow(_window.get());
+	SDL_RaiseWindow(_window.get());
 
 	return true;
 }
@@ -423,23 +390,24 @@ void SDLConnectionDialog::destroyWindow()
 {
 	_buttons.clear();
 	_list.clear();
-	SDL_DestroyRenderer(_renderer);
-	SDL_DestroyWindow(_window);
 	_renderer = nullptr;
 	_window = nullptr;
 }
 
-bool SDLConnectionDialog::show(MsgType type, const char* fmt, va_list ap)
+bool SDLConnectionDialog::show(SdlConnectionDialogWrapper::MsgType type, const char* fmt,
+                               va_list ap)
 {
 	std::lock_guard lock(_mux);
 	_msg = print(fmt, ap);
 	return show(type);
 }
 
-bool SDLConnectionDialog::show(MsgType type)
+bool SDLConnectionDialog::show(SdlConnectionDialogWrapper::MsgType type)
 {
-	_type = type;
-	return sdl_push_user_event(SDL_EVENT_USER_RETRY_DIALOG);
+	if (SDL_IsMainThread())
+		return updateMsg(type);
+	else
+		return sdl_push_user_event(SDL_EVENT_USER_RETRY_DIALOG, type);
 }
 
 std::string SDLConnectionDialog::print(const char* fmt, va_list ap)
@@ -451,7 +419,7 @@ std::string SDLConnectionDialog::print(const char* fmt, va_list ap)
 	{
 		res.resize(128);
 		if (size > 0)
-			res.resize(size);
+			res.resize(WINPR_ASSERTING_INT_CAST(uint32_t, size));
 
 		va_list copy;
 		va_copy(copy, ap);
@@ -483,55 +451,11 @@ void SDLConnectionDialog::resetTimer()
 	_running = false;
 }
 
-Uint32 SDLConnectionDialog::timeout(void* pvthis, SDL_TimerID timerID, Uint32 intervalMS)
+Uint32 SDLConnectionDialog::timeout(void* pvthis, [[maybe_unused]] SDL_TimerID timerID,
+                                    [[maybe_unused]] Uint32 intervalMS)
 {
 	auto self = static_cast<SDLConnectionDialog*>(pvthis);
 	self->hide();
 	self->_running = false;
 	return 0;
-}
-
-SDLConnectionDialogHider::SDLConnectionDialogHider(freerdp* instance)
-    : SDLConnectionDialogHider(get(instance))
-{
-}
-
-SDLConnectionDialogHider::SDLConnectionDialogHider(rdpContext* context)
-    : SDLConnectionDialogHider(get(context))
-{
-}
-
-SDLConnectionDialogHider::SDLConnectionDialogHider(SDLConnectionDialog* dialog) : _dialog(dialog)
-{
-	if (_dialog)
-	{
-		_visible = _dialog->visible();
-		if (_visible)
-		{
-			_dialog->hide();
-		}
-	}
-}
-
-SDLConnectionDialogHider::~SDLConnectionDialogHider()
-{
-	if (_dialog && _visible)
-	{
-		_dialog->show();
-	}
-}
-
-SDLConnectionDialog* SDLConnectionDialogHider::get(freerdp* instance)
-{
-	if (!instance)
-		return nullptr;
-	return get(instance->context);
-}
-
-SDLConnectionDialog* SDLConnectionDialogHider::get(rdpContext* context)
-{
-	auto sdl = get_context(context);
-	if (!sdl)
-		return nullptr;
-	return sdl->connection_dialog.get();
 }

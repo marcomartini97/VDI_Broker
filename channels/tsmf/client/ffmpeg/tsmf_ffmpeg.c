@@ -108,11 +108,13 @@ static BOOL tsmf_ffmpeg_init_context(ITSMFDecoder* decoder)
 static BOOL tsmf_ffmpeg_init_video_stream(ITSMFDecoder* decoder, const TS_AM_MEDIA_TYPE* media_type)
 {
 	TSMFFFmpegDecoder* mdecoder = (TSMFFFmpegDecoder*)decoder;
-	mdecoder->codec_context->width = media_type->Width;
-	mdecoder->codec_context->height = media_type->Height;
-	mdecoder->codec_context->bit_rate = media_type->BitRate;
-	mdecoder->codec_context->time_base.den = media_type->SamplesPerSecond.Numerator;
-	mdecoder->codec_context->time_base.num = media_type->SamplesPerSecond.Denominator;
+	mdecoder->codec_context->width = WINPR_ASSERTING_INT_CAST(int, media_type->Width);
+	mdecoder->codec_context->height = WINPR_ASSERTING_INT_CAST(int, media_type->Height);
+	mdecoder->codec_context->bit_rate = WINPR_ASSERTING_INT_CAST(int, media_type->BitRate);
+	mdecoder->codec_context->time_base.den =
+	    WINPR_ASSERTING_INT_CAST(int, media_type->SamplesPerSecond.Numerator);
+	mdecoder->codec_context->time_base.num =
+	    WINPR_ASSERTING_INT_CAST(int, media_type->SamplesPerSecond.Denominator);
 #if LIBAVCODEC_VERSION_MAJOR < 55
 	mdecoder->frame = avcodec_alloc_frame();
 #else
@@ -124,14 +126,16 @@ static BOOL tsmf_ffmpeg_init_video_stream(ITSMFDecoder* decoder, const TS_AM_MED
 static BOOL tsmf_ffmpeg_init_audio_stream(ITSMFDecoder* decoder, const TS_AM_MEDIA_TYPE* media_type)
 {
 	TSMFFFmpegDecoder* mdecoder = (TSMFFFmpegDecoder*)decoder;
-	mdecoder->codec_context->sample_rate = media_type->SamplesPerSecond.Numerator;
-	mdecoder->codec_context->bit_rate = media_type->BitRate;
+	mdecoder->codec_context->sample_rate =
+	    WINPR_ASSERTING_INT_CAST(int, media_type->SamplesPerSecond.Numerator);
+	mdecoder->codec_context->bit_rate = WINPR_ASSERTING_INT_CAST(int, media_type->BitRate);
 #if LIBAVUTIL_VERSION_INT >= AV_VERSION_INT(57, 28, 100)
-	mdecoder->codec_context->ch_layout.nb_channels = media_type->Channels;
+	mdecoder->codec_context->ch_layout.nb_channels =
+	    WINPR_ASSERTING_INT_CAST(int, media_type->Channels);
 #else
-	mdecoder->codec_context->channels = media_type->Channels;
+	mdecoder->codec_context->channels = WINPR_ASSERTING_INT_CAST(int, media_type->Channels);
 #endif
-	mdecoder->codec_context->block_align = media_type->BlockAlign;
+	mdecoder->codec_context->block_align = WINPR_ASSERTING_INT_CAST(int, media_type->BlockAlign);
 #if LIBAVCODEC_VERSION_MAJOR < 55
 #ifdef AV_CPU_FLAG_SSE2
 	mdecoder->codec_context->dsp_mask = AV_CPU_FLAG_SSE2 | AV_CPU_FLAG_MMX2;
@@ -199,7 +203,8 @@ static BOOL tsmf_ffmpeg_init_stream(ITSMFDecoder* decoder, const TS_AM_MEDIA_TYP
 	if (media_type->ExtraData)
 	{
 		/* Add a padding to avoid invalid memory read in some codec */
-		mdecoder->codec_context->extradata_size = media_type->ExtraDataSize + 8;
+		mdecoder->codec_context->extradata_size =
+		    WINPR_ASSERTING_INT_CAST(int, media_type->ExtraDataSize + 8);
 		mdecoder->codec_context->extradata = calloc(1, mdecoder->codec_context->extradata_size);
 
 		if (!mdecoder->codec_context->extradata)
@@ -387,7 +392,7 @@ static BOOL tsmf_ffmpeg_decode_video(ITSMFDecoder* decoder, const BYTE* data, UI
 		av_init_packet(&pkt);
 #endif
 		pkt.data = WINPR_CAST_CONST_PTR_AWAY(data, BYTE*);
-		pkt.size = data_size;
+		pkt.size = WINPR_ASSERTING_INT_CAST(int, data_size);
 
 		if (extensions & TSMM_SAMPLE_EXT_CLEANPOINT)
 			pkt.flags |= AV_PKT_FLAG_KEY;
@@ -398,10 +403,9 @@ static BOOL tsmf_ffmpeg_decode_video(ITSMFDecoder* decoder, const BYTE* data, UI
 		len = avcodec_send_packet(mdecoder->codec_context, &pkt);
 		if (len > 0)
 		{
-			do
-			{
-				len = avcodec_receive_frame(mdecoder->codec_context, mdecoder->frame);
-			} while (len == AVERROR(EAGAIN));
+			len = avcodec_receive_frame(mdecoder->codec_context, mdecoder->frame);
+			if (len == AVERROR(EAGAIN))
+				return TRUE;
 		}
 #endif
 	}
@@ -462,19 +466,6 @@ static BOOL tsmf_ffmpeg_decode_audio(ITSMFDecoder* decoder, const BYTE* data, UI
 	int len = 0;
 	int frame_size = 0;
 
-#if 0
-	WLog_DBG(TAG, ("tsmf_ffmpeg_decode_audio: data_size %"PRIu32"", data_size));
-
-	for (int i = 0; i < data_size; i++)
-	{
-		WLog_DBG(TAG, ("%02"PRIX8"", data[i]));
-
-		if (i % 16 == 15)
-			WLog_DBG(TAG, ("\n"));
-	}
-
-#endif
-
 	if (mdecoder->decoded_size_max == 0)
 		mdecoder->decoded_size_max = MAX_AUDIO_FRAME_SIZE + 16;
 
@@ -515,9 +506,9 @@ static BOOL tsmf_ffmpeg_decode_audio(ITSMFDecoder* decoder, const BYTE* data, UI
 			dst += mdecoder->decoded_size;
 		}
 
-		frame_size = mdecoder->decoded_size_max - mdecoder->decoded_size;
 #if LIBAVCODEC_VERSION_MAJOR < 52 || \
     (LIBAVCODEC_VERSION_MAJOR == 52 && LIBAVCODEC_VERSION_MINOR <= 20)
+		frame_size = mdecoder->decoded_size_max - mdecoder->decoded_size;
 		len = avcodec_decode_audio2(mdecoder->codec_context, (int16_t*)dst, &frame_size, src,
 		                            src_size);
 #else
@@ -534,17 +525,16 @@ static BOOL tsmf_ffmpeg_decode_audio(ITSMFDecoder* decoder, const BYTE* data, UI
 #endif
 
 			pkt.data = WINPR_CAST_CONST_PTR_AWAY(src, BYTE*);
-			pkt.size = src_size;
+			pkt.size = WINPR_ASSERTING_INT_CAST(int, src_size);
 #if LIBAVCODEC_VERSION_INT < AV_VERSION_INT(57, 48, 101)
 			len = avcodec_decode_audio4(mdecoder->codec_context, decoded_frame, &got_frame, &pkt);
 #else
 			len = avcodec_send_packet(mdecoder->codec_context, &pkt);
 			if (len > 0)
 			{
-				do
-				{
-					len = avcodec_receive_frame(mdecoder->codec_context, decoded_frame);
-				} while (len == AVERROR(EAGAIN));
+				len = avcodec_receive_frame(mdecoder->codec_context, decoded_frame);
+				if (len == AVERROR(EAGAIN))
+					return TRUE;
 			}
 #endif
 
@@ -677,11 +667,17 @@ static void tsmf_ffmpeg_free(ITSMFDecoder* decoder)
 
 	if (mdecoder->codec_context)
 	{
+		free(mdecoder->codec_context->extradata);
+		mdecoder->codec_context->extradata = NULL;
+
+#if LIBAVCODEC_VERSION_INT >= AV_VERSION_INT(55, 69, 100)
+		avcodec_free_context(&mdecoder->codec_context);
+#else
 		if (mdecoder->prepared)
 			avcodec_close(mdecoder->codec_context);
 
-		free(mdecoder->codec_context->extradata);
 		av_free(mdecoder->codec_context);
+#endif
 	}
 
 	free(decoder);

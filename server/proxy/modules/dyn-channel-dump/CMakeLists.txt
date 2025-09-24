@@ -21,37 +21,31 @@
 cmake_minimum_required(VERSION 3.13)
 
 if(POLICY CMP0091)
-	cmake_policy(SET CMP0091 NEW)
+  cmake_policy(SET CMP0091 NEW)
 endif()
-if (NOT FREERDP_DEFAULT_PROJECT_VERSION)
-	set(FREERDP_DEFAULT_PROJECT_VERSION "1.0.0.0")
+if(NOT FREERDP_DEFAULT_PROJECT_VERSION)
+  set(FREERDP_DEFAULT_PROJECT_VERSION "1.0.0.0")
 endif()
 
-project(proxy-dyn-channel-dump-plugin
-	VERSION ${FREERDP_DEFAULT_PROJECT_VERSION}
-       	LANGUAGES CXX
-)
+project(proxy-dyn-channel-dump-plugin VERSION ${FREERDP_DEFAULT_PROJECT_VERSION} LANGUAGES CXX)
 
 message("project ${PROJECT_NAME} is using version ${PROJECT_VERSION}")
 
 set(CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/../../../../cmake/)
 include(CommonConfigOptions)
 include(CXXCompilerFlags)
+include(ProjectCXXStandard)
 
-set(CMAKE_CXX_STANDARD 17)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(SRCS dyn-channel-dump.cpp)
+addtargetwithresourcefile(${PROJECT_NAME} FALSE "${PROJECT_VERSION}" SRCS FALSE)
 
-set(SRCS
-	dyn-channel-dump.cpp
+target_compile_definitions(${PROJECT_NAME} PRIVATE $<$<BOOL:${BUILD_SHARED_LIBS}>:BUILD_SHARED_LIBS>)
+target_link_libraries(${PROJECT_NAME} PRIVATE winpr freerdp freerdp-client freerdp-server freerdp-server-proxy)
+
+installwithrpath(TARGETS ${PROJECT_NAME} DESTINATION ${FREERDP_PROXY_PLUGINDIR})
+
+set(PROJECT_PC_REQUIRES_PRIVATE
+    "winpr${FREERDP_API_VERSION} freerdp${FREERDP_API_VERSION} freerdp-server${FREERDP_API_VERSION} freerdp-client${FREERDP_API_VERSION} freerdp-server-proxy${FREERDP_API_VERSION}"
 )
-AddTargetWithResourceFile(${PROJECT_NAME} FALSE "${PROJECT_VERSION}" SRCS FALSE)
-
-target_link_libraries(${PROJECT_NAME} PRIVATE
-	winpr
-	freerdp
-	freerdp-client
-	freerdp-server
-	freerdp-server-proxy
-)
-
-install(TARGETS ${PROJECT_NAME} DESTINATION ${FREERDP_PROXY_PLUGINDIR})
+include(ProxyModuleConfig)
+generate_proxy_module_config()

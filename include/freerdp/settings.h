@@ -209,7 +209,7 @@ extern "C"
 	FREERDP_API ADDIN_ARGV* freerdp_static_channel_collection_find(rdpSettings* settings,
 	                                                               const char* name);
 #if defined(WITH_FREERDP_DEPRECATED)
-	FREERDP_API WINPR_DEPRECATED(ADDIN_ARGV* freerdp_static_channel_clone(ADDIN_ARGV* channel));
+	WINPR_DEPRECATED(FREERDP_API ADDIN_ARGV* freerdp_static_channel_clone(ADDIN_ARGV* channel));
 #endif
 
 	FREERDP_API void freerdp_static_channel_collection_free(rdpSettings* settings);
@@ -222,7 +222,7 @@ extern "C"
 	                                                                const char* name);
 
 #if defined(WITH_FREERDP_DEPRECATED)
-	FREERDP_API WINPR_DEPRECATED(ADDIN_ARGV* freerdp_dynamic_channel_clone(ADDIN_ARGV* channel));
+	WINPR_DEPRECATED(FREERDP_API ADDIN_ARGV* freerdp_dynamic_channel_clone(ADDIN_ARGV* channel));
 #endif
 
 	FREERDP_API void freerdp_dynamic_channel_collection_free(rdpSettings* settings);
@@ -251,39 +251,39 @@ extern "C"
 	 * use freerdp_settings_get_* and freerdp_settings_set_* as a replacement!
 	 */
 #if defined(WITH_FREERDP_DEPRECATED)
-	FREERDP_API WINPR_DEPRECATED_VAR("Use freerdp_settings_get_bool instead",
-	                                 BOOL freerdp_get_param_bool(const rdpSettings* settings,
+	WINPR_DEPRECATED_VAR("Use freerdp_settings_get_bool instead",
+	                     FREERDP_API BOOL freerdp_get_param_bool(const rdpSettings* settings,
 	                                                             int id));
-	FREERDP_API WINPR_DEPRECATED_VAR("Use freerdp_settings_set_bool instead",
-	                                 int freerdp_set_param_bool(rdpSettings* settings, int id,
+	WINPR_DEPRECATED_VAR("Use freerdp_settings_set_bool instead",
+	                     FREERDP_API int freerdp_set_param_bool(rdpSettings* settings, int id,
 	                                                            BOOL param));
 
-	FREERDP_API WINPR_DEPRECATED_VAR("Use freerdp_settings_get_int[16|32] instead",
-	                                 int freerdp_get_param_int(const rdpSettings* settings,
+	WINPR_DEPRECATED_VAR("Use freerdp_settings_get_int[16|32] instead",
+	                     FREERDP_API int freerdp_get_param_int(const rdpSettings* settings,
 	                                                           int id));
-	FREERDP_API WINPR_DEPRECATED_VAR("Use freerdp_settings_set_int[16|32] instead",
-	                                 int freerdp_set_param_int(rdpSettings* settings, int id,
+	WINPR_DEPRECATED_VAR("Use freerdp_settings_set_int[16|32] instead",
+	                     FREERDP_API int freerdp_set_param_int(rdpSettings* settings, int id,
 	                                                           int param));
 
-	FREERDP_API WINPR_DEPRECATED_VAR("Use freerdp_settings_set_uint32 instead",
-	                                 UINT32 freerdp_get_param_uint32(const rdpSettings* settings,
+	WINPR_DEPRECATED_VAR("Use freerdp_settings_set_uint32 instead",
+	                     FREERDP_API UINT32 freerdp_get_param_uint32(const rdpSettings* settings,
 	                                                                 int id));
-	FREERDP_API WINPR_DEPRECATED_VAR("Use freerdp_settings_set_uint32 instead",
-	                                 int freerdp_set_param_uint32(rdpSettings* settings, int id,
+	WINPR_DEPRECATED_VAR("Use freerdp_settings_set_uint32 instead",
+	                     FREERDP_API int freerdp_set_param_uint32(rdpSettings* settings, int id,
 	                                                              UINT32 param));
 
-	FREERDP_API WINPR_DEPRECATED_VAR("Use freerdp_settings_get_uint64 instead",
-	                                 UINT64 freerdp_get_param_uint64(const rdpSettings* settings,
+	WINPR_DEPRECATED_VAR("Use freerdp_settings_get_uint64 instead",
+	                     FREERDP_API UINT64 freerdp_get_param_uint64(const rdpSettings* settings,
 	                                                                 int id));
-	FREERDP_API WINPR_DEPRECATED_VAR("Use freerdp_settings_set_uint64 instead",
-	                                 int freerdp_set_param_uint64(rdpSettings* settings, int id,
+	WINPR_DEPRECATED_VAR("Use freerdp_settings_set_uint64 instead",
+	                     FREERDP_API int freerdp_set_param_uint64(rdpSettings* settings, int id,
 	                                                              UINT64 param));
 
-	FREERDP_API WINPR_DEPRECATED_VAR("Use freerdp_settings_get_string instead",
-	                                 char* freerdp_get_param_string(const rdpSettings* settings,
+	WINPR_DEPRECATED_VAR("Use freerdp_settings_get_string instead",
+	                     FREERDP_API char* freerdp_get_param_string(const rdpSettings* settings,
 	                                                                int id));
-	FREERDP_API WINPR_DEPRECATED_VAR("Use freerdp_settings_set_string instead",
-	                                 int freerdp_set_param_string(rdpSettings* settings, int id,
+	WINPR_DEPRECATED_VAR("Use freerdp_settings_set_string instead",
+	                     FREERDP_API int freerdp_set_param_string(rdpSettings* settings, int id,
 	                                                              const char* param));
 #endif
 
@@ -594,6 +594,26 @@ extern "C"
 	                                                    FreeRDP_Settings_Keys_Pointer id,
 	                                                    size_t offset, const void* data);
 
+	/** \brief Set a setting \name to value \b value
+	 *  Both, key and value are provided as strings and parsed internally.
+	 *
+	 *  The \b value will be checked internally:
+	 *   - Integer types must be within boundaries
+	 *   - \b BOOL must be any of {'true', 'false', 'on', 'off', '0', '1'} (case insensitive)
+	 *   - Strings are passed on as is
+	 *   - Pointers are also passed as is
+	 *
+	 *  @param settings The settings instance to set the value, must not be \b NULL
+	 *  @param name The name of the settings key (like 'FreeRDP_Domain', same as output of \ref
+	 * freerdp_settings_get_name_for_key ) Must not be \b NULL
+	 *  @param value The value of the setting. Must not be \b NULL
+	 *
+	 *  @note If the function fails check \ref wLog output for details
+	 *
+	 *  @since version 3.0.0
+	 *
+	 *  @return \b TRUE in case of success, \b FALSE otherwise.
+	 */
 	FREERDP_API BOOL freerdp_settings_set_value_for_name(rdpSettings* settings, const char* name,
 	                                                     const char* value);
 
@@ -728,9 +748,53 @@ extern "C"
 	/** \brief return the configuration directory for the library
 	 *  @return The current configuration path or \b NULL
 	 *  @since version 3.6.0
+	 *  @note Since 3.17.1 this is a wrapper for \ref freerdp_GetConfigFilePath(FALSE, "")
 	 */
 	WINPR_ATTR_MALLOC(free, 1)
 	FREERDP_API char* freerdp_settings_get_config_path(void);
+
+	/** @brief Sort monitor array according to:
+	 *  1. First monitor is at x/y 0/0 and is the primary monitor
+	 *  2. The primary monitor must be at 0/0, if not set
+	 * FreeRDP_MonitorLocalShiftX/FreeRDP_MonitorLocalShiftY
+	 *
+	 *  The FreeRDP_MonitorLocalShiftX/FreeRDP_MonitorLocalShiftY is required to map the local
+	 * monitors / mouse / touch coordinates to the remote ones.
+	 *
+	 *  @param settings The settings to set the monitors for
+	 *  @param monitors The unsorted monitors array
+	 *  @param count The number of monitors in the unsorted array
+	 *
+	 *  @return \b TRUE if the configuration is valid (or could be corrected to a valid one), \b
+	 * FALSE otherwise.
+	 *
+	 *  @version since 3.11.0
+	 */
+	FREERDP_API BOOL freerdp_settings_set_monitor_def_array_sorted(rdpSettings* settings,
+	                                                               const rdpMonitor* monitors,
+	                                                               size_t count);
+
+	/** @brief A function that converts a \b rdpSettings struct to a \b JSON serialized string.
+	 *
+	 *  @param settings The settings instance to serialize
+	 *  @param pretty Format the resulting \b JSON human readable
+	 *  @param plength An optional pointer that receives the length (strlen) of the returned string.
+	 *  @return A \b JSON string representing the serialized form of the \b rdpSettings or \b NULL
+	 * in case of an error.
+	 *  @since version 3.16.0
+	 */
+	FREERDP_API char* freerdp_settings_serialize(const rdpSettings* settings, BOOL pretty,
+	                                             size_t* plength);
+
+	/** @brief A function that converts a \b JSON string to a \b rdpSettings struct
+	 *
+	 *  @param json The \b JSON string
+	 *  @param length The strlen of the \b JSON string
+	 *  @return An allocated \b rdpSettings struct or \b NULL in case of an error
+	 *  @since version 3.16.0
+	 */
+	WINPR_ATTR_MALLOC(freerdp_settings_free, 1)
+	FREERDP_API rdpSettings* freerdp_settings_deserialize(const char* json, size_t length);
 
 #ifdef __cplusplus
 }

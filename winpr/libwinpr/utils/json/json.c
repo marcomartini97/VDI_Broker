@@ -20,6 +20,7 @@
 #include <math.h>
 #include <errno.h>
 
+#include <winpr/file.h>
 #include <winpr/json.h>
 #include <winpr/assert.h>
 
@@ -27,15 +28,13 @@
 #include <cjson/cJSON.h>
 #endif
 #if defined(WITH_JSONC)
-#include <json-c/json.h>
+#include <json.h>
 #endif
 
 #if defined(WITH_CJSON)
 #if CJSON_VERSION_MAJOR == 1
-#if CJSON_VERSION_MINOR <= 7
-#if CJSON_VERSION_PATCH < 13
+#if (CJSON_VERSION_MINOR < 7) || ((CJSON_VERSION_MINOR == 7) && (CJSON_VERSION_PATCH < 13))
 #define USE_CJSON_COMPAT
-#endif
 #endif
 #endif
 #endif
@@ -106,7 +105,8 @@ int WINPR_JSON_version(char* buffer, size_t len)
 #elif defined(WITH_CJSON)
 	return _snprintf(buffer, len, "cJSON %s", cJSON_Version());
 #else
-	return _snprintf(buffer, len, "JSON support not available");
+	(void)_snprintf(buffer, len, "JSON support not available");
+	return -1;
 #endif
 }
 
@@ -184,7 +184,18 @@ size_t WINPR_JSON_GetArraySize(const WINPR_JSON* array)
 WINPR_JSON* WINPR_JSON_GetObjectItem(const WINPR_JSON* object, const char* string)
 {
 #if defined(WITH_JSONC)
-	return json_object_object_get((const json_object*)object, string);
+	struct json_object_iterator it = json_object_iter_begin((const json_object*)object);
+	struct json_object_iterator itEnd = json_object_iter_end((const json_object*)object);
+	while (!json_object_iter_equal(&it, &itEnd))
+	{
+		const char* key = json_object_iter_peek_name(&it);
+		if (_stricmp(key, string) == 0)
+		{
+			return json_object_iter_peek_value(&it);
+		}
+		json_object_iter_next(&it);
+	}
+	return NULL;
 #elif defined(WITH_CJSON)
 	return cJSON_GetObjectItem((const cJSON*)object, string);
 #else
@@ -617,7 +628,14 @@ BOOL WINPR_JSON_AddItemToArray(WINPR_JSON* array, WINPR_JSON* item)
 		return FALSE;
 	return TRUE;
 #elif defined(WITH_CJSON)
+#if defined(USE_CJSON_COMPAT)
+	if ((array == NULL) || (item == NULL))
+		return FALSE;
+	cJSON_AddItemToArray((cJSON*)array, (cJSON*)item);
+	return TRUE;
+#else
 	return cJSON_AddItemToArray((cJSON*)array, (cJSON*)item);
+#endif
 #else
 	WINPR_UNUSED(array);
 	WINPR_UNUSED(item);
@@ -672,4 +690,42 @@ char* WINPR_JSON_PrintUnformatted(WINPR_JSON* item)
 	WINPR_UNUSED(item);
 	return NULL;
 #endif
+}
+
+WINPR_JSON* WINPR_JSON_ParseFromFile(const char* filename)
+{
+	FILE* fp = winpr_fopen(filename, "r");
+	if (!fp)
+		return NULL;
+	WINPR_JSON* json = WINPR_JSON_ParseFromFileFP(fp);
+	(void)fclose(fp);
+	return json;
+}
+
+WINPR_JSON* WINPR_JSON_ParseFromFileFP(FILE* fp)
+{
+	if (!fp)
+		return NULL;
+
+	if (fseek(fp, 0, SEEK_END) != 0)
+		return NULL;
+
+	const INT64 size = _ftelli64(fp);
+	if (size < 0)
+		return NULL;
+
+	if (fseek(fp, 0, SEEK_SET) != 0)
+		return NULL;
+
+	const size_t usize = WINPR_ASSERTING_INT_CAST(size_t, size);
+	char* str = calloc(usize + 1, sizeof(char));
+	if (!str)
+		return NULL;
+
+	WINPR_JSON* json = NULL;
+	const size_t s = fread(str, sizeof(char), usize, fp);
+	if (s == usize)
+		json = WINPR_JSON_ParseWithLength(str, usize);
+	free(str);
+	return json;
 }

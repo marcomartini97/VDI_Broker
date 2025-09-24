@@ -25,6 +25,7 @@
 #include "settings.h"
 
 #include <winpr/assert.h>
+#include <winpr/cast.h>
 #include <winpr/crt.h>
 #include <winpr/winsock.h>
 
@@ -107,7 +108,8 @@ static HANDLE freerdp_peer_virtual_channel_open(freerdp_peer* client, const char
 	return (HANDLE)peerChannel;
 }
 
-static BOOL freerdp_peer_virtual_channel_close(freerdp_peer* client, HANDLE hChannel)
+static BOOL freerdp_peer_virtual_channel_close(WINPR_ATTR_UNUSED freerdp_peer* client,
+                                               HANDLE hChannel)
 {
 	rdpMcsChannel* mcsChannel = NULL;
 	rdpPeerChannel* peerChannel = NULL;
@@ -160,7 +162,8 @@ static int freerdp_peer_virtual_channel_write(freerdp_peer* client, HANDLE hChan
 
 	while (length > 0)
 	{
-		s = rdp_send_stream_init(rdp);
+		UINT16 sec_flags = 0;
+		s = rdp_send_stream_init(rdp, &sec_flags);
 
 		if (!s)
 			return -1;
@@ -190,7 +193,7 @@ static int freerdp_peer_virtual_channel_write(freerdp_peer* client, HANDLE hChan
 		Stream_Write(s, buffer, chunkSize);
 
 		WINPR_ASSERT(peerChannel->channelId <= UINT16_MAX);
-		if (!rdp_send(rdp, s, (UINT16)peerChannel->channelId))
+		if (!rdp_send(rdp, s, (UINT16)peerChannel->channelId, sec_flags))
 			return -1;
 
 		buffer += chunkSize;
@@ -201,7 +204,8 @@ static int freerdp_peer_virtual_channel_write(freerdp_peer* client, HANDLE hChan
 	return 1;
 }
 
-static void* freerdp_peer_virtual_channel_get_data(freerdp_peer* client, HANDLE hChannel)
+static void* freerdp_peer_virtual_channel_get_data(WINPR_ATTR_UNUSED freerdp_peer* client,
+                                                   HANDLE hChannel)
 {
 	rdpPeerChannel* peerChannel = (rdpPeerChannel*)hChannel;
 
@@ -212,7 +216,8 @@ static void* freerdp_peer_virtual_channel_get_data(freerdp_peer* client, HANDLE 
 	return peerChannel->extra;
 }
 
-static int freerdp_peer_virtual_channel_set_data(freerdp_peer* client, HANDLE hChannel, void* data)
+static int freerdp_peer_virtual_channel_set_data(WINPR_ATTR_UNUSED freerdp_peer* client,
+                                                 HANDLE hChannel, void* data)
 {
 	rdpPeerChannel* peerChannel = (rdpPeerChannel*)hChannel;
 
@@ -270,6 +275,8 @@ static BOOL freerdp_peer_initialize(freerdp_peer* client)
 	}
 
 	nego_set_RCG_supported(rdp->nego, settings->RemoteCredentialGuard);
+	nego_set_restricted_admin_mode_supported(rdp->nego, settings->RestrictedAdminModeSupported);
+
 	if (!rdp_server_transition_to_state(rdp, CONNECTION_STATE_INITIAL))
 		return FALSE;
 
@@ -329,7 +336,8 @@ static BOOL freerdp_peer_check_fds(freerdp_peer* peer)
 	return TRUE;
 }
 
-static state_run_t peer_recv_data_pdu(freerdp_peer* client, wStream* s, UINT16 totalLength)
+static state_run_t peer_recv_data_pdu(freerdp_peer* client, wStream* s,
+                                      WINPR_ATTR_UNUSED UINT16 totalLength)
 {
 	BYTE type = 0;
 	UINT16 length = 0;
@@ -389,7 +397,8 @@ static state_run_t peer_recv_data_pdu(freerdp_peer* client, wStream* s, UINT16 t
 			return STATE_RUN_CONTINUE; // State changed, trigger rerun
 
 		case DATA_PDU_TYPE_SHUTDOWN_REQUEST:
-			mcs_send_disconnect_provider_ultimatum(rdp->mcs);
+			mcs_send_disconnect_provider_ultimatum(rdp->mcs,
+			                                       Disconnect_Ultimatum_provider_initiated);
 			WLog_WARN(TAG, "disconnect provider ultimatum sent to peer, closing connection");
 			return STATE_RUN_QUIT_SESSION;
 
@@ -424,23 +433,21 @@ static state_run_t peer_recv_data_pdu(freerdp_peer* client, wStream* s, UINT16 t
 static state_run_t peer_recv_tpkt_pdu(freerdp_peer* client, wStream* s)
 {
 	state_run_t rc = STATE_RUN_SUCCESS;
-	rdpRdp* rdp = NULL;
 	UINT16 length = 0;
 	UINT16 pduType = 0;
 	UINT16 pduSource = 0;
 	UINT16 channelId = 0;
 	UINT16 securityFlags = 0;
-	rdpSettings* settings = NULL;
 
 	WINPR_ASSERT(s);
 	WINPR_ASSERT(client);
 	WINPR_ASSERT(client->context);
 
-	rdp = client->context->rdp;
+	rdpRdp* rdp = client->context->rdp;
 	WINPR_ASSERT(rdp);
 	WINPR_ASSERT(rdp->mcs);
 
-	settings = client->context->settings;
+	rdpSettings* settings = client->context->settings;
 	WINPR_ASSERT(settings);
 
 	if (!rdp_read_header(rdp, s, &length, &channelId))
@@ -452,9 +459,7 @@ static state_run_t peer_recv_tpkt_pdu(freerdp_peer* client, wStream* s)
 
 	if (rdp_get_state(rdp) <= CONNECTION_STATE_LICENSING)
 	{
-		if (!rdp_handle_message_channel(rdp, s, channelId, length))
-			return STATE_RUN_FAILED;
-		return STATE_RUN_SUCCESS;
+		return rdp_handle_message_channel(rdp, s, channelId, length);
 	}
 
 	if (!rdp_handle_optional_rdp_decryption(rdp, s, &length, &securityFlags))
@@ -514,7 +519,7 @@ static state_run_t peer_recv_tpkt_pdu(freerdp_peer* client, wStream* s)
 		if (!freerdp_channel_peer_process(client, s, channelId))
 			return STATE_RUN_FAILED;
 	}
-	if (!tpkt_ensure_stream_consumed(s, length))
+	if (!tpkt_ensure_stream_consumed(rdp->log, s, length))
 		return STATE_RUN_FAILED;
 
 	return rc;
@@ -780,7 +785,8 @@ static state_run_t rdp_peer_handle_state_active(freerdp_peer* client)
 	return ret;
 }
 
-static state_run_t peer_recv_callback_internal(rdpTransport* transport, wStream* s, void* extra)
+static state_run_t peer_recv_callback_internal(WINPR_ATTR_UNUSED rdpTransport* transport,
+                                               wStream* s, void* extra)
 {
 	UINT32 SelectedProtocol = 0;
 	freerdp_peer* client = (freerdp_peer*)extra;
@@ -802,7 +808,9 @@ static state_run_t peer_recv_callback_internal(rdpTransport* transport, wStream*
 	switch (rdp_get_state(rdp))
 	{
 		case CONNECTION_STATE_INITIAL:
-			if (rdp_server_transition_to_state(rdp, CONNECTION_STATE_NEGO))
+			if (!freerdp_settings_enforce_consistency(settings))
+				ret = STATE_RUN_FAILED;
+			else if (rdp_server_transition_to_state(rdp, CONNECTION_STATE_NEGO))
 				ret = STATE_RUN_CONTINUE;
 			break;
 
@@ -990,8 +998,8 @@ static state_run_t peer_recv_callback_internal(rdpTransport* transport, wStream*
 					const UINT32 h = freerdp_settings_get_uint32(settings, FreeRDP_DesktopHeight);
 					const rdpMonitor primary = { .x = 0,
 						                         .y = 0,
-						                         .width = w,
-						                         .height = h,
+						                         .width = WINPR_ASSERTING_INT_CAST(int32_t, w),
+						                         .height = WINPR_ASSERTING_INT_CAST(int32_t, h),
 						                         .is_primary = TRUE,
 						                         .orig_screen = 0,
 						                         .attributes = { .physicalWidth = w,
@@ -1213,7 +1221,8 @@ static BOOL freerdp_peer_close(freerdp_peer* client)
 		rdp_send_error_info(context->rdp);
 	}
 
-	return mcs_send_disconnect_provider_ultimatum(context->rdp->mcs);
+	return mcs_send_disconnect_provider_ultimatum(context->rdp->mcs,
+	                                              Disconnect_Ultimatum_provider_initiated);
 }
 
 static void freerdp_peer_disconnect(freerdp_peer* client)
@@ -1237,21 +1246,22 @@ static BOOL freerdp_peer_send_channel_data(freerdp_peer* client, UINT16 channelI
 static BOOL freerdp_peer_send_server_redirection_pdu(freerdp_peer* peer,
                                                      const rdpRedirection* redirection)
 {
+	BOOL rc = FALSE;
 	WINPR_ASSERT(peer);
 	WINPR_ASSERT(peer->context);
 
-	wStream* s = rdp_send_stream_pdu_init(peer->context->rdp);
+	UINT16 sec_flags = 0;
+	wStream* s = rdp_send_stream_pdu_init(peer->context->rdp, &sec_flags);
 	if (!s)
 		return FALSE;
 	if (!rdp_write_enhanced_security_redirection_packet(s, redirection))
 		goto fail;
-	if (!rdp_send_pdu(peer->context->rdp, s, PDU_TYPE_SERVER_REDIRECTION, 0))
+	if (!rdp_send_pdu(peer->context->rdp, s, PDU_TYPE_SERVER_REDIRECTION, 0, sec_flags))
 		goto fail;
-
-	return rdp_reset_runtime_settings(peer->context->rdp);
+	rc = rdp_reset_runtime_settings(peer->context->rdp);
 fail:
 	Stream_Release(s);
-	return FALSE;
+	return rc;
 }
 
 static BOOL freerdp_peer_send_channel_packet(freerdp_peer* client, UINT16 channelId,
@@ -1295,7 +1305,8 @@ static BOOL freerdp_peer_has_more_to_read(freerdp_peer* peer)
 	return transport_have_more_bytes_to_read(peer->context->rdp->transport);
 }
 
-static LicenseCallbackResult freerdp_peer_nolicense(freerdp_peer* peer, wStream* s)
+static LicenseCallbackResult freerdp_peer_nolicense(freerdp_peer* peer,
+                                                    WINPR_ATTR_UNUSED wStream* s)
 {
 	rdpRdp* rdp = NULL;
 
@@ -1375,18 +1386,15 @@ static const char* os_major_type_to_string(UINT16 osMajorType)
 
 const char* freerdp_peer_os_major_type_string(freerdp_peer* client)
 {
-	rdpContext* context = NULL;
-	UINT16 osMajorType = 0;
-
 	WINPR_ASSERT(client);
 
-	context = client->context;
+	rdpContext* context = client->context;
 	WINPR_ASSERT(context);
 	WINPR_ASSERT(context->settings);
 
-	osMajorType = freerdp_settings_get_uint32(context->settings, FreeRDP_OsMajorType);
-
-	return os_major_type_to_string(osMajorType);
+	const UINT32 osMajorType = freerdp_settings_get_uint32(context->settings, FreeRDP_OsMajorType);
+	WINPR_ASSERT(osMajorType <= UINT16_MAX);
+	return os_major_type_to_string((UINT16)osMajorType);
 }
 
 static const char* os_minor_type_to_string(UINT16 osMinorType)
@@ -1422,40 +1430,27 @@ static const char* os_minor_type_to_string(UINT16 osMinorType)
 
 const char* freerdp_peer_os_minor_type_string(freerdp_peer* client)
 {
-	rdpContext* context = NULL;
-	UINT16 osMinorType = 0;
-
 	WINPR_ASSERT(client);
 
-	context = client->context;
+	rdpContext* context = client->context;
 	WINPR_ASSERT(context);
 	WINPR_ASSERT(context->settings);
 
-	osMinorType = freerdp_settings_get_uint32(context->settings, FreeRDP_OsMinorType);
-
-	return os_minor_type_to_string(osMinorType);
+	const UINT32 osMinorType = freerdp_settings_get_uint32(context->settings, FreeRDP_OsMinorType);
+	WINPR_ASSERT(osMinorType <= UINT16_MAX);
+	return os_minor_type_to_string((UINT16)osMinorType);
 }
 
 freerdp_peer* freerdp_peer_new(int sockfd)
 {
-	UINT32 option_value = 0;
-	socklen_t option_len = 0;
 	freerdp_peer* client = (freerdp_peer*)calloc(1, sizeof(freerdp_peer));
 
 	if (!client)
 		return NULL;
 
-	option_value = TRUE;
-	option_len = sizeof(option_value);
-
 	if (sockfd >= 0)
 	{
-		if (setsockopt(sockfd, IPPROTO_TCP, TCP_NODELAY, (void*)&option_value, option_len) < 0)
-		{
-			/* local unix sockets don't have the TCP_NODELAY implemented, so don't make this
-			 * error fatal */
-			WLog_DBG(TAG, "can't set TCP_NODELAY, continuing anyway");
-		}
+		(void)freerdp_tcp_set_nodelay(WLog_Get(TAG), WLOG_DEBUG, sockfd);
 	}
 
 	if (client)

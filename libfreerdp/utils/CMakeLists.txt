@@ -19,23 +19,24 @@ set(MODULE_NAME "freerdp-utils")
 set(MODULE_PREFIX "FREERDP_UTILS")
 
 set(${MODULE_PREFIX}_SRCS
-	encoded_types.c
-	helpers.c
-	passphrase.c
-	cliprdr_utils.c
-	rdpdr_utils.c
-	pcap.c
-	profiler.c
-	ringbuffer.c
-	signal.c
+    encoded_types.c
+    helpers.c
+    passphrase.c
+    cliprdr_utils.c
+    rdpdr_utils.c
+    pcap.c
+    profiler.c
+    ringbuffer.c
+    signal.c
     string.c
     gfx.c
     drdynvc.c
-	smartcard_operations.c
-	smartcard_pack.c
-	smartcard_call.c
-	stopwatch.c
-	http.c
+    smartcard_operations.c
+    smartcard_pack.h
+    smartcard_pack.c
+    smartcard_call.c
+    stopwatch.c
+    http.c
 )
 
 freerdp_module_add(${${MODULE_PREFIX}_SRCS})
@@ -43,17 +44,18 @@ freerdp_module_add(${${MODULE_PREFIX}_SRCS})
 freerdp_library_add(${CMAKE_THREAD_LIBS_INIT})
 
 if(WIN32)
-	freerdp_library_add(ws2_32)
-	freerdp_library_add(credui)
-	freerdp_library_add(cfgmgr32)
+  freerdp_library_add(ws2_32)
+  freerdp_library_add(credui)
+  freerdp_library_add(cfgmgr32)
 endif()
 
-CHECK_LIBRARY_EXISTS(m pow "" HAVE_LIB_M)
+check_library_exists(m pow "" HAVE_LIB_M)
 
-if (HAVE_LIB_M)
-	freerdp_library_add(m)
+if(HAVE_LIB_M)
+  freerdp_library_add(m)
+  freerdp_pc_add_library_private("m")
 endif()
 
 if(BUILD_TESTING_INTERNAL OR BUILD_TESTING)
-	add_subdirectory(test)
+  add_subdirectory(test)
 endif()

@@ -22,23 +22,25 @@
 #include <winpr/sysinfo.h>
 
 #include "prim_internal.h"
+#include "prim_avxsse.h"
 #include "prim_set.h"
 
 /* ========================================================================= */
-#if defined(SSE2_ENABLED)
+#if defined(SSE_AVX_INTRINSICS_ENABLED)
 #include <emmintrin.h>
 
 static primitives_t* generic = NULL;
 
-static pstatus_t sse2_set_8u(BYTE val, BYTE* WINPR_RESTRICT pDst, UINT32 len)
+static pstatus_t sse2_set_8u(BYTE val, BYTE* WINPR_RESTRICT pDst, UINT32 ulen)
 {
+	size_t len = ulen;
 	BYTE byte = 0;
 	BYTE* dptr = NULL;
 	__m128i xmm0;
 	size_t count = 0;
 
 	if (len < 16)
-		return generic->set_8u(val, pDst, len);
+		return generic->set_8u(val, pDst, ulen);
 
 	byte = val;
 	dptr = pDst;
@@ -52,7 +54,7 @@ static pstatus_t sse2_set_8u(BYTE val, BYTE* WINPR_RESTRICT pDst, UINT32 len)
 			return PRIMITIVES_SUCCESS;
 	}
 
-	xmm0 = _mm_set1_epi8(byte);
+	xmm0 = mm_set1_epu8(byte);
 	/* Cover 256-byte chunks via SSE register stores. */
 	count = len >> 8;
 	len -= count << 8;
@@ -60,37 +62,37 @@ static pstatus_t sse2_set_8u(BYTE val, BYTE* WINPR_RESTRICT pDst, UINT32 len)
 	/* Do 256-byte chunks using one XMM register. */
 	while (count--)
 	{
-		_mm_store_si128((__m128i*)dptr, xmm0);
+		STORE_SI128(dptr, xmm0);
 		dptr += 16;
-		_mm_store_si128((__m128i*)dptr, xmm0);
+		STORE_SI128(dptr, xmm0);
 		dptr += 16;
-		_mm_store_si128((__m128i*)dptr, xmm0);
+		STORE_SI128(dptr, xmm0);
 		dptr += 16;
-		_mm_store_si128((__m128i*)dptr, xmm0);
+		STORE_SI128(dptr, xmm0);
 		dptr += 16;
-		_mm_store_si128((__m128i*)dptr, xmm0);
+		STORE_SI128(dptr, xmm0);
 		dptr += 16;
-		_mm_store_si128((__m128i*)dptr, xmm0);
+		STORE_SI128(dptr, xmm0);
 		dptr += 16;
-		_mm_store_si128((__m128i*)dptr, xmm0);
+		STORE_SI128(dptr, xmm0);
 		dptr += 16;
-		_mm_store_si128((__m128i*)dptr, xmm0);
+		STORE_SI128(dptr, xmm0);
 		dptr += 16;
-		_mm_store_si128((__m128i*)dptr, xmm0);
+		STORE_SI128(dptr, xmm0);
 		dptr += 16;
-		_mm_store_si128((__m128i*)dptr, xmm0);
+		STORE_SI128(dptr, xmm0);
 		dptr += 16;
-		_mm_store_si128((__m128i*)dptr, xmm0);
+		STORE_SI128(dptr, xmm0);
 		dptr += 16;
-		_mm_store_si128((__m128i*)dptr, xmm0);
+		STORE_SI128(dptr, xmm0);
 		dptr += 16;
-		_mm_store_si128((__m128i*)dptr, xmm0);
+		STORE_SI128(dptr, xmm0);
 		dptr += 16;
-		_mm_store_si128((__m128i*)dptr, xmm0);
+		STORE_SI128(dptr, xmm0);
 		dptr += 16;
-		_mm_store_si128((__m128i*)dptr, xmm0);
+		STORE_SI128(dptr, xmm0);
 		dptr += 16;
-		_mm_store_si128((__m128i*)dptr, xmm0);
+		STORE_SI128(dptr, xmm0);
 		dptr += 16;
 	}
 
@@ -101,7 +103,7 @@ static pstatus_t sse2_set_8u(BYTE val, BYTE* WINPR_RESTRICT pDst, UINT32 len)
 	/* Do 16-byte chunks using one XMM register. */
 	while (count--)
 	{
-		_mm_store_si128((__m128i*)dptr, xmm0);
+		STORE_SI128(dptr, xmm0);
 		dptr += 16;
 	}
 
@@ -113,8 +115,9 @@ static pstatus_t sse2_set_8u(BYTE val, BYTE* WINPR_RESTRICT pDst, UINT32 len)
 }
 
 /* ------------------------------------------------------------------------- */
-static pstatus_t sse2_set_32u(UINT32 val, UINT32* WINPR_RESTRICT pDst, UINT32 len)
+static pstatus_t sse2_set_32u(UINT32 val, UINT32* WINPR_RESTRICT pDst, UINT32 ulen)
 {
+	size_t len = ulen;
 	const primitives_t* prim = primitives_get_generic();
 	UINT32* dptr = pDst;
 	__m128i xmm0;
@@ -132,7 +135,7 @@ static pstatus_t sse2_set_32u(UINT32 val, UINT32* WINPR_RESTRICT pDst, UINT32 le
 	/* Assure we can reach 16-byte alignment. */
 	if (((ULONG_PTR)dptr & 0x03) != 0)
 	{
-		return prim->set_32u(val, pDst, len);
+		return prim->set_32u(val, pDst, ulen);
 	}
 
 	/* Seek 16-byte alignment. */
@@ -144,7 +147,7 @@ static pstatus_t sse2_set_32u(UINT32 val, UINT32* WINPR_RESTRICT pDst, UINT32 le
 			return PRIMITIVES_SUCCESS;
 	}
 
-	xmm0 = _mm_set1_epi32(val);
+	xmm0 = mm_set1_epu32(val);
 	/* Cover 256-byte chunks via SSE register stores. */
 	count = len >> 6;
 	len -= count << 6;
@@ -152,37 +155,37 @@ static pstatus_t sse2_set_32u(UINT32 val, UINT32* WINPR_RESTRICT pDst, UINT32 le
 	/* Do 256-byte chunks using one XMM register. */
 	while (count--)
 	{
-		_mm_store_si128((__m128i*)dptr, xmm0);
+		STORE_SI128(dptr, xmm0);
 		dptr += 4;
-		_mm_store_si128((__m128i*)dptr, xmm0);
+		STORE_SI128(dptr, xmm0);
 		dptr += 4;
-		_mm_store_si128((__m128i*)dptr, xmm0);
+		STORE_SI128(dptr, xmm0);
 		dptr += 4;
-		_mm_store_si128((__m128i*)dptr, xmm0);
+		STORE_SI128(dptr, xmm0);
 		dptr += 4;
-		_mm_store_si128((__m128i*)dptr, xmm0);
+		STORE_SI128(dptr, xmm0);
 		dptr += 4;
-		_mm_store_si128((__m128i*)dptr, xmm0);
+		STORE_SI128(dptr, xmm0);
 		dptr += 4;
-		_mm_store_si128((__m128i*)dptr, xmm0);
+		STORE_SI128(dptr, xmm0);
 		dptr += 4;
-		_mm_store_si128((__m128i*)dptr, xmm0);
+		STORE_SI128(dptr, xmm0);
 		dptr += 4;
-		_mm_store_si128((__m128i*)dptr, xmm0);
+		STORE_SI128(dptr, xmm0);
 		dptr += 4;
-		_mm_store_si128((__m128i*)dptr, xmm0);
+		STORE_SI128(dptr, xmm0);
 		dptr += 4;
-		_mm_store_si128((__m128i*)dptr, xmm0);
+		STORE_SI128(dptr, xmm0);
 		dptr += 4;
-		_mm_store_si128((__m128i*)dptr, xmm0);
+		STORE_SI128(dptr, xmm0);
 		dptr += 4;
-		_mm_store_si128((__m128i*)dptr, xmm0);
+		STORE_SI128(dptr, xmm0);
 		dptr += 4;
-		_mm_store_si128((__m128i*)dptr, xmm0);
+		STORE_SI128(dptr, xmm0);
 		dptr += 4;
-		_mm_store_si128((__m128i*)dptr, xmm0);
+		STORE_SI128(dptr, xmm0);
 		dptr += 4;
-		_mm_store_si128((__m128i*)dptr, xmm0);
+		STORE_SI128(dptr, xmm0);
 		dptr += 4;
 	}
 
@@ -193,7 +196,7 @@ static pstatus_t sse2_set_32u(UINT32 val, UINT32* WINPR_RESTRICT pDst, UINT32 le
 	/* Do 16-byte chunks using one XMM register. */
 	while (count--)
 	{
-		_mm_store_si128((__m128i*)dptr, xmm0);
+		STORE_SI128(dptr, xmm0);
 		dptr += 4;
 	}
 
@@ -213,23 +216,20 @@ static pstatus_t sse2_set_32s(INT32 val, INT32* WINPR_RESTRICT pDst, UINT32 len)
 #endif
 
 /* ------------------------------------------------------------------------- */
-void primitives_init_set_sse2(primitives_t* WINPR_RESTRICT prims)
+void primitives_init_set_sse2_int(primitives_t* WINPR_RESTRICT prims)
 {
-#if defined(SSE2_ENABLED)
+#if defined(SSE_AVX_INTRINSICS_ENABLED)
 	generic = primitives_get_generic();
-	primitives_init_set(prims);
+
 	/* Pick tuned versions if possible. */
 
-	if (IsProcessorFeaturePresent(PF_SSE2_INSTRUCTIONS_AVAILABLE))
-	{
-		WLog_VRB(PRIM_TAG, "SSE2 optimizations");
-		prims->set_8u = sse2_set_8u;
-		prims->set_32s = sse2_set_32s;
-		prims->set_32u = sse2_set_32u;
-	}
+	WLog_VRB(PRIM_TAG, "SSE2/SSE3 optimizations");
+	prims->set_8u = sse2_set_8u;
+	prims->set_32s = sse2_set_32s;
+	prims->set_32u = sse2_set_32u;
 
 #else
-	WLog_VRB(PRIM_TAG, "undefined WITH_SSE2");
+	WLog_VRB(PRIM_TAG, "undefined WITH_SIMD or SSE2 intrinsics not available");
 	WINPR_UNUSED(prims);
 #endif
 }

@@ -22,6 +22,7 @@
 
 #include <winpr/crt.h>
 #include <winpr/assert.h>
+#include <winpr/cast.h>
 #include <winpr/file.h>
 #include <winpr/path.h>
 #include <winpr/synch.h>
@@ -49,33 +50,58 @@ typedef struct
  *
  * So send all updates only with a single rectangle.
  */
-#define BitmapUpdateProxy(update, context, bitmap) \
-	BitmapUpdateProxyEx((update), (context), (bitmap), __FILE__, __LINE__, __func__)
-static BOOL BitmapUpdateProxyEx(rdpUpdate* update, rdpContext* context, const BITMAP_UPDATE* bitmap,
+#define BitmapUpdateProxy(client, bitmap) \
+	BitmapUpdateProxyEx((client), (bitmap), __FILE__, __LINE__, __func__)
+static BOOL BitmapUpdateProxyEx(rdpShadowClient* client, const BITMAP_UPDATE* bitmap,
                                 const char* file, size_t line, const char* fkt)
 {
-	WINPR_ASSERT(update);
-	WINPR_ASSERT(context);
+	WINPR_ASSERT(client);
 	WINPR_ASSERT(bitmap);
 
-	for (UINT32 x = 0; x < bitmap->number; x++)
+	rdpShadowServer* server = client->server;
+	WINPR_ASSERT(server);
+
+	rdpContext* context = (rdpContext*)client;
+
+	rdpUpdate* update = context->update;
+	WINPR_ASSERT(update);
+
+	if (server->SupportMultiRectBitmapUpdates)
 	{
-		BITMAP_UPDATE cur = { 0 };
-		BITMAP_DATA* bmp = &bitmap->rectangles[x];
-		cur.rectangles = bmp;
-		cur.number = 1;
-		cur.skipCompression = bitmap->skipCompression;
-		const BOOL rc = IFCALLRESULT(FALSE, update->BitmapUpdate, context, &cur);
+		const BOOL rc = IFCALLRESULT(FALSE, update->BitmapUpdate, context, bitmap);
 		if (!rc)
 		{
 			const DWORD log_level = WLOG_ERROR;
 			wLog* log = WLog_Get(TAG);
 			if (WLog_IsLevelActive(log, log_level))
 			{
-				WLog_PrintMessage(log, WLOG_MESSAGE_TEXT, log_level, line, file, fkt,
-				                  "BitmapUpdate[%" PRIu32 "] failed", x);
+				WLog_PrintTextMessage(log, log_level, line, file, fkt,
+				                      "BitmapUpdate[count %" PRIu32 "] failed", bitmap->number);
 			}
 			return FALSE;
+		}
+	}
+	else
+	{
+		for (UINT32 x = 0; x < bitmap->number; x++)
+		{
+			BITMAP_UPDATE cur = { 0 };
+			BITMAP_DATA* bmp = &bitmap->rectangles[x];
+			cur.rectangles = bmp;
+			cur.number = 1;
+			cur.skipCompression = bitmap->skipCompression;
+			const BOOL rc = IFCALLRESULT(FALSE, update->BitmapUpdate, context, &cur);
+			if (!rc)
+			{
+				const DWORD log_level = WLOG_ERROR;
+				wLog* log = WLog_Get(TAG);
+				if (WLog_IsLevelActive(log, log_level))
+				{
+					WLog_PrintTextMessage(log, log_level, line, file, fkt,
+					                      "BitmapUpdate[count 1, at %" PRIu32 "] failed", x);
+				}
+				return FALSE;
+			}
 		}
 	}
 
@@ -675,16 +701,10 @@ static BOOL shadow_client_suppress_output(rdpContext* context, BYTE allow, const
 
 static BOOL shadow_client_activate(freerdp_peer* peer)
 {
-	rdpSettings* settings = NULL;
-	rdpShadowClient* client = NULL;
-
 	WINPR_ASSERT(peer);
 
-	client = (rdpShadowClient*)peer->context;
+	rdpShadowClient* client = (rdpShadowClient*)peer->context;
 	WINPR_ASSERT(client);
-
-	settings = peer->context->settings;
-	WINPR_ASSERT(settings);
 
 	/* Resize client if necessary */
 	if (shadow_client_recalc_desktop_size(client))
@@ -1291,8 +1311,8 @@ static BOOL shadow_client_send_surface_gfx(rdpShadowClient* client, const BYTE* 
 		WINPR_ASSERT(cmd.bottom <= UINT16_MAX);
 		rect.x = (UINT16)cmd.left;
 		rect.y = (UINT16)cmd.top;
-		rect.width = (UINT16)cmd.right - cmd.left;
-		rect.height = (UINT16)cmd.bottom - cmd.top;
+		rect.width = WINPR_ASSERTING_INT_CAST(UINT16, cmd.right - cmd.left);
+		rect.height = WINPR_ASSERTING_INT_CAST(UINT16, cmd.bottom - cmd.top);
 
 		rc = rfx_compose_message(encoder->rfx, s, &rect, 1, pSrcData, nWidth, nHeight, nSrcStep);
 
@@ -1372,7 +1392,6 @@ static BOOL shadow_client_send_surface_gfx(rdpShadowClient* client, const BYTE* 
 	}
 	else if (freerdp_settings_get_bool(settings, FreeRDP_GfxPlanar))
 	{
-		BOOL rc = 0;
 		const UINT32 w = cmd.right - cmd.left;
 		const UINT32 h = cmd.bottom - cmd.top;
 		const BYTE* src =
@@ -1383,8 +1402,10 @@ static BOOL shadow_client_send_surface_gfx(rdpShadowClient* client, const BYTE* 
 			return FALSE;
 		}
 
-		rc = freerdp_bitmap_planar_context_reset(encoder->planar, w, h);
-		WINPR_ASSERT(rc);
+		const BOOL rc = freerdp_bitmap_planar_context_reset(encoder->planar, w, h);
+		if (!rc)
+			return FALSE;
+
 		freerdp_planar_topdown_image(encoder->planar, TRUE);
 
 		cmd.data = freerdp_bitmap_compress_planar(encoder->planar, src, SrcFormat, w, h, nSrcStep,
@@ -1404,17 +1425,21 @@ static BOOL shadow_client_send_surface_gfx(rdpShadowClient* client, const BYTE* 
 	}
 	else
 	{
-		BOOL rc = 0;
 		const UINT32 w = cmd.right - cmd.left;
 		const UINT32 h = cmd.bottom - cmd.top;
 		const UINT32 length = w * 4 * h;
+
 		BYTE* data = malloc(length);
+		if (!data)
+			return FALSE;
 
-		WINPR_ASSERT(data);
-
-		rc = freerdp_image_copy_no_overlap(data, PIXEL_FORMAT_BGRA32, 0, 0, 0, w, h, pSrcData,
-		                                   SrcFormat, nSrcStep, cmd.left, cmd.top, NULL, 0);
-		WINPR_ASSERT(rc);
+		BOOL rc = freerdp_image_copy_no_overlap(data, PIXEL_FORMAT_BGRA32, 0, 0, 0, w, h, pSrcData,
+		                                        SrcFormat, nSrcStep, cmd.left, cmd.top, NULL, 0);
+		if (!rc)
+		{
+			free(data);
+			return FALSE;
+		}
 
 		cmd.data = data;
 		cmd.length = length;
@@ -1812,7 +1837,7 @@ static BOOL shadow_client_send_bitmap_update(rdpShadowClient* client, BYTE* pSrc
 			if ((newUpdateSize >= maxUpdateSize) || (i + 1) >= k)
 			{
 				bitmapUpdate.number = j;
-				ret = BitmapUpdateProxy(update, context, &bitmapUpdate);
+				ret = BitmapUpdateProxy(client, &bitmapUpdate);
 
 				if (!ret)
 					break;
@@ -1826,7 +1851,7 @@ static BOOL shadow_client_send_bitmap_update(rdpShadowClient* client, BYTE* pSrc
 	}
 	else
 	{
-		ret = BitmapUpdateProxy(update, context, &bitmapUpdate);
+		ret = BitmapUpdateProxy(client, &bitmapUpdate);
 	}
 
 out:
@@ -2141,12 +2166,12 @@ static int shadow_client_subsystem_process_message(rdpShadowClient* client, wMes
 			pointerNew.xorBpp = 24;
 			pointerColor = &(pointerNew.colorPtrAttr);
 			pointerColor->cacheIndex = 0;
-			pointerColor->hotSpotX = msg->xHot;
-			pointerColor->hotSpotY = msg->yHot;
-			pointerColor->width = msg->width;
-			pointerColor->height = msg->height;
-			pointerColor->lengthAndMask = msg->lengthAndMask;
-			pointerColor->lengthXorMask = msg->lengthXorMask;
+			pointerColor->hotSpotX = WINPR_ASSERTING_INT_CAST(UINT16, msg->xHot);
+			pointerColor->hotSpotY = WINPR_ASSERTING_INT_CAST(UINT16, msg->yHot);
+			pointerColor->width = WINPR_ASSERTING_INT_CAST(UINT16, msg->width);
+			pointerColor->height = WINPR_ASSERTING_INT_CAST(UINT16, msg->height);
+			pointerColor->lengthAndMask = WINPR_ASSERTING_INT_CAST(UINT16, msg->lengthAndMask);
+			pointerColor->lengthXorMask = WINPR_ASSERTING_INT_CAST(UINT16, msg->lengthXorMask);
 			pointerColor->xorMaskData = msg->xorMaskData;
 			pointerColor->andMaskData = msg->andMaskData;
 			pointerCached.cacheIndex = pointerColor->cacheIndex;
@@ -2154,7 +2179,16 @@ static int shadow_client_subsystem_process_message(rdpShadowClient* client, wMes
 			if (client->activated)
 			{
 				IFCALL(update->pointer->PointerNew, context, &pointerNew);
-				IFCALL(update->pointer->PointerCached, context, &pointerCached);
+				if (client->server->ShowMouseCursor)
+				{
+					IFCALL(update->pointer->PointerCached, context, &pointerCached);
+				}
+				else
+				{
+					POINTER_SYSTEM_UPDATE pointer_system = { 0 };
+					pointer_system.type = SYSPTR_NULL;
+					IFCALL(update->pointer->PointerSystem, context, &pointer_system);
+				}
 			}
 
 			break;

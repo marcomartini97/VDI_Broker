@@ -50,7 +50,8 @@ krb5_error_code krb5glue_update_keyset(krb5_context ctx, krb5_auth_context auth_
 
 	krb5glue_keys_free(ctx, keyset);
 
-	if (!(rv = krb5_auth_con_getkey(ctx, auth_ctx, &keyblock)))
+	rv = krb5_auth_con_getkey(ctx, auth_ctx, &keyblock);
+	if (!rv)
 	{
 		krb5_crypto_init(ctx, keyblock, ENCTYPE_NULL, &keyset->session_key);
 		krb5_free_keyblock(ctx, keyblock);
@@ -83,9 +84,9 @@ krb5_error_code krb5glue_update_keyset(krb5_context ctx, krb5_auth_context auth_
 	return rv;
 }
 
-krb5_error_code krb5glue_verify_checksum_iov(krb5_context ctx, krb5glue_key key, unsigned usage,
-                                             krb5_crypto_iov* iov, unsigned int iov_size,
-                                             krb5_boolean* is_valid)
+krb5_error_code krb5glue_verify_checksum_iov(krb5_context ctx, krb5glue_key key,
+                                             krb5_keyusage usage, krb5_crypto_iov* iov,
+                                             unsigned int iov_size, krb5_boolean* is_valid)
 {
 	krb5_error_code rv = 0;
 

@@ -174,8 +174,8 @@ static UINT disp_recv_display_control_monitor_layout_pdu(wStream* s, DispServerC
 		DISPLAY_CONTROL_MONITOR_LAYOUT* monitor = &(pdu.Monitors[index]);
 
 		Stream_Read_UINT32(s, monitor->Flags);              /* Flags (4 bytes) */
-		Stream_Read_UINT32(s, monitor->Left);               /* Left (4 bytes) */
-		Stream_Read_UINT32(s, monitor->Top);                /* Top (4 bytes) */
+		Stream_Read_INT32(s, monitor->Left);                /* Left (4 bytes) */
+		Stream_Read_INT32(s, monitor->Top);                 /* Top (4 bytes) */
 		Stream_Read_UINT32(s, monitor->Width);              /* Width (4 bytes) */
 		Stream_Read_UINT32(s, monitor->Height);             /* Height (4 bytes) */
 		Stream_Read_UINT32(s, monitor->PhysicalWidth);      /* PhysicalWidth (4 bytes) */
@@ -453,7 +453,7 @@ static UINT disp_server_open(DispServerContext* context)
 		goto out_close;
 	}
 
-	CopyMemory(&priv->channelEvent, buffer, sizeof(HANDLE));
+	priv->channelEvent = *(HANDLE*)buffer;
 	WTSFreeMemory(buffer);
 
 	if (priv->thread == NULL)

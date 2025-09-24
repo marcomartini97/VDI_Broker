@@ -3,6 +3,7 @@
  * Client Interface
  *
  * Copyright 2013 Marc-Andre Moreau <marcandre.moreau@gmail.com>
+ * Copyright 2025 Siemens
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,6 +22,7 @@
 #define FREERDP_CLIENT_H
 
 #include <winpr/cmdline.h>
+#include <freerdp/client/cmdline.h>
 
 #include <freerdp/config.h>
 #include <freerdp/api.h>
@@ -39,6 +41,11 @@
 #if defined(CHANNEL_ENCOMSP_CLIENT)
 #include <freerdp/client/encomsp.h>
 #endif
+
+/** @brief Opaqye handle for AAD wrapper
+ * @since version 3.16.0
+ */
+typedef struct MIBClientWrapper MIBClientWrapper;
 
 #ifdef __cplusplus
 extern "C"
@@ -135,7 +142,10 @@ extern "C"
 #endif
 		ALIGN64 FreeRDP_TouchContact contacts[FREERDP_MAX_TOUCH_CONTACTS]; /**< (offset 8) */
 		ALIGN64 FreeRDP_PenDevice pens[FREERDP_MAX_PEN_DEVICES];           /**< (offset 9) */
-		UINT64 reserved[128 - 9];                                          /**< (offset 9) */
+
+		ALIGN64 MIBClientWrapper* mibClientWrapper; /**< (offset 10) @since version 3.16.0 */
+		ALIGN64 BOOL pressed_buttons[5];            /**< (offset 11) @since version 3.17.0 */
+		UINT64 reserved[129 - 16];                  /**< (offset 16) */
 	};
 
 	/* Common client functions */
@@ -170,8 +180,7 @@ extern "C"
 	FREERDP_API int freerdp_client_settings_parse_command_line_ex(
 	    rdpSettings* settings, int argc, char** argv, BOOL allowUnknown,
 	    COMMAND_LINE_ARGUMENT_A* args, size_t count,
-	    int (*handle_option)(const COMMAND_LINE_ARGUMENT_A* arg, void* custom),
-	    void* handle_userdata);
+	    freerdp_command_line_handle_option_t handle_option, void* handle_userdata);
 
 	FREERDP_API int freerdp_client_settings_parse_connection_file(rdpSettings* settings,
 	                                                              const char* filename);
@@ -209,20 +218,18 @@ extern "C"
 	                                                 const ChannelDisconnectedEventArgs* e);
 
 #if defined(WITH_FREERDP_DEPRECATED)
-	FREERDP_API WINPR_DEPRECATED_VAR("Use client_cli_authenticate_ex",
-	                                 BOOL client_cli_authenticate(freerdp* instance,
+	WINPR_DEPRECATED_VAR("Use client_cli_authenticate_ex",
+	                     FREERDP_API BOOL client_cli_authenticate(freerdp* instance,
 	                                                              char** username, char** password,
 	                                                              char** domain));
-	FREERDP_API
 	WINPR_DEPRECATED_VAR("Use client_cli_authenticate_ex",
-	                     BOOL client_cli_gw_authenticate(freerdp* instance, char** username,
-	                                                     char** password, char** domain));
+	                     FREERDP_API BOOL client_cli_gw_authenticate(
+	                         freerdp* instance, char** username, char** password, char** domain));
 
-	FREERDP_API WINPR_DEPRECATED_VAR(
-	    "Use client_cli_verify_certificate_ex",
-	    DWORD client_cli_verify_certificate(freerdp* instance, const char* common_name,
-	                                        const char* subject, const char* issuer,
-	                                        const char* fingerprint, BOOL host_mismatch));
+	WINPR_DEPRECATED_VAR("Use client_cli_verify_certificate_ex",
+	                     FREERDP_API DWORD client_cli_verify_certificate(
+	                         freerdp* instance, const char* common_name, const char* subject,
+	                         const char* issuer, const char* fingerprint, BOOL host_mismatch));
 #endif
 
 	FREERDP_API DWORD client_cli_verify_certificate_ex(freerdp* instance, const char* host,
@@ -231,12 +238,11 @@ extern "C"
 	                                                   const char* fingerprint, DWORD flags);
 
 #if defined(WITH_FREERDP_DEPRECATED)
-	FREERDP_API WINPR_DEPRECATED_VAR("Use client_cli_verify_changed_certificate_ex",
-	                                 DWORD client_cli_verify_changed_certificate(
-	                                     freerdp* instance, const char* common_name,
-	                                     const char* subject, const char* issuer,
-	                                     const char* fingerprint, const char* old_subject,
-	                                     const char* old_issuer, const char* old_fingerprint));
+	WINPR_DEPRECATED_VAR("Use client_cli_verify_changed_certificate_ex",
+	                     FREERDP_API DWORD client_cli_verify_changed_certificate(
+	                         freerdp* instance, const char* common_name, const char* subject,
+	                         const char* issuer, const char* fingerprint, const char* old_subject,
+	                         const char* old_issuer, const char* old_fingerprint));
 #endif
 
 	FREERDP_API DWORD client_cli_verify_changed_certificate_ex(
@@ -287,9 +293,6 @@ extern "C"
 
 	FREERDP_API BOOL freerdp_client_send_wheel_event(rdpClientContext* cctx, UINT16 mflags);
 
-	FREERDP_API BOOL freerdp_client_send_mouse_event(rdpClientContext* cctx, UINT64 mflags, INT32 x,
-	                                                 INT32 y);
-
 	/** @brief this function checks if relative mouse events are supported and enabled for this
 	 * session.
 	 *
@@ -315,6 +318,27 @@ extern "C"
 	FREERDP_API BOOL freerdp_client_encomsp_set_control(EncomspClientContext* encomsp,
 	                                                    BOOL control);
 #endif
+
+	/** @brief type of AAD request
+	 * @since version 3.16.0
+	 */
+	typedef enum
+	{
+		FREERDP_CLIENT_AAD_AUTH_REQUEST,
+		FREERDP_CLIENT_AAD_TOKEN_REQUEST,
+		FREERDP_CLIENT_AAD_AVD_AUTH_REQUEST,
+		FREERDP_CLIENT_AAD_AVD_TOKEN_REQUEST,
+	} freerdp_client_aad_type;
+
+	/** @brief helper function to construct a connection URL for AAD authentication
+	 *
+	 *  @param cctx The client context to use
+	 *  @return An allocated string that can be used to connect
+	 *  @since version 3.16.0
+	 */
+	WINPR_ATTR_MALLOC(free, 1)
+	FREERDP_API char* freerdp_client_get_aad_url(rdpClientContext* cctx,
+	                                             freerdp_client_aad_type type, ...);
 
 #ifdef __cplusplus
 }

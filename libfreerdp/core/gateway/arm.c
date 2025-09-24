@@ -38,6 +38,7 @@
 #include <freerdp/crypto/certificate.h>
 #include <freerdp/utils/ringbuffer.h>
 #include <freerdp/utils/smartcardlogon.h>
+#include <freerdp/utils/aad.h>
 
 #include "arm.h"
 #include "wst.h"
@@ -64,6 +65,7 @@ struct rdp_arm
 	HttpContext* http;
 
 	UINT32 gateway_retry;
+	wLog* log;
 };
 
 typedef struct rdp_arm rdpArm;
@@ -71,7 +73,7 @@ typedef struct rdp_arm rdpArm;
 #define TAG FREERDP_TAG("core.gateway.arm")
 
 #ifdef WITH_AAD
-static BOOL arm_tls_connect(rdpArm* arm, rdpTls* tls, int timeout)
+static BOOL arm_tls_connect(rdpArm* arm, rdpTls* tls, UINT32 timeout)
 {
 	WINPR_ASSERT(arm);
 	WINPR_ASSERT(tls);
@@ -95,7 +97,7 @@ static BOOL arm_tls_connect(rdpArm* arm, rdpTls* tls, int timeout)
 
 	sockfd = freerdp_tcp_connect(arm->context, peerHostname, peerPort, timeout);
 
-	WLog_DBG(TAG, "connecting to %s %d", peerHostname, peerPort);
+	WLog_Print(arm->log, WLOG_DEBUG, "connecting to %s %d", peerHostname, peerPort);
 	if (sockfd < 0)
 		return FALSE;
 
@@ -140,7 +142,7 @@ static BOOL arm_tls_connect(rdpArm* arm, rdpTls* tls, int timeout)
 	}
 
 	tls->hostname = freerdp_settings_get_string(settings, FreeRDP_GatewayHostname);
-	tls->port = MIN(UINT16_MAX, settings->GatewayPort);
+	tls->port = MIN(UINT16_MAX, WINPR_ASSERTING_INT_CAST(int32_t, settings->GatewayPort));
 	tls->isGatewayTransport = TRUE;
 	status = freerdp_tls_connect(tls, bufferedBio);
 	if (status < 1)
@@ -156,6 +158,29 @@ static BOOL arm_tls_connect(rdpArm* arm, rdpTls* tls, int timeout)
 	return (status >= 1);
 }
 
+static BOOL arm_fetch_wellknown(rdpArm* arm)
+{
+	WINPR_ASSERT(arm);
+	WINPR_ASSERT(arm->context);
+	WINPR_ASSERT(arm->context->rdp);
+
+	rdpRdp* rdp = arm->context->rdp;
+	if (rdp->wellknown)
+		return TRUE;
+
+	const char* base =
+	    freerdp_settings_get_string(arm->context->settings, FreeRDP_GatewayAzureActiveDirectory);
+	const BOOL useTenant =
+	    freerdp_settings_get_bool(arm->context->settings, FreeRDP_GatewayAvdUseTenantid);
+	const char* tenantid = "common";
+	if (useTenant)
+		tenantid =
+		    freerdp_settings_get_string(arm->context->settings, FreeRDP_GatewayAvdAadtenantid);
+
+	rdp->wellknown = freerdp_utils_aad_get_wellknown(arm->log, base, tenantid);
+	return rdp->wellknown ? TRUE : FALSE;
+}
+
 static wStream* arm_build_http_request(rdpArm* arm, const char* method,
                                        TRANSFER_ENCODING transferEncoding, const char* content_type,
                                        size_t content_length)
@@ -169,9 +194,7 @@ static wStream* arm_build_http_request(rdpArm* arm, const char* method,
 	WINPR_ASSERT(content_type);
 
 	WINPR_ASSERT(arm->context);
-
-	freerdp* instance = arm->context->instance;
-	WINPR_ASSERT(instance);
+	WINPR_ASSERT(arm->context->rdp);
 
 	uri = http_context_get_uri(arm->http);
 	request = http_request_new();
@@ -186,15 +209,19 @@ static wStream* arm_build_http_request(rdpArm* arm, const char* method,
 	{
 		char* token = NULL;
 
-		if (!instance->GetAccessToken)
+		pGetCommonAccessToken GetCommonAccessToken = freerdp_get_common_access_token(arm->context);
+		if (!GetCommonAccessToken)
 		{
-			WLog_ERR(TAG, "No authorization token provided");
+			WLog_Print(arm->log, WLOG_ERROR, "No authorization token provided");
 			goto out;
 		}
 
-		if (!instance->GetAccessToken(instance, ACCESS_TOKEN_TYPE_AVD, &token, 0))
+		if (!arm_fetch_wellknown(arm))
+			goto out;
+
+		if (!GetCommonAccessToken(arm->context, ACCESS_TOKEN_TYPE_AVD, &token, 0))
 		{
-			WLog_ERR(TAG, "Unable to obtain access token");
+			WLog_Print(arm->log, WLOG_ERROR, "Unable to obtain access token");
 			goto out;
 		}
 
@@ -267,6 +294,7 @@ static rdpArm* arm_new(rdpContext* context)
 	if (!arm)
 		goto fail;
 
+	arm->log = WLog_Get(TAG);
 	arm->context = context;
 	arm->tls = freerdp_tls_new(context);
 	if (!arm->tls)
@@ -334,7 +362,7 @@ arm_create_cleanup:
  * @param cbInput size of pbInput
  * @return the corresponding WINPR_CIPHER_CTX if success, NULL otherwise
  */
-static WINPR_CIPHER_CTX* treatAuthBlob(const BYTE* pbInput, size_t cbInput)
+static WINPR_CIPHER_CTX* treatAuthBlob(wLog* log, const BYTE* pbInput, size_t cbInput)
 {
 	WINPR_CIPHER_CTX* ret = NULL;
 	char algoName[100] = { 0 };
@@ -343,36 +371,37 @@ static WINPR_CIPHER_CTX* treatAuthBlob(const BYTE* pbInput, size_t cbInput)
 	                                     sizeof(algoName));
 	if (algoSz <= 0)
 	{
-		WLog_ERR(TAG, "invalid algoName");
+		WLog_Print(log, WLOG_ERROR, "invalid algoName");
 		return NULL;
 	}
 
 	algoName[algoSz] = 0;
 	if (strcmp(algoName, "AES") != 0)
 	{
-		WLog_ERR(TAG, "only AES is supported for now");
+		WLog_Print(log, WLOG_ERROR, "only AES is supported for now");
 		return NULL;
 	}
 
-	cbInput -= (algoSz + 1) * sizeof(WCHAR);
+	cbInput -= WINPR_ASSERTING_INT_CAST(size_t, (algoSz + 1)) * sizeof(WCHAR);
 
 	if (cbInput < 12)
 	{
-		WLog_ERR(TAG, "invalid AuthBlob size");
+		WLog_Print(log, WLOG_ERROR, "invalid AuthBlob size");
 		return NULL;
 	}
 
 	/* BCRYPT_KEY_DATA_BLOB_HEADER */
 	wStream staticStream = { 0 };
-	wStream* s =
-	    Stream_StaticConstInit(&staticStream, pbInput + (algoSz + 1) * sizeof(WCHAR), cbInput);
+	wStream* s = Stream_StaticConstInit(
+	    &staticStream, pbInput + WINPR_ASSERTING_INT_CAST(size_t, (algoSz + 1)) * sizeof(WCHAR),
+	    cbInput);
 
 	UINT32 dwMagic = 0;
 	Stream_Read_UINT32(s, dwMagic);
 
 	if (dwMagic != BCRYPT_KEY_DATA_BLOB_MAGIC)
 	{
-		WLog_ERR(TAG, "unsupported authBlob type");
+		WLog_Print(log, WLOG_ERROR, "unsupported authBlob type");
 		return NULL;
 	}
 
@@ -380,8 +409,8 @@ static WINPR_CIPHER_CTX* treatAuthBlob(const BYTE* pbInput, size_t cbInput)
 	Stream_Read_UINT32(s, dwVersion);
 	if (dwVersion != BCRYPT_KEY_DATA_BLOB_VERSION1)
 	{
-		WLog_ERR(TAG, "unsupported authBlob version %d, expecting %d", dwVersion,
-		         BCRYPT_KEY_DATA_BLOB_VERSION1);
+		WLog_Print(log, WLOG_ERROR, "unsupported authBlob version %" PRIu32 ", expecting %d",
+		           dwVersion, BCRYPT_KEY_DATA_BLOB_VERSION1);
 		return NULL;
 	}
 
@@ -391,11 +420,11 @@ static WINPR_CIPHER_CTX* treatAuthBlob(const BYTE* pbInput, size_t cbInput)
 
 	if (cbKeyData > cbInput)
 	{
-		WLog_ERR(TAG, "invalid authBlob size");
+		WLog_Print(log, WLOG_ERROR, "invalid authBlob size");
 		return NULL;
 	}
 
-	int cipherType = 0;
+	WINPR_CIPHER_TYPE cipherType = 0;
 	switch (cbKeyData)
 	{
 		case 16:
@@ -408,20 +437,20 @@ static WINPR_CIPHER_CTX* treatAuthBlob(const BYTE* pbInput, size_t cbInput)
 			cipherType = WINPR_CIPHER_AES_256_CBC;
 			break;
 		default:
-			WLog_ERR(TAG, "invalid authBlob cipher size");
+			WLog_Print(log, WLOG_ERROR, "invalid authBlob cipher size");
 			return NULL;
 	}
 
 	ret = winpr_Cipher_NewEx(cipherType, WINPR_ENCRYPT, Stream_Pointer(s), cbKeyData, NULL, 0);
 	if (!ret)
 	{
-		WLog_ERR(TAG, "error creating cipher");
+		WLog_Print(log, WLOG_ERROR, "error creating cipher");
 		return NULL;
 	}
 
 	if (!winpr_Cipher_SetPadding(ret, TRUE))
 	{
-		WLog_ERR(TAG, "unable to enable padding on cipher");
+		WLog_Print(log, WLOG_ERROR, "unable to enable padding on cipher");
 		winpr_Cipher_Free(ret);
 		return NULL;
 	}
@@ -451,7 +480,7 @@ static BOOL arm_stringEncodeW(const BYTE* pin, size_t cbIn, BYTE** ppOut, size_t
 	return TRUE;
 }
 
-static BOOL arm_encodeRedirectPasswd(rdpSettings* settings, const rdpCertificate* cert,
+static BOOL arm_encodeRedirectPasswd(wLog* log, rdpSettings* settings, const rdpCertificate* cert,
                                      WINPR_CIPHER_CTX* cipher)
 {
 	BOOL ret = FALSE;
@@ -466,7 +495,7 @@ static BOOL arm_encodeRedirectPasswd(rdpSettings* settings, const rdpCertificate
 	WCHAR* wpasswd = freerdp_settings_get_string_as_utf16(settings, FreeRDP_Password, &wpasswdLen);
 	if (!wpasswd)
 	{
-		WLog_ERR(TAG, "error when converting password to UTF16");
+		WLog_Print(log, WLOG_ERROR, "error when converting password to UTF16");
 		return FALSE;
 	}
 
@@ -478,7 +507,7 @@ static BOOL arm_encodeRedirectPasswd(rdpSettings* settings, const rdpCertificate
 	    !winpr_Cipher_Update(cipher, wpasswd, wpasswdBytes, encryptedPass, &encryptedPassLen) ||
 	    !winpr_Cipher_Final(cipher, encryptedPass + encryptedPassLen, &finalLen))
 	{
-		WLog_ERR(TAG, "error when ciphering password");
+		WLog_Print(log, WLOG_ERROR, "error when ciphering password");
 		goto out;
 	}
 	encryptedPassLen += finalLen;
@@ -489,21 +518,21 @@ static BOOL arm_encodeRedirectPasswd(rdpSettings* settings, const rdpCertificate
 	if (!freerdp_certificate_publickey_encrypt(cert, encryptedPass, encryptedPassLen, &output,
 	                                           &output_length))
 	{
-		WLog_ERR(TAG, "unable to encrypt with the server's public key");
+		WLog_Print(log, WLOG_ERROR, "unable to encrypt with the server's public key");
 		goto out;
 	}
 
 	size_t finalOutputLen = 0;
 	if (!arm_stringEncodeW(output, output_length, &finalOutput, &finalOutputLen))
 	{
-		WLog_ERR(TAG, "unable to base64+utf16 final blob");
+		WLog_Print(log, WLOG_ERROR, "unable to base64+utf16 final blob");
 		goto out;
 	}
 
 	if (!freerdp_settings_set_pointer_len(settings, FreeRDP_RedirectionPassword, finalOutput,
 	                                      finalOutputLen))
 	{
-		WLog_ERR(TAG, "unable to set the redirection password in settings");
+		WLog_Print(log, WLOG_ERROR, "unable to set the redirection password in settings");
 		goto out;
 	}
 
@@ -526,8 +555,8 @@ out:
  *       base64.b64decode( base64.b64decode(input).decode('utf-16') )
  *  in python
  */
-static BOOL arm_pick_base64Utf16Field(const WINPR_JSON* json, const char* name, BYTE** poutput,
-                                      size_t* plen)
+static BOOL arm_pick_base64Utf16Field(wLog* log, const WINPR_JSON* json, const char* name,
+                                      BYTE** poutput, size_t* plen)
 {
 	*poutput = NULL;
 	*plen = 0;
@@ -545,7 +574,7 @@ static BOOL arm_pick_base64Utf16Field(const WINPR_JSON* json, const char* name, 
 	crypto_base64_decode(nodeValue, strlen(nodeValue), &output1, &len1);
 	if (!output1 || !len1)
 	{
-		WLog_ERR(TAG, "error when first unbase64 for %s", name);
+		WLog_Print(log, WLOG_ERROR, "error when first unbase64 for %s", name);
 		free(output1);
 		return FALSE;
 	}
@@ -555,7 +584,7 @@ static BOOL arm_pick_base64Utf16Field(const WINPR_JSON* json, const char* name, 
 	free(output1);
 	if (!output2 || !len2)
 	{
-		WLog_ERR(TAG, "error when decode('utf-16') for %s", name);
+		WLog_Print(log, WLOG_ERROR, "error when decode('utf-16') for %s", name);
 		free(output2);
 		return FALSE;
 	}
@@ -565,7 +594,7 @@ static BOOL arm_pick_base64Utf16Field(const WINPR_JSON* json, const char* name, 
 	free(output2);
 	if (!output || !*plen)
 	{
-		WLog_ERR(TAG, "error when second unbase64 for %s", name);
+		WLog_Print(log, WLOG_ERROR, "error when second unbase64 for %s", name);
 		free(output);
 		return FALSE;
 	}
@@ -597,7 +626,7 @@ static BOOL arm_pick_base64Utf16Field(const WINPR_JSON* json, const char* name, 
 static size_t arm_parse_ipvx_count(WINPR_JSON* ipvX)
 {
 	WINPR_ASSERT(ipvX);
-	WINPR_JSON* ipAddress = WINPR_JSON_GetObjectItem(ipvX, "ipAddress");
+	WINPR_JSON* ipAddress = WINPR_JSON_GetObjectItemCaseSensitive(ipvX, "ipAddress");
 	if (!ipAddress || !WINPR_JSON_IsArray(ipAddress))
 		return 0;
 	return WINPR_JSON_GetArraySize(ipAddress);
@@ -612,7 +641,7 @@ static BOOL arm_parse_ipv6(rdpSettings* settings, WINPR_JSON* ipv6, size_t* pAdd
 	if (!freerdp_settings_get_bool(settings, FreeRDP_IPv6Enabled))
 		return TRUE;
 
-	WINPR_JSON* ipAddress = WINPR_JSON_GetObjectItem(ipv6, "ipAddress");
+	WINPR_JSON* ipAddress = WINPR_JSON_GetObjectItemCaseSensitive(ipv6, "ipAddress");
 	if (!ipAddress || !WINPR_JSON_IsArray(ipAddress))
 		return TRUE;
 	const size_t naddresses = WINPR_JSON_GetArraySize(ipAddress);
@@ -638,7 +667,7 @@ static BOOL arm_parse_ipv4(rdpSettings* settings, WINPR_JSON* ipv4, size_t* pAdd
 	WINPR_ASSERT(ipv4);
 	WINPR_ASSERT(pAddressIdx);
 
-	WINPR_JSON* ipAddress = WINPR_JSON_GetObjectItem(ipv4, "ipAddress");
+	WINPR_JSON* ipAddress = WINPR_JSON_GetObjectItemCaseSensitive(ipv4, "ipAddress");
 	if (!ipAddress || !WINPR_JSON_IsArray(ipAddress))
 		return TRUE;
 
@@ -649,7 +678,8 @@ static BOOL arm_parse_ipv4(rdpSettings* settings, WINPR_JSON* ipv4, size_t* pAdd
 		if (!adressN)
 			continue;
 
-		WINPR_JSON* publicIpNode = WINPR_JSON_GetObjectItem(adressN, "publicIpAddress");
+		WINPR_JSON* publicIpNode =
+		    WINPR_JSON_GetObjectItemCaseSensitive(adressN, "publicIpAddress");
 		if (publicIpNode && WINPR_JSON_IsString(publicIpNode))
 		{
 			const char* publicIp = WINPR_JSON_GetStringValue(publicIpNode);
@@ -661,7 +691,8 @@ static BOOL arm_parse_ipv4(rdpSettings* settings, WINPR_JSON* ipv4, size_t* pAdd
 			}
 		}
 
-		WINPR_JSON* privateIpNode = WINPR_JSON_GetObjectItem(adressN, "privateIpAddress");
+		WINPR_JSON* privateIpNode =
+		    WINPR_JSON_GetObjectItemCaseSensitive(adressN, "privateIpAddress");
 		if (privateIpNode && WINPR_JSON_IsString(privateIpNode))
 		{
 			const char* privateIp = WINPR_JSON_GetStringValue(privateIpNode);
@@ -676,7 +707,8 @@ static BOOL arm_parse_ipv4(rdpSettings* settings, WINPR_JSON* ipv4, size_t* pAdd
 	return TRUE;
 }
 
-static BOOL arm_treat_azureInstanceNetworkMetadata(const char* metadata, rdpSettings* settings)
+static BOOL arm_treat_azureInstanceNetworkMetadata(wLog* log, const char* metadata,
+                                                   rdpSettings* settings)
 {
 	BOOL ret = FALSE;
 
@@ -688,11 +720,11 @@ static BOOL arm_treat_azureInstanceNetworkMetadata(const char* metadata, rdpSett
 	WINPR_JSON* json = WINPR_JSON_Parse(metadata);
 	if (!json)
 	{
-		WLog_ERR(TAG, "invalid azureInstanceNetworkMetadata");
+		WLog_Print(log, WLOG_ERROR, "invalid azureInstanceNetworkMetadata");
 		return FALSE;
 	}
 
-	WINPR_JSON* iface = WINPR_JSON_GetObjectItem(json, "interface");
+	WINPR_JSON* iface = WINPR_JSON_GetObjectItemCaseSensitive(json, "interface");
 	if (!iface)
 	{
 		ret = TRUE;
@@ -701,7 +733,7 @@ static BOOL arm_treat_azureInstanceNetworkMetadata(const char* metadata, rdpSett
 
 	if (!WINPR_JSON_IsArray(iface))
 	{
-		WLog_ERR(TAG, "expecting interface to be an Array");
+		WLog_Print(log, WLOG_ERROR, "expecting interface to be an Array");
 		goto out;
 	}
 
@@ -720,11 +752,11 @@ static BOOL arm_treat_azureInstanceNetworkMetadata(const char* metadata, rdpSett
 		if (!interN)
 			continue;
 
-		WINPR_JSON* ipv6 = WINPR_JSON_GetObjectItem(interN, "ipv6");
+		WINPR_JSON* ipv6 = WINPR_JSON_GetObjectItemCaseSensitive(interN, "ipv6");
 		if (ipv6)
 			count += arm_parse_ipvx_count(ipv6);
 
-		WINPR_JSON* ipv4 = WINPR_JSON_GetObjectItem(interN, "ipv4");
+		WINPR_JSON* ipv4 = WINPR_JSON_GetObjectItemCaseSensitive(interN, "ipv4");
 		if (ipv4)
 			count += arm_parse_ipvx_count(ipv4);
 	}
@@ -739,14 +771,14 @@ static BOOL arm_treat_azureInstanceNetworkMetadata(const char* metadata, rdpSett
 		if (!interN)
 			continue;
 
-		WINPR_JSON* ipv6 = WINPR_JSON_GetObjectItem(interN, "ipv6");
+		WINPR_JSON* ipv6 = WINPR_JSON_GetObjectItemCaseSensitive(interN, "ipv6");
 		if (ipv6)
 		{
 			if (!arm_parse_ipv6(settings, ipv6, &addressIdx))
 				goto out;
 		}
 
-		WINPR_JSON* ipv4 = WINPR_JSON_GetObjectItem(interN, "ipv4");
+		WINPR_JSON* ipv4 = WINPR_JSON_GetObjectItemCaseSensitive(interN, "ipv4");
 		if (ipv4)
 		{
 			if (!arm_parse_ipv4(settings, ipv4, &addressIdx))
@@ -766,12 +798,12 @@ out:
 	return ret;
 }
 
-static BOOL arm_fill_rdstls(rdpArm* arm, rdpSettings* settings, const WINPR_JSON* json)
+static BOOL arm_fill_rdstls(rdpArm* arm, rdpSettings* settings, const WINPR_JSON* json,
+                            const rdpCertificate* redirectedServerCert)
 {
 	BOOL ret = TRUE;
 	BYTE* cert = NULL;
 	BYTE* authBlob = NULL;
-	rdpCertificate* redirectedServerCert = NULL;
 
 	do
 	{
@@ -792,38 +824,33 @@ static BOOL arm_fill_rdstls(rdpArm* arm, rdpSettings* settings, const WINPR_JSON
 		const SSIZE_T wGUID_len = ConvertUtf8ToWChar(redirectedAuthGuid, wGUID, ARRAYSIZE(wGUID));
 		if (wGUID_len < 0)
 		{
-			WLog_ERR(TAG, "unable to allocate space for redirectedAuthGuid");
+			WLog_Print(arm->log, WLOG_ERROR, "unable to allocate space for redirectedAuthGuid");
 			ret = FALSE;
 			goto endOfFunction;
 		}
 
-		BOOL status = freerdp_settings_set_pointer_len(settings, FreeRDP_RedirectionGuid, wGUID,
-		                                               (wGUID_len + 1) * sizeof(WCHAR));
+		BOOL status = freerdp_settings_set_pointer_len(
+		    settings, FreeRDP_RedirectionGuid, wGUID,
+		    WINPR_ASSERTING_INT_CAST(size_t, (wGUID_len + 1)) * sizeof(WCHAR));
 		if (!status)
 		{
-			WLog_ERR(TAG, "unable to set RedirectionGuid");
+			WLog_Print(arm->log, WLOG_ERROR, "unable to set RedirectionGuid");
 			ret = FALSE;
 			goto endOfFunction;
 		}
-
-		/* redirectedServerCert */
-		size_t certLen = 0;
-		if (!arm_pick_base64Utf16Field(json, "redirectedServerCert", &cert, &certLen))
-			break;
-
-		if (!rdp_redirection_read_target_cert(&redirectedServerCert, cert, certLen))
-			break;
 
 		/* redirectedAuthBlob */
 		size_t authBlobLen = 0;
-		if (!arm_pick_base64Utf16Field(json, "redirectedAuthBlob", &authBlob, &authBlobLen))
+		if (!arm_pick_base64Utf16Field(arm->log, json, "redirectedAuthBlob", &authBlob,
+		                               &authBlobLen))
 			break;
 
-		WINPR_CIPHER_CTX* cipher = treatAuthBlob(authBlob, authBlobLen);
+		WINPR_CIPHER_CTX* cipher = treatAuthBlob(arm->log, authBlob, authBlobLen);
 		if (!cipher)
 			break;
 
-		const BOOL rerp = arm_encodeRedirectPasswd(settings, redirectedServerCert, cipher);
+		const BOOL rerp =
+		    arm_encodeRedirectPasswd(arm->log, settings, redirectedServerCert, cipher);
 		winpr_Cipher_Free(cipher);
 		if (!rerp)
 			break;
@@ -832,7 +859,6 @@ static BOOL arm_fill_rdstls(rdpArm* arm, rdpSettings* settings, const WINPR_JSON
 	} while (FALSE);
 
 	free(cert);
-	freerdp_certificate_free(redirectedServerCert);
 	free(authBlob);
 
 endOfFunction:
@@ -845,6 +871,7 @@ static BOOL arm_fill_gateway_parameters(rdpArm* arm, const char* message, size_t
 	WINPR_ASSERT(arm->context);
 	WINPR_ASSERT(message);
 
+	rdpCertificate* redirectedServerCert = NULL;
 	WINPR_JSON* json = WINPR_JSON_ParseWithLength(message, len);
 	BOOL status = FALSE;
 	if (!json)
@@ -855,28 +882,59 @@ static BOOL arm_fill_gateway_parameters(rdpArm* arm, const char* message, size_t
 	const char* gwurlstr = WINPR_JSON_GetStringValue(gwurl);
 	if (gwurlstr != NULL)
 	{
-		WLog_DBG(TAG, "extracted target url %s", gwurlstr);
+		WLog_Print(arm->log, WLOG_DEBUG, "extracted target url %s", gwurlstr);
 		if (!freerdp_settings_set_string(settings, FreeRDP_GatewayUrl, gwurlstr))
-			status = FALSE;
-		else
-			status = TRUE;
+			goto fail;
 	}
 
-	WINPR_JSON* serverNameNode = WINPR_JSON_GetObjectItem(json, "redirectedServerName");
+	WINPR_JSON* serverNameNode =
+	    WINPR_JSON_GetObjectItemCaseSensitive(json, "redirectedServerName");
 	if (serverNameNode)
 	{
 		const char* serverName = WINPR_JSON_GetStringValue(serverNameNode);
 		if (serverName)
-			status = freerdp_settings_set_string(settings, FreeRDP_ServerHostname, serverName);
+		{
+			if (!freerdp_settings_set_string(settings, FreeRDP_ServerHostname, serverName))
+				goto fail;
+		}
 	}
 
-	WINPR_JSON* azureMeta = WINPR_JSON_GetObjectItem(json, "azureInstanceNetworkMetadata");
+	{
+		const char key[] = "redirectedUsername";
+		if (WINPR_JSON_HasObjectItem(json, key))
+		{
+			const char* userName = NULL;
+			WINPR_JSON* userNameNode = WINPR_JSON_GetObjectItemCaseSensitive(json, key);
+			if (userNameNode)
+				userName = WINPR_JSON_GetStringValue(userNameNode);
+			if (!freerdp_settings_set_string(settings, FreeRDP_Username, userName))
+				goto fail;
+		}
+	}
+
+	WINPR_JSON* azureMeta =
+	    WINPR_JSON_GetObjectItemCaseSensitive(json, "azureInstanceNetworkMetadata");
 	if (azureMeta && WINPR_JSON_IsString(azureMeta))
 	{
-		if (!arm_treat_azureInstanceNetworkMetadata(WINPR_JSON_GetStringValue(azureMeta), settings))
+		if (!arm_treat_azureInstanceNetworkMetadata(arm->log, WINPR_JSON_GetStringValue(azureMeta),
+		                                            settings))
 		{
-			WLog_ERR(TAG, "error when treating azureInstanceNetworkMetadata");
+			WLog_Print(arm->log, WLOG_ERROR, "error when treating azureInstanceNetworkMetadata");
+			goto fail;
 		}
+	}
+
+	/* redirectedServerCert */
+	size_t certLen = 0;
+	BYTE* cert = NULL;
+	if (arm_pick_base64Utf16Field(arm->log, json, "redirectedServerCert", &cert, &certLen))
+	{
+		const BOOL rc = rdp_redirection_read_target_cert(&redirectedServerCert, cert, certLen);
+		free(cert);
+		if (!rc)
+			goto fail;
+		else if (!rdp_set_target_certificate(settings, redirectedServerCert))
+			goto fail;
 	}
 
 	if (freerdp_settings_get_string(settings, FreeRDP_Password))
@@ -884,10 +942,13 @@ static BOOL arm_fill_gateway_parameters(rdpArm* arm, const char* message, size_t
 		/* note: we retrieve some more fields for RDSTLS only if we have a password provided by the
 		 * user, otherwise these are useless: we will not be able to do RDSTLS
 		 */
-		status = arm_fill_rdstls(arm, settings, json);
+		status = arm_fill_rdstls(arm, settings, json, redirectedServerCert);
 	}
-
+	else
+		status = TRUE;
+fail:
 	WINPR_JSON_Delete(json);
+	freerdp_certificate_free(redirectedServerCert);
 	return status;
 }
 
@@ -898,7 +959,7 @@ static BOOL arm_handle_request_ok(rdpArm* arm, const HttpResponse* response)
 	if (strnlen(msg, len + 1) > len)
 		return FALSE;
 
-	WLog_DBG(TAG, "Got HTTP Response data: %s", msg);
+	WLog_Print(arm->log, WLOG_DEBUG, "Got HTTP Response data: %s", msg);
 	return arm_fill_gateway_parameters(arm, msg, len);
 }
 
@@ -916,14 +977,14 @@ static BOOL arm_handle_bad_request(rdpArm* arm, const HttpResponse* response, BO
 	if (strnlen(msg, len + 1) > len)
 		return FALSE;
 
-	WLog_DBG(TAG, "Got HTTP Response data: %s", msg);
+	WLog_Print(arm->log, WLOG_DEBUG, "Got HTTP Response data: %s", msg);
 
 	WINPR_JSON* json = WINPR_JSON_ParseWithLength(msg, len);
 	if (json == NULL)
 	{
 		const char* error_ptr = WINPR_JSON_GetErrorPtr();
 		if (error_ptr != NULL)
-			WLog_ERR(TAG, "NullPoException: %s", error_ptr);
+			WLog_Print(arm->log, WLOG_ERROR, "NullPoException: %s", error_ptr);
 
 		return FALSE;
 	}
@@ -932,7 +993,7 @@ static BOOL arm_handle_bad_request(rdpArm* arm, const HttpResponse* response, BO
 	const char* gw_code_str = WINPR_JSON_GetStringValue(gateway_code_obj);
 	if (gw_code_str == NULL)
 	{
-		WLog_ERR(TAG, "Response has no \"Code\" property");
+		WLog_Print(arm->log, WLOG_ERROR, "Response has no \"Code\" property");
 		http_response_log_error_status(WLog_Get(TAG), WLOG_ERROR, response);
 		goto fail;
 	}
@@ -962,6 +1023,12 @@ fail:
 static BOOL arm_handle_request(rdpArm* arm, BOOL* retry, DWORD timeout)
 {
 	WINPR_ASSERT(retry);
+
+	if (!arm_fetch_wellknown(arm))
+	{
+		*retry = TRUE;
+		return FALSE;
+	}
 
 	*retry = FALSE;
 
@@ -1022,10 +1089,10 @@ arm_error:
 
 #endif
 
-BOOL arm_resolve_endpoint(rdpContext* context, DWORD timeout)
+BOOL arm_resolve_endpoint(wLog* log, rdpContext* context, DWORD timeout)
 {
 #ifndef WITH_AAD
-	WLog_ERR(TAG, "arm gateway support not compiled in");
+	WLog_Print(log, WLOG_ERROR, "arm gateway support not compiled in");
 	return FALSE;
 #else
 
@@ -1038,7 +1105,7 @@ BOOL arm_resolve_endpoint(rdpContext* context, DWORD timeout)
 	if ((freerdp_settings_get_uint32(context->settings, FreeRDP_LoadBalanceInfoLength) == 0) ||
 	    (freerdp_settings_get_string(context->settings, FreeRDP_RemoteApplicationProgram) == NULL))
 	{
-		WLog_ERR(TAG, "loadBalanceInfo and RemoteApplicationProgram needed");
+		WLog_Print(log, WLOG_ERROR, "loadBalanceInfo and RemoteApplicationProgram needed");
 		return FALSE;
 	}
 
@@ -1061,7 +1128,8 @@ BOOL arm_resolve_endpoint(rdpContext* context, DWORD timeout)
 				break; /* error or no retry desired, abort loop */
 			else
 			{
-				WLog_DBG(TAG, "Delay for %" PRIdz "ms before next attempt", delay);
+				WLog_Print(arm->log, WLOG_DEBUG, "Delay for %" PRIdz "ms before next attempt",
+				           delay);
 				while (delay > 0)
 				{
 					DWORD slp = (UINT32)delay;

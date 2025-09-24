@@ -18,6 +18,8 @@
  */
 #pragma once
 
+#include <vector>
+
 #include <freerdp/types.h>
 #include <freerdp/event.h>
 #include <freerdp/client/disp.h>
@@ -38,24 +40,25 @@ class sdlDispContext
 	sdlDispContext& operator=(const sdlDispContext& other) = delete;
 	sdlDispContext& operator=(sdlDispContext&& other) = delete;
 
-	BOOL init(DispClientContext* disp);
-	BOOL uninit(DispClientContext* disp);
+	[[nodiscard]] bool init(DispClientContext* disp);
+	[[nodiscard]] bool uninit(DispClientContext* disp);
 
-	BOOL handle_display_event(const SDL_DisplayEvent* ev);
-
-	BOOL handle_window_event(const SDL_WindowEvent* ev);
+	[[nodiscard]] bool handle_display_event(const SDL_DisplayEvent* ev);
+	[[nodiscard]] bool handle_window_event(const SDL_WindowEvent* ev);
 
   private:
 	UINT DisplayControlCaps(UINT32 maxNumMonitors, UINT32 maxMonitorAreaFactorA,
 	                        UINT32 maxMonitorAreaFactorB);
-	BOOL set_window_resizable();
+	bool set_window_resizable();
 
-	BOOL sendResize();
-	BOOL settings_changed();
-	BOOL update_last_sent();
+	bool sendResize();
+	bool settings_changed(const std::vector<DISPLAY_CONTROL_MONITOR_LAYOUT>& layout);
 	UINT sendLayout(const rdpMonitor* monitors, size_t nmonitors);
 
-	BOOL addTimer();
+	bool addTimer();
+
+	bool updateMonitor(SDL_WindowID id);
+	bool updateMonitors(SDL_EventType type);
 
 	static UINT DisplayControlCaps(DispClientContext* disp, UINT32 maxNumMonitors,
 	                               UINT32 maxMonitorAreaFactorA, UINT32 maxMonitorAreaFactorB);
@@ -65,16 +68,10 @@ class sdlDispContext
 
 	SdlContext* _sdl = nullptr;
 	DispClientContext* _disp = nullptr;
-	int _lastSentWidth = -1;
-	int _lastSentHeight = -1;
 	UINT64 _lastSentDate = 0;
-	int _targetWidth = -1;
-	int _targetHeight = -1;
-	BOOL _activated = FALSE;
-	BOOL _waitingResize = FALSE;
-	UINT16 _lastSentDesktopOrientation = 0;
-	UINT32 _lastSentDesktopScaleFactor = 0;
-	UINT32 _lastSentDeviceScaleFactor = 0;
+	bool _activated = false;
+	bool _waitingResize = false;
 	SDL_TimerID _timer = 0;
 	unsigned _timer_retries = 0;
+	std::vector<DISPLAY_CONTROL_MONITOR_LAYOUT> _last_sent_layout;
 };

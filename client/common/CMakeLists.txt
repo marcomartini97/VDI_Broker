@@ -2,6 +2,7 @@
 # FreeRDP Client Common
 #
 # Copyright 2012 Marc-Andre Moreau <marcandre.moreau@gmail.com>
+# Copyright 2025 Siemens
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -18,73 +19,109 @@
 set(MODULE_NAME "freerdp-client")
 set(MODULE_PREFIX "FREERDP_CLIENT")
 
-#  Policy CMP0022: INTERFACE_LINK_LIBRARIES defines the link
-#  interface.  Run "cmake --help-policy CMP0022" for policy details.  Use the
-#  cmake_policy command to set the policy and suppress this warning.
-if(POLICY CMP0022)
-  cmake_policy(SET CMP0022 NEW)
-endif()
-
 set(SRCS
-	client.c
-	cmdline.c
-	cmdline.h
-	file.c
-	client_cliprdr_file.c
-	geometry.c
-	smartcard_cli.c)
+    client.c
+    cmdline.c
+    cmdline.h
+    file.c
+    client_cliprdr_file.c
+    geometry.c
+    smartcard_cli.c
+)
 
 foreach(FREERDP_CHANNELS_CLIENT_SRC ${FREERDP_CHANNELS_CLIENT_SRCS})
-	get_filename_component(NINC ${FREERDP_CHANNELS_CLIENT_SRC} PATH)
-	include_directories(${NINC})
-	list(APPEND SRCS "${FREERDP_CHANNELS_CLIENT_SRC}")
+  get_filename_component(NINC ${FREERDP_CHANNELS_CLIENT_SRC} PATH)
+  include_directories(${NINC})
+  list(APPEND SRCS "${FREERDP_CHANNELS_CLIENT_SRC}")
 endforeach()
 
-if (NOT APPLE AND NOT WIN32 AND NOT ANDROID)
-	set(OPT_FUSE_DEFAULT ON)
+if(UNIX)
+  option(WITH_SSO_MIB "Build with sso-mib support" OFF)
 else()
-	set(OPT_FUSE_DEFAULT OFF)
+  set(WITH_SSO_MIB OFF CACHE INTERNAL "unsupported platform")
+endif()
+
+if(WITH_SSO_MIB)
+  find_package(SSO_MIB REQUIRED)
+  if(SSO_MIB_INSTALL_LIBRARIES)
+    install(FILES ${SSO_MIB_INSTALL_LIBRARIES} DESTINATION ${CMAKE_INSTALL_LIBDIR})
+  endif()
+endif()
+
+if(NOT APPLE AND NOT WIN32 AND NOT ANDROID)
+  set(OPT_FUSE_DEFAULT ON)
+else()
+  set(OPT_FUSE_DEFAULT OFF)
 endif()
 
 option(WITH_FUSE "Build clipboard with FUSE file copy support" ${OPT_FUSE_DEFAULT})
 if(WITH_FUSE)
-	find_package(PkgConfig REQUIRED)
+  find_package(PkgConfig REQUIRED)
 
-    pkg_check_modules(FUSE3 REQUIRED fuse3)
-    include_directories(SYSTEM ${FUSE3_INCLUDE_DIRS})
-	add_definitions(-DWITH_FUSE)
-	list(APPEND LIBS ${FUSE3_LIBRARIES})
+  pkg_check_modules(FUSE3 REQUIRED fuse3)
+  freerdp_client_pc_add_requires_private("fuse3")
 
-	add_definitions(-D_FILE_OFFSET_BITS=64)
+  include_directories(SYSTEM ${FUSE3_INCLUDE_DIRS})
+  add_compile_definitions(WITH_FUSE)
+  list(APPEND LIBS ${FUSE3_LIBRARIES})
+
+  add_compile_definitions(_FILE_OFFSET_BITS=64)
 endif()
 
 include_directories(SYSTEM ${OPENSSL_INCLUDE_DIR})
 
-AddTargetWithResourceFile(${MODULE_NAME} FALSE "${FREERDP_VERSION}" SRCS)
+if(WITH_SSO_MIB)
+  list(APPEND SRCS sso_mib_tokens.c)
+endif()
+
+addtargetwithresourcefile(${MODULE_NAME} FALSE "${FREERDP_VERSION}" SRCS)
+
+if(WITH_SSO_MIB)
+  if(SSO_MIB_EXTERNAL_DIR)
+    add_dependencies(${MODULE_NAME} sso-mib-external)
+  endif()
+
+  include_directories(${SSO_MIB_INCLUDE_DIRS})
+  add_compile_definitions(WITH_SSO_MIB)
+  list(APPEND LIBS ${SSO_MIB_LIBRARIES})
+endif()
 
 list(APPEND LIBS freerdp winpr)
 
 include(CheckLibraryExists)
-CHECK_LIBRARY_EXISTS(m lround "" HAVE_LIB_M)
+check_library_exists(m lround "" HAVE_LIB_M)
 if(HAVE_LIB_M)
-    list(APPEND LIBS m)
+  list(APPEND LIBS m)
 endif()
 
 target_include_directories(${MODULE_NAME} INTERFACE $<INSTALL_INTERFACE:include>)
 target_link_libraries(${MODULE_NAME} PRIVATE ${FREERDP_CHANNELS_CLIENT_LIBS})
 target_link_libraries(${MODULE_NAME} PUBLIC ${LIBS})
 
-install(TARGETS ${MODULE_NAME} COMPONENT libraries EXPORT FreeRDP-ClientTargets
-	ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
-	LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
-	RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+installwithrpath(
+  TARGETS
+  ${MODULE_NAME}
+  COMPONENT
+  libraries
+  EXPORT
+  FreeRDP-ClientTargets
+  ARCHIVE
+  DESTINATION
+  ${CMAKE_INSTALL_LIBDIR}
+  LIBRARY
+  DESTINATION
+  ${CMAKE_INSTALL_LIBDIR}
+  RUNTIME
+  DESTINATION
+  ${CMAKE_INSTALL_BINDIR}
+)
 
 set_property(TARGET ${MODULE_NAME} PROPERTY FOLDER "Client/Common")
 
 if(BUILD_TESTING_INTERNAL OR BUILD_TESTING)
-	add_subdirectory(test)
+  add_subdirectory(test)
 endif()
 
-if (WITH_MANPAGES)
-	add_subdirectory(man)
+if(WITH_MANPAGES)
+  add_subdirectory(man)
 endif()

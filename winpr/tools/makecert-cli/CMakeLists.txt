@@ -19,10 +19,9 @@
 set(MODULE_NAME "winpr-makecert")
 set(MODULE_PREFIX "WINPR_MAKECERT")
 
-set(${MODULE_PREFIX}_SRCS
-	main.c)
+set(${MODULE_PREFIX}_SRCS main.c)
 
-AddTargetWithResourceFile(${MODULE_NAME} TRUE "${WINPR_VERSION}" ${MODULE_PREFIX}_SRCS)
+addtargetwithresourcefile(${MODULE_NAME} TRUE "${WINPR_VERSION}" ${MODULE_PREFIX}_SRCS)
 
 set(${MODULE_PREFIX}_LIBS winpr-tools)
 
@@ -30,6 +29,15 @@ target_link_libraries(${MODULE_NAME} ${${MODULE_PREFIX}_LIBS} winpr)
 
 set_property(TARGET ${MODULE_NAME} PROPERTY FOLDER "WinPR/Tools")
 
-install(TARGETS ${MODULE_NAME} DESTINATION ${CMAKE_INSTALL_BINDIR} COMPONENT tools EXPORT WinPRTargets)
+installwithrpath(
+  TARGETS
+  ${MODULE_NAME}
+  DESTINATION
+  ${CMAKE_INSTALL_BINDIR}
+  COMPONENT
+  tools
+  EXPORT
+  WinPRTargets
+)
 
 generate_and_install_freerdp_man_from_template(${MODULE_NAME} "1" "${WINPR_API_VERSION}")

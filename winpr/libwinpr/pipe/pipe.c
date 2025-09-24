@@ -332,7 +332,7 @@ BOOL NamedPipeRead(PVOID Object, LPVOID lpBuffer, DWORD nNumberOfBytesToRead,
 		/* synchronous behavior */
 		lpOverlapped->Internal = 0;
 		lpOverlapped->InternalHigh = (ULONG_PTR)nNumberOfBytesToRead;
-		lpOverlapped->Pointer = (PVOID)lpBuffer;
+		lpOverlapped->DUMMYUNIONNAME.Pointer = (PVOID)lpBuffer;
 		(void)SetEvent(lpOverlapped->hEvent);
 #endif
 	}
@@ -426,7 +426,7 @@ BOOL NamedPipeWrite(PVOID Object, LPCVOID lpBuffer, DWORD nNumberOfBytesToWrite,
 				PVOID pv;
 			} cnv;
 			cnv.cpv = lpBuffer;
-			lpOverlapped->Pointer = cnv.pv;
+			lpOverlapped->DUMMYUNIONNAME.Pointer = cnv.pv;
 		}
 		(void)SetEvent(lpOverlapped->hEvent);
 #endif
@@ -473,18 +473,20 @@ static BOOL InitWinPRPipeModule(void)
 BOOL CreatePipe(PHANDLE hReadPipe, PHANDLE hWritePipe, LPSECURITY_ATTRIBUTES lpPipeAttributes,
                 DWORD nSize)
 {
-	int pipe_fd[2];
+	int pipe_fd[] = { -1, -1 };
 	WINPR_PIPE* pReadPipe = NULL;
 	WINPR_PIPE* pWritePipe = NULL;
 
 	WINPR_UNUSED(lpPipeAttributes);
 	WINPR_UNUSED(nSize);
 
-	pipe_fd[0] = -1;
-	pipe_fd[1] = -1;
-
 	if (pipe(pipe_fd) < 0)
 	{
+		if (pipe_fd[0] >= 0)
+			close(pipe_fd[0]);
+		if (pipe_fd[1] >= 0)
+			close(pipe_fd[1]);
+
 		WLog_ERR(TAG, "failed to create pipe");
 		return FALSE;
 	}
@@ -494,6 +496,10 @@ BOOL CreatePipe(PHANDLE hReadPipe, PHANDLE hWritePipe, LPSECURITY_ATTRIBUTES lpP
 
 	if (!pReadPipe || !pWritePipe)
 	{
+		if (pipe_fd[0] >= 0)
+			close(pipe_fd[0]);
+		if (pipe_fd[1] >= 0)
+			close(pipe_fd[1]);
 		free(pReadPipe);
 		free(pWritePipe);
 		return FALSE;
@@ -706,13 +712,8 @@ HANDLE CreateNamedPipeA(LPCSTR lpName, DWORD dwOpenMode, DWORD dwPipeMode, DWORD
 
 	if (dwOpenMode & FILE_FLAG_OVERLAPPED)
 	{
-#if 0
-		int flags = fcntl(pNamedPipe->serverfd, F_GETFL);
-
-		if (flags != -1)
-			fcntl(pNamedPipe->serverfd, F_SETFL, flags | O_NONBLOCK);
-
-#endif
+		// TODO: Implement
+		WLog_ERR(TAG, "TODO: implement this");
 	}
 
 	// NOLINTNEXTLINE(clang-analyzer-unix.Malloc): ArrayList_Append takes ownership of baseSocket
@@ -728,9 +729,12 @@ out:
 	return INVALID_HANDLE_VALUE;
 }
 
-HANDLE CreateNamedPipeW(LPCWSTR lpName, DWORD dwOpenMode, DWORD dwPipeMode, DWORD nMaxInstances,
-                        DWORD nOutBufferSize, DWORD nInBufferSize, DWORD nDefaultTimeOut,
-                        LPSECURITY_ATTRIBUTES lpSecurityAttributes)
+HANDLE CreateNamedPipeW(WINPR_ATTR_UNUSED LPCWSTR lpName, WINPR_ATTR_UNUSED DWORD dwOpenMode,
+                        WINPR_ATTR_UNUSED DWORD dwPipeMode, WINPR_ATTR_UNUSED DWORD nMaxInstances,
+                        WINPR_ATTR_UNUSED DWORD nOutBufferSize,
+                        WINPR_ATTR_UNUSED DWORD nInBufferSize,
+                        WINPR_ATTR_UNUSED DWORD nDefaultTimeOut,
+                        WINPR_ATTR_UNUSED LPSECURITY_ATTRIBUTES lpSecurityAttributes)
 {
 	WLog_ERR(TAG, "is not implemented");
 	SetLastError(ERROR_CALL_NOT_IMPLEMENTED);
@@ -782,7 +786,7 @@ BOOL ConnectNamedPipe(HANDLE hNamedPipe, LPOVERLAPPED lpOverlapped)
 		/* synchronous behavior */
 		lpOverlapped->Internal = 2;
 		lpOverlapped->InternalHigh = (ULONG_PTR)0;
-		lpOverlapped->Pointer = (PVOID)NULL;
+		lpOverlapped->DUMMYUNIONNAME.Pointer = (PVOID)NULL;
 		(void)SetEvent(lpOverlapped->hEvent);
 	}
 
@@ -803,17 +807,21 @@ BOOL DisconnectNamedPipe(HANDLE hNamedPipe)
 	return TRUE;
 }
 
-BOOL PeekNamedPipe(HANDLE hNamedPipe, LPVOID lpBuffer, DWORD nBufferSize, LPDWORD lpBytesRead,
-                   LPDWORD lpTotalBytesAvail, LPDWORD lpBytesLeftThisMessage)
+BOOL PeekNamedPipe(WINPR_ATTR_UNUSED HANDLE hNamedPipe, WINPR_ATTR_UNUSED LPVOID lpBuffer,
+                   WINPR_ATTR_UNUSED DWORD nBufferSize, WINPR_ATTR_UNUSED LPDWORD lpBytesRead,
+                   WINPR_ATTR_UNUSED LPDWORD lpTotalBytesAvail,
+                   WINPR_ATTR_UNUSED LPDWORD lpBytesLeftThisMessage)
 {
 	WLog_ERR(TAG, "Not implemented");
 	SetLastError(ERROR_CALL_NOT_IMPLEMENTED);
 	return FALSE;
 }
 
-BOOL TransactNamedPipe(HANDLE hNamedPipe, LPVOID lpInBuffer, DWORD nInBufferSize,
-                       LPVOID lpOutBuffer, DWORD nOutBufferSize, LPDWORD lpBytesRead,
-                       LPOVERLAPPED lpOverlapped)
+BOOL TransactNamedPipe(WINPR_ATTR_UNUSED HANDLE hNamedPipe, WINPR_ATTR_UNUSED LPVOID lpInBuffer,
+                       WINPR_ATTR_UNUSED DWORD nInBufferSize, WINPR_ATTR_UNUSED LPVOID lpOutBuffer,
+                       WINPR_ATTR_UNUSED DWORD nOutBufferSize,
+                       WINPR_ATTR_UNUSED LPDWORD lpBytesRead,
+                       WINPR_ATTR_UNUSED LPOVERLAPPED lpOverlapped)
 {
 	WLog_ERR(TAG, "Not implemented");
 	SetLastError(ERROR_CALL_NOT_IMPLEMENTED);
@@ -858,7 +866,7 @@ BOOL WaitNamedPipeA(LPCSTR lpNamedPipeName, DWORD nTimeOut)
 	return status;
 }
 
-BOOL WaitNamedPipeW(LPCWSTR lpNamedPipeName, DWORD nTimeOut)
+BOOL WaitNamedPipeW(WINPR_ATTR_UNUSED LPCWSTR lpNamedPipeName, WINPR_ATTR_UNUSED DWORD nTimeOut)
 {
 	WLog_ERR(TAG, "Not implemented");
 	SetLastError(ERROR_CALL_NOT_IMPLEMENTED);
@@ -908,23 +916,25 @@ BOOL SetNamedPipeHandleState(HANDLE hNamedPipe, LPDWORD lpMode, LPDWORD lpMaxCol
 	return TRUE;
 }
 
-BOOL ImpersonateNamedPipeClient(HANDLE hNamedPipe)
+BOOL ImpersonateNamedPipeClient(WINPR_ATTR_UNUSED HANDLE hNamedPipe)
 {
 	WLog_ERR(TAG, "Not implemented");
 	SetLastError(ERROR_CALL_NOT_IMPLEMENTED);
 	return FALSE;
 }
 
-BOOL GetNamedPipeClientComputerNameA(HANDLE Pipe, LPCSTR ClientComputerName,
-                                     ULONG ClientComputerNameLength)
+BOOL GetNamedPipeClientComputerNameA(WINPR_ATTR_UNUSED HANDLE Pipe,
+                                     WINPR_ATTR_UNUSED LPCSTR ClientComputerName,
+                                     WINPR_ATTR_UNUSED ULONG ClientComputerNameLength)
 {
 	WLog_ERR(TAG, "Not implemented");
 	SetLastError(ERROR_CALL_NOT_IMPLEMENTED);
 	return FALSE;
 }
 
-BOOL GetNamedPipeClientComputerNameW(HANDLE Pipe, LPCWSTR ClientComputerName,
-                                     ULONG ClientComputerNameLength)
+BOOL GetNamedPipeClientComputerNameW(WINPR_ATTR_UNUSED HANDLE Pipe,
+                                     WINPR_ATTR_UNUSED LPCWSTR ClientComputerName,
+                                     WINPR_ATTR_UNUSED ULONG ClientComputerNameLength)
 {
 	WLog_ERR(TAG, "Not implemented");
 	SetLastError(ERROR_CALL_NOT_IMPLEMENTED);

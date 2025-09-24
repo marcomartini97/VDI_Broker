@@ -42,7 +42,8 @@ static const SDL_Color backgroundcolor = { 0x38, 0x36, 0x35, 0xff };
 
 static const Uint32 hpadding = 10;
 
-SdlWidget::SdlWidget(SDL_Renderer* renderer, SDL_Rect rect, bool input) : _rect(rect), _input(input)
+SdlWidget::SdlWidget([[maybe_unused]] SDL_Renderer* renderer, SDL_Rect rect, bool input)
+    : _rect(rect), _input(input)
 {
 	assert(renderer);
 
@@ -176,7 +177,7 @@ SdlWidget::~SdlWidget()
 		SDL_DestroyTexture(_image);
 }
 
-bool SdlWidget::error_ex(Uint32 res, const char* what, const char* file, size_t line,
+bool SdlWidget::error_ex(Sint32 res, const char* what, const char* file, size_t line,
                          const char* fkt)
 {
 	static wLog* log = nullptr;

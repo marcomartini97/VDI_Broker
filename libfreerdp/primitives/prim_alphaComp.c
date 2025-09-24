@@ -30,8 +30,9 @@
 #define ALPHA(_k_) (((_k_)&0xFF000000U) >> 24)
 
 /* ------------------------------------------------------------------------- */
-static pstatus_t general_alphaComp_argb(const BYTE* pSrc1, UINT32 src1Step, const BYTE* pSrc2,
-                                        UINT32 src2Step, BYTE* pDst, UINT32 dstStep, UINT32 width,
+static pstatus_t general_alphaComp_argb(const BYTE* WINPR_RESTRICT pSrc1, UINT32 src1Step,
+                                        const BYTE* WINPR_RESTRICT pSrc2, UINT32 src2Step,
+                                        BYTE* WINPR_RESTRICT pDst, UINT32 dstStep, UINT32 width,
                                         UINT32 height)
 {
 	for (size_t y = 0; y < height; y++)
@@ -92,5 +93,6 @@ void primitives_init_alphaComp(primitives_t* WINPR_RESTRICT prims)
 
 void primitives_init_alphaComp_opt(primitives_t* WINPR_RESTRICT prims)
 {
+	primitives_init_alphaComp(prims);
 	primitives_init_alphaComp_sse3(prims);
 }

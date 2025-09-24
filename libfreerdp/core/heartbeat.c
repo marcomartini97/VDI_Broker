@@ -40,7 +40,7 @@ state_run_t rdp_recv_heartbeat_packet(rdpRdp* rdp, wStream* s)
 	Stream_Read_UINT8(s, count1);   /* count1 (1 byte) */
 	Stream_Read_UINT8(s, count2);   /* count2 (1 byte) */
 
-	WLog_DBG(HEARTBEAT_TAG,
+	WLog_VRB(HEARTBEAT_TAG,
 	         "received Heartbeat PDU -> period=%" PRIu8 ", count1=%" PRIu8 ", count2=%" PRIu8 "",
 	         period, count1, count2);
 
@@ -58,7 +58,8 @@ state_run_t rdp_recv_heartbeat_packet(rdpRdp* rdp, wStream* s)
 BOOL freerdp_heartbeat_send_heartbeat_pdu(freerdp_peer* peer, BYTE period, BYTE count1, BYTE count2)
 {
 	rdpRdp* rdp = peer->context->rdp;
-	wStream* s = rdp_message_channel_pdu_init(rdp);
+	UINT16 sec_flags = 0;
+	wStream* s = rdp_message_channel_pdu_init(rdp, &sec_flags);
 
 	if (!s)
 		return FALSE;
@@ -72,7 +73,7 @@ BOOL freerdp_heartbeat_send_heartbeat_pdu(freerdp_peer* peer, BYTE period, BYTE 
 	         "sending Heartbeat PDU -> period=%" PRIu8 ", count1=%" PRIu8 ", count2=%" PRIu8 "",
 	         period, count1, count2);
 
-	if (!rdp_send_message_channel_pdu(rdp, s, SEC_HEARTBEAT))
+	if (!rdp_send_message_channel_pdu(rdp, s, sec_flags | SEC_HEARTBEAT))
 		return FALSE;
 
 	return TRUE;

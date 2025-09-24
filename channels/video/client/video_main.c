@@ -25,6 +25,7 @@
 
 #include <winpr/crt.h>
 #include <winpr/assert.h>
+#include <winpr/cast.h>
 #include <winpr/synch.h>
 #include <winpr/print.h>
 #include <winpr/stream.h>
@@ -41,6 +42,7 @@
 #include <freerdp/channels/log.h>
 #include <freerdp/codec/h264.h>
 #include <freerdp/codec/yuv.h>
+#include <freerdp/timer.h>
 
 #define TAG CHANNELS_TAG("video")
 
@@ -57,6 +59,7 @@ typedef struct
 
 	VideoClientContext* context;
 	BOOL initialized;
+	rdpContext* rdpcontext;
 } VIDEO_PLUGIN;
 
 #define XF_VIDEO_UNLIMITED_RATE 31
@@ -104,6 +107,7 @@ struct s_VideoClientContextPriv
 	UINT32 lastSentRate;
 	UINT64 nextFeedbackTime;
 	PresentationContext* currentPresentation;
+	FreeRDP_TimerID timerID;
 };
 
 static void PresentationContext_unref(PresentationContext** presentation);
@@ -184,13 +188,9 @@ static PresentationContext* PresentationContext_new(VideoClientContext* video, B
                                                     UINT32 x, UINT32 y, UINT32 width, UINT32 height)
 {
 	size_t s = 4ULL * width * height;
-	VideoClientContextPriv* priv = NULL;
 	PresentationContext* ret = NULL;
 
 	WINPR_ASSERT(video);
-
-	priv = video->priv;
-	WINPR_ASSERT(priv);
 
 	if (s > INT32_MAX)
 		return NULL;
@@ -410,8 +410,10 @@ static BOOL video_onMappedGeometryUpdate(MAPPED_GEOMETRY* geometry)
 
 	         r->x, r->y, r->width, r->height);
 
-	presentation->surface->x = geometry->topLevelLeft + geometry->left;
-	presentation->surface->y = geometry->topLevelTop + geometry->top;
+	presentation->surface->x =
+	    WINPR_ASSERTING_INT_CAST(uint32_t, geometry->topLevelLeft + geometry->left);
+	presentation->surface->y =
+	    WINPR_ASSERTING_INT_CAST(uint32_t, geometry->topLevelTop + geometry->top);
 
 	return TRUE;
 }
@@ -480,8 +482,10 @@ static UINT video_PresentationRequest(VideoClientContext* video,
 
 		WLog_DBG(TAG, "creating presentation 0x%x", req->PresentationId);
 		priv->currentPresentation = PresentationContext_new(
-		    video, req->PresentationId, geom->topLevelLeft + geom->left,
-		    geom->topLevelTop + geom->top, req->SourceWidth, req->SourceHeight);
+		    video, req->PresentationId,
+		    WINPR_ASSERTING_INT_CAST(uint32_t, geom->topLevelLeft + geom->left),
+		    WINPR_ASSERTING_INT_CAST(uint32_t, geom->topLevelTop + geom->top), req->SourceWidth,
+		    req->SourceHeight);
 		if (!priv->currentPresentation)
 		{
 			WLog_ERR(TAG, "unable to create presentation video");
@@ -845,7 +849,8 @@ static UINT video_VideoData(VideoClientContext* context, const TSMM_VIDEO_DATA* 
 		UINT64 timeAfterH264 = 0;
 		MAPPED_GEOMETRY* geom = presentation->geometry;
 
-		const RECTANGLE_16 rect = { 0, 0, surface->alignedWidth, surface->alignedHeight };
+		const RECTANGLE_16 rect = { 0, 0, WINPR_ASSERTING_INT_CAST(UINT16, surface->alignedWidth),
+			                        WINPR_ASSERTING_INT_CAST(UINT16, surface->alignedHeight) };
 		Stream_SealLength(presentation->currentSample);
 		Stream_SetPosition(presentation->currentSample, 0);
 
@@ -1085,6 +1090,21 @@ static UINT video_data_on_new_channel_connection(IWTSListenerCallback* pListener
 	return CHANNEL_RC_OK;
 }
 
+static uint64_t timer_cb(WINPR_ATTR_UNUSED rdpContext* context, void* userdata,
+                         WINPR_ATTR_UNUSED FreeRDP_TimerID timerID, uint64_t timestamp,
+                         uint64_t interval)
+{
+	VideoClientContext* video = userdata;
+	if (!video)
+		return 0;
+	if (!video->timer)
+		return 0;
+
+	video->timer(video, timestamp);
+
+	return interval;
+}
+
 /**
  * Function description
  *
@@ -1138,7 +1158,12 @@ static UINT video_plugin_initialize(IWTSPlugin* plugin, IWTSVirtualChannelManage
 	if (status == CHANNEL_RC_OK)
 		video->dataListener->pInterface = video->wtsPlugin.pInterface;
 
-	video->initialized = status == CHANNEL_RC_OK;
+	if (status == CHANNEL_RC_OK)
+		video->context->priv->timerID =
+		    freerdp_timer_add(video->rdpcontext, 20000, timer_cb, video->context, true);
+	video->initialized = video->context->priv->timerID != 0;
+	if (!video->initialized)
+		status = ERROR_INTERNAL_ERROR;
 	return status;
 }
 
@@ -1150,6 +1175,11 @@ static UINT video_plugin_initialize(IWTSPlugin* plugin, IWTSVirtualChannelManage
 static UINT video_plugin_terminated(IWTSPlugin* pPlugin)
 {
 	VIDEO_PLUGIN* video = (VIDEO_PLUGIN*)pPlugin;
+	if (!video)
+		return CHANNEL_RC_INVALID_INSTANCE;
+
+	if (video->context && video->context->priv)
+		freerdp_timer_remove(video->rdpcontext, video->context->priv->timerID);
 
 	if (video->control_callback)
 	{
@@ -1184,7 +1214,7 @@ static UINT video_plugin_terminated(IWTSPlugin* pPlugin)
  */
 FREERDP_ENTRY_POINT(UINT VCAPITYPE video_DVCPluginEntry(IDRDYNVC_ENTRY_POINTS* pEntryPoints))
 {
-	UINT error = CHANNEL_RC_OK;
+	UINT error = ERROR_INTERNAL_ERROR;
 	VIDEO_PLUGIN* videoPlugin = NULL;
 	VideoClientContext* videoContext = NULL;
 	VideoClientContextPriv* priv = NULL;
@@ -1228,8 +1258,9 @@ FREERDP_ENTRY_POINT(UINT VCAPITYPE video_DVCPluginEntry(IDRDYNVC_ENTRY_POINTS* p
 
 		videoPlugin->wtsPlugin.pInterface = (void*)videoContext;
 		videoPlugin->context = videoContext;
-
-		error = pEntryPoints->RegisterPlugin(pEntryPoints, "video", &videoPlugin->wtsPlugin);
+		videoPlugin->rdpcontext = pEntryPoints->GetRdpContext(pEntryPoints);
+		if (videoPlugin->rdpcontext)
+			error = pEntryPoints->RegisterPlugin(pEntryPoints, "video", &videoPlugin->wtsPlugin);
 	}
 	else
 	{

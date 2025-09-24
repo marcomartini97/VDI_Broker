@@ -106,13 +106,13 @@ static SSIZE_T crypto_rsa_common(const BYTE* input, size_t length, UINT32 key_le
 	output_length = BN_bn2bin(y, output);
 	if (output_length < 0)
 		goto fail;
-	if ((size_t)output_length > out_length)
+	if (WINPR_ASSERTING_INT_CAST(size_t, output_length) > out_length)
 		goto fail;
-	crypto_reverse(output, output_length);
+	crypto_reverse(output, WINPR_ASSERTING_INT_CAST(size_t, output_length));
 
 	if ((size_t)output_length < key_length)
 	{
-		size_t diff = key_length - output_length;
+		size_t diff = key_length - WINPR_ASSERTING_INT_CAST(size_t, output_length);
 		if ((size_t)output_length + diff > out_length)
 			diff = out_length - (size_t)output_length;
 		memset(output + output_length, 0, diff);
@@ -202,14 +202,14 @@ char* crypto_read_pem(const char* WINPR_RESTRICT filename, size_t* WINPR_RESTRIC
 	const int rs = _fseeki64(fp, 0, SEEK_END);
 	if (rs < 0)
 		goto fail;
-	const SSIZE_T size = _ftelli64(fp);
+	const int64_t size = _ftelli64(fp);
 	if (size < 0)
 		goto fail;
 	const int rc = _fseeki64(fp, 0, SEEK_SET);
 	if (rc < 0)
 		goto fail;
 
-	pem = calloc(size + 1, sizeof(char));
+	pem = calloc(WINPR_ASSERTING_INT_CAST(size_t, size) + 1, sizeof(char));
 	if (!pem)
 		goto fail;
 
@@ -218,7 +218,7 @@ char* crypto_read_pem(const char* WINPR_RESTRICT filename, size_t* WINPR_RESTRIC
 		goto fail;
 
 	if (plength)
-		*plength = strnlen(pem, size);
+		*plength = strnlen(pem, WINPR_ASSERTING_INT_CAST(size_t, size));
 	(void)fclose(fp);
 	return pem;
 

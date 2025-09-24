@@ -107,7 +107,7 @@ UINT32 gdi_SetBkColor(HGDI_DC hdc, UINT32 crColor)
  * @return background mode
  */
 
-UINT32 gdi_GetBkMode(HGDI_DC hdc)
+INT32 gdi_GetBkMode(HGDI_DC hdc)
 {
 	return hdc->bkMode;
 }
@@ -134,9 +134,8 @@ INT32 gdi_SetBkMode(HGDI_DC hdc, INT32 iBkMode)
 	return TRUE;
 }
 
-/**
- * @brief Set the current text color.\n
- * msdn{dd145093}
+/** @brief Set the current text color.
+ * https://learn.microsoft.com/en-us/windows/win32/api/wingdi/nf-wingdi-settextcolor
  *
  * @param hdc device context
  * @param crColor new text color
