@@ -60,6 +60,8 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 set(SRCS
 	vdi_broker.cpp
+	vdi_broker_config.cpp
+	vdi_container_manager.cpp
 )
 AddTargetWithResourceFile(${PROJECT_NAME} FALSE "${PROJECT_VERSION}" SRCS FALSE)
 
