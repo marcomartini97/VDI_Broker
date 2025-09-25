@@ -4,6 +4,10 @@
 
 void vdi_log_refresh_outcome(bool refreshed, bool reloaded);
 
+#include <freerdp/server/proxy/proxy_modules_api.h>
+
+#include <winpr/wlog.h>
+
 #include <curl/curl.h>
 #include <json/json.h>
 
@@ -12,6 +16,7 @@ void vdi_log_refresh_outcome(bool refreshed, bool reloaded);
 #include <chrono>
 #include <cctype>
 #include <cstdint>
+#include <inttypes.h>
 #include <cstdio>
 #include <cstring>
 #include <ctime>
@@ -20,17 +25,26 @@ void vdi_log_refresh_outcome(bool refreshed, bool reloaded);
 #include <fstream>
 #include <iostream>
 #include <memory>
+#include <netdb.h>
+#include <netinet/tcp.h>
 #include <sstream>
 #include <system_error>
 #include <thread>
+#include <sys/socket.h>
+#include <sys/time.h>
+#include <unistd.h>
+
+#define TAG MODULE_TAG("vdi-container-manager")
 
 namespace
 {
 constexpr char kPodmanSocket[] = "/var/run/podman/podman.sock";
 const std::string kPodmanApiBase = "http://d/v5.3.0/libpod/containers/";
 constexpr char kPodmanBuildEndpoint[] = "http://d/v5.3.0/libpod/build";
-
-using namespace std::chrono_literals;
+constexpr int kProcessCheckAttempts = 20;
+constexpr auto kReadinessPollInterval = std::chrono::seconds{1};
+constexpr auto kPortReadyTimeout = std::chrono::seconds{30};
+constexpr std::uint16_t kRdpPort = 3389;
 
 struct TarHeader
 {
@@ -107,7 +121,7 @@ bool WriteTarHeader(std::ofstream& stream, const std::string& tarName, char type
 
     if (!SetTarHeaderName(tarName, header))
     {
-        std::cerr << "Tar entry name too long: " << tarName << std::endl;
+        WLog_ERR(TAG, "Tar entry name too long: %s", tarName.c_str());
         return false;
     }
 
@@ -117,7 +131,7 @@ bool WriteTarHeader(std::ofstream& stream, const std::string& tarName, char type
         !WriteOctal(header.size, sizeof(header.size), size) ||
         !WriteOctal(header.mtime, sizeof(header.mtime), mtime))
     {
-        std::cerr << "Failed to encode tar header fields for entry: " << tarName << std::endl;
+        WLog_ERR(TAG, "Failed to encode tar header fields for entry: %s", tarName.c_str());
         return false;
     }
 
@@ -151,8 +165,8 @@ bool AddFileEntry(std::ofstream& tarStream, const std::filesystem::path& sourceP
     const auto fileSize = std::filesystem::file_size(sourcePath, ec);
     if (ec)
     {
-        std::cerr << "Failed to stat file for tar entry: " << sourcePath << " ("
-                  << ec.message() << ")" << std::endl;
+        WLog_ERR(TAG, "Failed to stat file for tar entry: %s (%s)",
+                 sourcePath.string().c_str(), ec.message().c_str());
         return false;
     }
 
@@ -162,7 +176,7 @@ bool AddFileEntry(std::ofstream& tarStream, const std::filesystem::path& sourceP
     std::ifstream input(sourcePath, std::ios::binary);
     if (!input)
     {
-        std::cerr << "Failed to open file for tar entry: " << sourcePath << std::endl;
+        WLog_ERR(TAG, "Failed to open file for tar entry: %s", sourcePath.string().c_str());
         return false;
     }
 
@@ -174,7 +188,7 @@ bool AddFileEntry(std::ofstream& tarStream, const std::filesystem::path& sourceP
 
     if (!tarStream)
     {
-        std::cerr << "Failed while writing tar contents for: " << tarName << std::endl;
+        WLog_ERR(TAG, "Failed while writing tar contents for: %s", tarName.c_str());
         return false;
     }
 
@@ -190,7 +204,7 @@ bool CreateTarArchive(const std::filesystem::path& contextDir, const std::filesy
     std::ofstream tarStream(tarPath, std::ios::binary | std::ios::trunc);
     if (!tarStream)
     {
-        std::cerr << "Failed to create temporary build context: " << tarPath << std::endl;
+        WLog_ERR(TAG, "Failed to create temporary build context: %s", tarPath.string().c_str());
         return false;
     }
 
@@ -199,7 +213,7 @@ bool CreateTarArchive(const std::filesystem::path& contextDir, const std::filesy
     std::error_code ec;
     if (!std::filesystem::exists(contextDir, ec))
     {
-        std::cerr << "Build context directory missing: " << contextDir << std::endl;
+        WLog_ERR(TAG, "Build context directory missing: %s", contextDir.string().c_str());
         return false;
     }
 
@@ -213,8 +227,8 @@ bool CreateTarArchive(const std::filesystem::path& contextDir, const std::filesy
         const auto relative = std::filesystem::relative(it->path(), contextDir, ec);
         if (ec)
         {
-            std::cerr << "Failed to resolve relative path for tar entry: " << it->path()
-                      << " (" << ec.message() << ")" << std::endl;
+            WLog_ERR(TAG, "Failed to resolve relative path for tar entry: %s (%s)",
+                     it->path().string().c_str(), ec.message().c_str());
             return false;
         }
 
@@ -224,7 +238,8 @@ bool CreateTarArchive(const std::filesystem::path& contextDir, const std::filesy
 
         if (it->is_symlink())
         {
-            std::cerr << "Symlinks are not supported in build context: " << it->path() << std::endl;
+            WLog_WARN(TAG, "Symlinks are not supported in build context: %s",
+                      it->path().string().c_str());
             return false;
         }
 
@@ -242,7 +257,8 @@ bool CreateTarArchive(const std::filesystem::path& contextDir, const std::filesy
         }
         else
         {
-            std::cerr << "Unsupported file type in build context: " << it->path() << std::endl;
+            WLog_ERR(TAG, "Unsupported file type in build context: %s",
+                     it->path().string().c_str());
             return false;
         }
     }
@@ -300,14 +316,14 @@ bool BuildImageFromDockerfile(const std::string& image, const std::string& docke
 {
     if (dockerfilePath.empty())
     {
-        std::cerr << "Dockerfile path not configured; unable to build image " << image << std::endl;
+        WLog_ERR(TAG, "Dockerfile path not configured; unable to build image %s", image.c_str());
         return false;
     }
 
     std::filesystem::path dockerfile(dockerfilePath);
     if (!std::filesystem::exists(dockerfile))
     {
-        std::cerr << "Dockerfile not found at " << dockerfilePath << std::endl;
+        WLog_ERR(TAG, "Dockerfile not found at %s", dockerfilePath.c_str());
         return false;
     }
 
@@ -322,7 +338,7 @@ bool BuildImageFromDockerfile(const std::string& image, const std::string& docke
     }
     catch (const std::filesystem::filesystem_error& ex)
     {
-        std::cerr << "Failed to resolve Dockerfile relative path: " << ex.what() << std::endl;
+        WLog_ERR(TAG, "Failed to resolve Dockerfile relative path: %s", ex.what());
         return false;
     }
 
@@ -336,8 +352,7 @@ bool BuildImageFromDockerfile(const std::string& image, const std::string& docke
     }
     catch (const std::filesystem::filesystem_error& ex)
     {
-        std::cerr << "Failed to resolve temporary directory for build context: " << ex.what()
-                  << std::endl;
+        WLog_ERR(TAG, "Failed to resolve temporary directory for build context: %s", ex.what());
         return false;
     }
 
@@ -363,7 +378,7 @@ bool BuildImageFromDockerfile(const std::string& image, const std::string& docke
     const auto tarSize = std::filesystem::file_size(tarPath, ec);
     if (ec)
     {
-        std::cerr << "Failed to stat build context archive: " << ec.message() << std::endl;
+        WLog_ERR(TAG, "Failed to stat build context archive: %s", ec.message().c_str());
         return false;
     }
 
@@ -371,14 +386,14 @@ bool BuildImageFromDockerfile(const std::string& image, const std::string& docke
     readContext.stream.open(tarPath, std::ios::binary);
     if (!readContext.stream)
     {
-        std::cerr << "Failed to open build context archive for upload: " << tarPath << std::endl;
+        WLog_ERR(TAG, "Failed to open build context archive for upload: %s", tarPath.string().c_str());
         return false;
     }
 
     CURL* curl = curl_easy_init();
     if (!curl)
     {
-        std::cerr << "Failed to initialise curl for Podman image build" << std::endl;
+        WLog_ERR(TAG, "Failed to initialise curl for Podman image build");
         return false;
     }
 
@@ -386,7 +401,7 @@ bool BuildImageFromDockerfile(const std::string& image, const std::string& docke
         curl_easy_escape(curl, image.c_str(), static_cast<int>(image.size())), curl_free);
     if (!escapedImage)
     {
-        std::cerr << "Failed to escape image name for Podman request" << std::endl;
+        WLog_ERR(TAG, "Failed to escape image name for Podman request");
         curl_easy_cleanup(curl);
         return false;
     }
@@ -395,7 +410,7 @@ bool BuildImageFromDockerfile(const std::string& image, const std::string& docke
         curl_easy_escape(curl, dockerfileName.c_str(), static_cast<int>(dockerfileName.size())), curl_free);
     if (!escapedDockerfile)
     {
-        std::cerr << "Failed to escape Dockerfile path for Podman request" << std::endl;
+        WLog_ERR(TAG, "Failed to escape Dockerfile path for Podman request");
         curl_easy_cleanup(curl);
         return false;
     }
@@ -406,8 +421,8 @@ bool BuildImageFromDockerfile(const std::string& image, const std::string& docke
     url += "&dockerfile=";
     url += escapedDockerfile.get();
 
-    std::clog << "Building Podman image '" << image << "' using Dockerfile " << dockerfilePath
-              << " via Podman API" << std::endl;
+    WLog_INFO(TAG, "Building Podman image '%s' using Dockerfile %s via Podman API", image.c_str(),
+              dockerfilePath.c_str());
 
     curl_easy_setopt(curl, CURLOPT_UNIX_SOCKET_PATH, kPodmanSocket);
     curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
@@ -437,17 +452,17 @@ bool BuildImageFromDockerfile(const std::string& image, const std::string& docke
 
     if (res != CURLE_OK)
     {
-        std::cerr << "Podman image build failed: " << curl_easy_strerror(res) << std::endl;
+        WLog_ERR(TAG, "Podman image build failed: %s", curl_easy_strerror(res));
         return false;
     }
 
     if (httpCode >= 400)
     {
-        std::cerr << "Podman image build returned HTTP status " << httpCode << std::endl;
+        WLog_ERR(TAG, "Podman image build returned HTTP status %ld", httpCode);
         return false;
     }
 
-    std::clog << "Successfully built Podman image '" << image << "'" << std::endl;
+    WLog_INFO(TAG, "Successfully built Podman image '%s'", image.c_str());
     return true;
 }
 
@@ -468,7 +483,7 @@ std::string GetContainerInfo(const std::string& containerName, const std::string
     const CURLcode res = curl_easy_perform(curl);
     if (res != CURLE_OK)
     {
-        std::cerr << "Failed to query container info: " << curl_easy_strerror(res) << std::endl;
+        WLog_ERR(TAG, "Failed to query container info: %s", curl_easy_strerror(res));
         curl_easy_cleanup(curl);
         return {};
     }
@@ -481,7 +496,7 @@ std::string GetContainerInfo(const std::string& containerName, const std::string
         return {};
     if (httpCode >= 400)
     {
-        std::cerr << "HTTP error code: " << httpCode << std::endl;
+        WLog_ERR(TAG, "HTTP error code while querying container info: %ld", httpCode);
         return {};
     }
 
@@ -492,7 +507,7 @@ bool ContainerExistsInternal(const std::string& containerName)
 {
     const std::string payload = GetContainerInfo(containerName, "/json");
     if (payload.empty())
-        std::clog << "Container does not exist: " << containerName << std::endl;
+        WLog_INFO(TAG, "Container does not exist: %s", containerName.c_str());
     return !payload.empty();
 }
 
@@ -509,7 +524,7 @@ bool ContainerRunningInternal(const std::string& containerName)
 
     if (!Json::parseFromStream(builder, stream, &root, &errs))
     {
-        std::cerr << "Failed to parse container info: " << errs << std::endl;
+        WLog_ERR(TAG, "Failed to parse container info: %s", errs.c_str());
         return false;
     }
 
@@ -519,14 +534,61 @@ bool ContainerRunningInternal(const std::string& containerName)
 
 bool WaitForProcessInternal(const std::string& containerName, const std::string& processName)
 {
-    std::clog << "Waiting for <" << processName << "> in container: " << containerName << std::endl;
+    WLog_INFO(TAG, "Waiting for <%s> in container: %s", processName.c_str(), containerName.c_str());
 
-    for (int attempts = 0; attempts < 10; attempts++)
+    auto trim = [](const std::string& value) {
+        const auto start = value.find_first_not_of(" \t");
+        if (start == std::string::npos)
+            return std::string{};
+        const auto end = value.find_last_not_of(" \t");
+        return value.substr(start, end - start + 1);
+    };
+
+    const std::string trimmedName = trim(processName);
+    std::string execToken = trimmedName;
+    const auto whitespacePos = execToken.find_first_of(" \t");
+    if (whitespacePos != std::string::npos)
+        execToken.resize(whitespacePos);
+
+    std::string execBasename;
+    if (!execToken.empty())
+    {
+        const auto slashPos = execToken.find_last_of('/');
+        execBasename = (slashPos == std::string::npos) ? execToken : execToken.substr(slashPos + 1);
+    }
+
+    const auto matchesProcess = [&](const Json::Value& process) {
+        if (!process.isArray() || process.empty())
+            return false;
+
+        const std::string commandField = process[process.size() - 1].asString();
+        if (!trimmedName.empty() && commandField.find(trimmedName) != std::string::npos)
+            return true;
+        if (!execToken.empty() && commandField.find(execToken) != std::string::npos)
+            return true;
+        if (!execBasename.empty() && commandField.find(execBasename) != std::string::npos)
+            return true;
+
+        for (const auto& field : process)
+        {
+            const std::string value = field.asString();
+            if (!trimmedName.empty() && value == trimmedName)
+                return true;
+            if (!execToken.empty() && value == execToken)
+                return true;
+            if (!execBasename.empty() && value == execBasename)
+                return true;
+        }
+
+        return false;
+    };
+
+    for (int attempts = 0; attempts < kProcessCheckAttempts; attempts++)
     {
         const std::string response = GetContainerInfo(containerName, "/top");
         if (response.empty())
         {
-            std::this_thread::sleep_for(2s);
+            std::this_thread::sleep_for(kReadinessPollInterval);
             continue;
         }
 
@@ -537,29 +599,105 @@ bool WaitForProcessInternal(const std::string& containerName, const std::string&
 
         if (!Json::parseFromStream(builder, stream, &root, &errs))
         {
-            std::cerr << "Error parsing JSON: " << errs << std::endl;
+            WLog_ERR(TAG, "Error parsing JSON: %s", errs.c_str());
             return false;
         }
 
         const auto& processes = root["Processes"];
         if (!processes.isArray())
         {
-            std::cerr << "Invalid JSON: 'Processes' missing or not array" << std::endl;
+            WLog_ERR(TAG, "Invalid JSON: 'Processes' missing or not array");
             return false;
         }
 
         for (const auto& process : processes)
         {
-            if (!process.isArray() || process.empty())
-                continue;
-
-            if (process[process.size() - 1].asString() == processName)
+            if (matchesProcess(process))
                 return true;
         }
 
-        std::this_thread::sleep_for(2s);
+        std::this_thread::sleep_for(kReadinessPollInterval);
     }
 
+    WLog_WARN(TAG, "Process <%s> not detected in container %s after %d attempts",
+              processName.c_str(), containerName.c_str(), kProcessCheckAttempts);
+    return false;
+}
+
+bool WaitForTcpPort(const std::string& host, std::uint16_t port)
+{
+    WLog_INFO(TAG, "Waiting for TCP port %" PRIu16 " on host %s", port, host.c_str());
+
+    const auto deadline = std::chrono::steady_clock::now() + kPortReadyTimeout;
+    const std::string portString = std::to_string(port);
+
+    struct addrinfo hints
+    {
+    };
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+    hints.ai_flags = AI_NUMERICHOST;
+
+    while (std::chrono::steady_clock::now() < deadline)
+    {
+        struct addrinfo* info = nullptr;
+        const int gaiErr = getaddrinfo(host.c_str(), portString.c_str(), &hints, &info);
+        if (gaiErr != 0)
+        {
+            WLog_ERR(TAG, "Failed to resolve address %s for port check: %s", host.c_str(),
+                     gai_strerror(gaiErr));
+            return false;
+        }
+
+        bool connected = false;
+        for (struct addrinfo* entry = info; entry != nullptr; entry = entry->ai_next)
+        {
+            int sock = ::socket(entry->ai_family, entry->ai_socktype, entry->ai_protocol);
+            if (sock < 0)
+                continue;
+
+            int yes = 1;
+            ::setsockopt(sock, IPPROTO_TCP, TCP_NODELAY, &yes, sizeof(yes));
+
+            struct timeval tv
+            {
+            };
+            tv.tv_sec = 1;
+            tv.tv_usec = 0;
+            ::setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+            ::setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+
+            struct linger lg
+            {
+            };
+            lg.l_onoff = 1;
+            lg.l_linger = 0;
+            ::setsockopt(sock, SOL_SOCKET, SO_LINGER, &lg, sizeof(lg));
+
+            if (::connect(sock, entry->ai_addr, entry->ai_addrlen) == 0)
+            {
+                connected = true;
+                ::shutdown(sock, SHUT_RDWR);
+                ::close(sock);
+                break;
+            }
+
+            ::close(sock);
+        }
+
+        freeaddrinfo(info);
+
+        if (connected)
+        {
+            WLog_INFO(TAG, "Port %" PRIu16 " is reachable on host %s", port, host.c_str());
+            std::this_thread::sleep_for(std::chrono::milliseconds(200));
+            return true;
+        }
+
+        std::this_thread::sleep_for(kReadinessPollInterval);
+    }
+
+    WLog_ERR(TAG, "Timed out waiting for port %" PRIu16 " on host %s", port, host.c_str());
     return false;
 }
 
@@ -642,7 +780,8 @@ bool CreateContainerInternal(const std::string& containerName, const std::string
     writerBuilder["indentation"] = "";
     const std::string payloadStr = Json::writeString(writerBuilder, payload);
 
-    std::clog << "Creating container " << containerName << " with payload: " << payloadStr << std::endl;
+    WLog_INFO(TAG, "Creating container %s with payload: %s", containerName.c_str(),
+              payloadStr.c_str());
 
     struct curl_slist* headers = nullptr;
     headers = curl_slist_append(headers, "Content-Type: application/json");
@@ -664,14 +803,14 @@ bool CreateContainerInternal(const std::string& containerName, const std::string
         success = (httpCode >= 200 && httpCode < 300);
         if (!success)
         {
-            std::cerr << "Failed to create container, HTTP code: " << httpCode << std::endl;
+            WLog_ERR(TAG, "Failed to create container, HTTP code: %ld", httpCode);
             if (httpCode == 404)
                 missingImage = true;
         }
     }
     else
     {
-        std::cerr << "Failed to create container: " << curl_easy_strerror(res) << std::endl;
+        WLog_ERR(TAG, "Failed to create container: %s", curl_easy_strerror(res));
     }
 
     curl_slist_free_all(headers);
@@ -697,7 +836,7 @@ bool StartContainerInternal(const std::string& containerName)
 
     const std::string url = BuildUrl(containerName, "/start");
 
-    std::clog << "Starting container: " << containerName << std::endl;
+    WLog_INFO(TAG, "Starting container: %s", containerName.c_str());
 
     struct curl_slist* headers = nullptr;
     headers = curl_slist_append(headers, "Content-Type: application/json");
@@ -716,11 +855,11 @@ bool StartContainerInternal(const std::string& containerName)
         curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &httpCode);
         success = (httpCode >= 200 && httpCode < 300);
         if (!success)
-            std::cerr << "Failed to start container, HTTP code: " << httpCode << std::endl;
+            WLog_ERR(TAG, "Failed to start container, HTTP code: %ld", httpCode);
     }
     else
     {
-        std::cerr << "Failed to start container: " << curl_easy_strerror(res) << std::endl;
+        WLog_ERR(TAG, "Failed to start container: %s", curl_easy_strerror(res));
     }
 
     curl_slist_free_all(headers);
@@ -741,14 +880,14 @@ std::string GetContainerIpInternal(const std::string& containerName)
 
     if (!Json::parseFromStream(builder, stream, &root, &errs))
     {
-        std::cerr << "Failed to parse container JSON info: " << errs << std::endl;
+        WLog_ERR(TAG, "Failed to parse container JSON info: %s", errs.c_str());
         return {};
     }
 
     const auto& networks = root["NetworkSettings"]["Networks"];
     if (!networks.isObject())
     {
-        std::cerr << "No network information available for container." << std::endl;
+        WLog_ERR(TAG, "No network information available for container.");
         return {};
     }
 
@@ -758,7 +897,7 @@ std::string GetContainerIpInternal(const std::string& containerName)
         const std::string ip = network["IPAddress"].asString();
         if (!ip.empty())
         {
-            std::clog << "Found IP: " << ip << std::endl;
+            WLog_INFO(TAG, "Found IP: %s", ip.c_str());
             return ip;
         }
     }
@@ -785,7 +924,7 @@ std::string ManageContainer(const std::string& username, const std::string& cont
     {
         if (!CreateContainerInternal(containerName, username))
         {
-            std::cerr << "Failed to create container for user " << username << std::endl;
+            WLog_ERR(TAG, "Failed to create container for user %s", username.c_str());
             return {};
         }
     }
@@ -794,7 +933,7 @@ std::string ManageContainer(const std::string& username, const std::string& cont
     {
         if (!StartContainerInternal(containerName))
         {
-            std::cerr << "Failed to start container " << containerName << std::endl;
+            WLog_ERR(TAG, "Failed to start container %s", containerName.c_str());
             return {};
         }
     }
@@ -803,11 +942,20 @@ std::string ManageContainer(const std::string& username, const std::string& cont
     compositorReady &= WaitForProcessInternal(containerName,
                                               "/usr/libexec/gnome-remote-desktop-daemon --headless");
     if (!compositorReady)
-        std::clog << "GNOME compositor not ready in container " << containerName << std::endl;
+        WLog_WARN(TAG, "GNOME compositor not ready in container %s", containerName.c_str());
 
     const std::string ip = GetContainerIpInternal(containerName);
     if (ip.empty())
-        std::cerr << "Failed to retrieve IP for container " << containerName << std::endl;
+    {
+        WLog_ERR(TAG, "Failed to retrieve IP for container %s", containerName.c_str());
+        return {};
+    }
+
+    if (!WaitForTcpPort(ip, kRdpPort))
+    {
+        WLog_ERR(TAG, "RDP port %" PRIu16 " not ready on host %s", kRdpPort, ip.c_str());
+        return {};
+    }
 
     return ip;
 }
