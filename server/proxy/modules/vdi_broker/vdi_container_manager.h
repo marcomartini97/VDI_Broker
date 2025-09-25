@@ -1,63 +1,9 @@
 #pragma once
 
-#include <filesystem>
-#include <mutex>
 #include <string>
 
 namespace vdi
 {
-class VdiBrokerConfig
-{
-public:
-    static VdiBrokerConfig& Instance();
-
-    void SetConfigPath(const std::string& path);
-    std::string ConfigPath() const;
-
-    bool Refresh();
-
-    std::string PodmanImage() const;
-    std::string DriDevice() const;
-    std::string HomePath() const;
-    std::string ShadowPath() const;
-    std::string GroupPath() const;
-    std::string PasswdPath() const;
-    std::string PamPath() const;
-    std::string PamServiceName() const;
-    std::string DockerfilePath() const;
-
-private:
-    VdiBrokerConfig();
-    VdiBrokerConfig(const VdiBrokerConfig&) = delete;
-    VdiBrokerConfig& operator=(const VdiBrokerConfig&) = delete;
-
-    void ApplyDefaultsUnlocked();
-    bool LoadFromFileUnlocked(const std::string& path);
-    bool ParseYamlContentUnlocked(const std::string& content);
-    std::string ResolvePamService(const std::string& pamPath) const;
-
-    static std::string Trim(const std::string& value);
-    static std::string StripQuotes(const std::string& value);
-    static std::string ToLower(std::string value);
-
-    mutable std::mutex mutex_;
-    std::string configPath_;
-    std::string podmanImage_;
-    std::string driDevice_;
-    std::string homePath_;
-    std::string shadowPath_;
-    std::string groupPath_;
-    std::string passwdPath_;
-    std::string pamPath_;
-    std::string pamServiceName_;
-    std::string dockerfilePath_;
-    std::filesystem::file_time_type lastWrite_;
-    bool hasLastWrite_;
-    bool loaded_;
-};
-
-VdiBrokerConfig& Config();
-
 std::string ManageContainer(const std::string& username, const std::string& containerPrefix = "vdi-");
 
 } // namespace vdi

@@ -23,6 +23,7 @@
 
 #include <iostream>
 #include <string>
+#include <cctype>
 #include <unistd.h>
 #include <security/pam_appl.h>
 #include <security/pam_misc.h>
@@ -33,6 +34,7 @@
 #include <freerdp/server/proxy/proxy_modules_api.h>
 #include <sys/time.h>
 
+#include "vdi_broker_config.h"
 #include "vdi_container_manager.h"
 
 #define TAG MODULE_TAG("vdi_broker")
@@ -41,6 +43,31 @@ static constexpr char plugin_desc[] =
     "Intercepts RDP Authentication and forwards the connection to an RDP Enabled Container";
 static constexpr char kConfigPathKey[] = "config_path";
 static constexpr char kDefaultPamServiceName[] = "vdi-broker";
+
+namespace
+{
+std::string build_container_prefix(const std::string& suffix)
+{
+    if (suffix.empty())
+        return "vdi-";
+
+    std::string sanitized;
+    sanitized.reserve(suffix.size());
+    for (const char ch : suffix)
+    {
+        const unsigned char uch = static_cast<unsigned char>(ch);
+        if (std::isalnum(uch) || ch == '_' || ch == '-')
+            sanitized.push_back(static_cast<char>(std::tolower(uch)));
+        else
+            sanitized.push_back('_');
+    }
+
+    if (sanitized.empty())
+        return "vdi-";
+
+    return std::string("vdi_") + sanitized + "-";
+}
+} // namespace
 
 
 // Set Nla Security to login
@@ -54,7 +81,7 @@ static BOOL vdi_server_session_started(proxyPlugin* plugin, proxyData* pdata, vo
 }
 
 
-static void vdi_log_configuration_state(bool refreshed)
+void vdi_log_configuration_state(bool refreshed)
 {
 	auto& configuration = vdi::Config();
 	const std::string configPath = configuration.ConfigPath();
@@ -67,9 +94,12 @@ static void vdi_log_configuration_state(bool refreshed)
 	const std::string pamPath = configuration.PamPath();
 	const std::string dockerfilePath = configuration.DockerfilePath();
 	const std::string pamService = configuration.PamServiceName();
+	const std::string rdpUsername = configuration.RdpUsername();
+	const std::string rdpPassword = configuration.RdpPassword();
 
 	const char* configPathStr = configPath.empty() ? "<defaults>" : configPath.c_str();
 	const char* dockerfileStr = dockerfilePath.empty() ? "<unset>" : dockerfilePath.c_str();
+	const char* rdpPasswordStr = rdpPassword.empty() ? "<unset>" : "<redacted>";
 
 	if (!refreshed)
 		WLog_WARN(TAG, "Failed to refresh VDI broker configuration at %s; using defaults",
@@ -86,6 +116,26 @@ static void vdi_log_configuration_state(bool refreshed)
 	WLog_INFO(TAG, "  pam_path      : %s", pamPath.c_str());
 	WLog_INFO(TAG, "  pam_service   : %s", pamService.c_str());
 	WLog_INFO(TAG, "  dockerfile    : %s", dockerfileStr);
+	WLog_INFO(TAG, "  rdp_username  : %s", rdpUsername.c_str());
+	WLog_INFO(TAG, "  rdp_password  : %s", rdpPasswordStr);
+}
+
+void vdi_log_refresh_outcome(bool refreshed, bool reloaded)
+{
+	if (reloaded)
+	{
+		vdi_log_configuration_state(refreshed);
+		return;
+	}
+
+	if (!refreshed)
+	{
+		auto& configuration = vdi::Config();
+		const std::string configPath = configuration.ConfigPath();
+		const char* configPathStr = configPath.empty() ? "<defaults>" : configPath.c_str();
+		WLog_WARN(TAG, "Failed to refresh VDI broker configuration at %s; using defaults",
+		         configPathStr);
+	}
 }
 
 static void vdi_refresh_configuration(proxyData* pdata)
@@ -101,17 +151,16 @@ static void vdi_refresh_configuration(proxyData* pdata)
 			const bool changed = currentPath != path;
 			configuration.SetConfigPath(path);
 			const bool refreshed = configuration.Refresh();
-			if (!refreshed)
-				WLog_WARN(TAG, "Failed to refresh VDI broker configuration at %s", path);
-			else if (changed)
-				vdi_log_configuration_state(refreshed);
+			const bool reloaded = configuration.ConsumeReloadedFlag();
+			if (changed || reloaded || !refreshed)
+				vdi_log_refresh_outcome(refreshed, reloaded);
 			return;
 		}
 	}
 
 	const bool refreshed = configuration.Refresh();
-	if (!refreshed)
-		WLog_WARN(TAG, "Failed to refresh VDI broker configuration; using defaults");
+	const bool reloaded = configuration.ConsumeReloadedFlag();
+	vdi_log_refresh_outcome(refreshed, reloaded);
 }
 
 static void vdi_initialize_configuration(const proxyConfig* config)
@@ -225,11 +274,12 @@ bool vdi_auth(const std::string& username, const std::string& password) {
     conv.conv = pam_conversation;
     conv.appdata_ptr = &conv_data;
 
-    auto& configuration = vdi::Config();
-    if (!configuration.Refresh())
-        WLog_WARN(TAG, "Using default PAM configuration; reload failed");
+	auto& configuration = vdi::Config();
+	const bool refreshedConfig = configuration.Refresh();
+	const bool reloadedConfig = configuration.ConsumeReloadedFlag();
+	vdi_log_refresh_outcome(refreshedConfig, reloadedConfig);
 
-    std::string pamService = configuration.PamServiceName();
+	std::string pamService = configuration.PamServiceName();
     if (pamService.empty())
         pamService.assign(kDefaultPamServiceName);
 
@@ -290,22 +340,10 @@ static BOOL vdi_client_pre_connect(proxyPlugin* plugin, proxyData* pdata, void* 
 
 	WLog_INFO(TAG, "Username full: %s", username.c_str());
 
-	//Set Default Codec
-	//freerdp_settings_set_bool(settings, FreeRDP_NSCodec, true);
-	// Otherwise find the position of '#', then set RFX if found
 	auto hashPos = username.find('#');
-
-	if (hashPos != std::string::npos) { // Check if '#' is present
-		// Extract the part after '#'
-		auto codec = username.substr(hashPos + 1);
-
-		if (!codec.empty()) {
-			if(codec.compare("rfx") == 0) {
-				freerdp_settings_set_bool(settings, FreeRDP_RemoteFxCodec, true);
-				WLog_INFO(TAG, "USING CODEC RFX");
-			}
-		}
-	}
+	std::string containerSuffix;
+	if ((hashPos != std::string::npos) && (hashPos + 1 < username.size()))
+		containerSuffix = username.substr(hashPos + 1);
 
 	std::string user = (hashPos == std::string::npos) ? username : username.substr(0, hashPos);
 
@@ -313,13 +351,24 @@ static BOOL vdi_client_pre_connect(proxyPlugin* plugin, proxyData* pdata, void* 
 		return FALSE;
 	}
 	WLog_INFO(TAG, "Username: %s", username.c_str());
-	std::string ip = vdi::ManageContainer(user);
-	if(!ip.empty()) {
+	const std::string containerPrefix = build_container_prefix(containerSuffix);
+	const std::string requestedContainer = containerPrefix + user;
+	WLog_INFO(TAG, "Requesting container: %s", requestedContainer.c_str());
+	std::string ip = vdi::ManageContainer(user, containerPrefix);
+	if (!ip.empty())
+	{
 		WLog_INFO(TAG, "Setting target address: %s", ip.c_str());
-		//Hardcoded password for now, set the same for grd in container
+		auto& configuration = vdi::Config();
+		const bool refreshedConfig = configuration.Refresh();
+		const bool reloadedConfig = configuration.ConsumeReloadedFlag();
+		vdi_log_refresh_outcome(refreshedConfig, reloadedConfig);
+		const std::string rdpUsername =
+		    configuration.RdpUsername().empty() ? "rdp" : configuration.RdpUsername();
+		const std::string rdpPassword =
+		    configuration.RdpPassword().empty() ? "rdp" : configuration.RdpPassword();
 		freerdp_settings_set_string(settings, FreeRDP_ServerHostname, ip.c_str());
-		freerdp_settings_set_string(settings, FreeRDP_Username, "rdp");
-		freerdp_settings_set_string(settings, FreeRDP_Password, "rdp");
+		freerdp_settings_set_string(settings, FreeRDP_Username, rdpUsername.c_str());
+		freerdp_settings_set_string(settings, FreeRDP_Password, rdpPassword.c_str());
 		freerdp_settings_set_string(settings, FreeRDP_Domain, "None");
 	}
 
@@ -368,15 +417,15 @@ BOOL proxy_module_entry_point(proxyPluginsManager* plugins_manager, void* userda
 
 	const proxyConfig* initialConfig = static_cast<const proxyConfig*>(userdata);
 	vdi_initialize_configuration(initialConfig);
-	const bool refreshed = vdi::Config().Refresh();
+	auto& configuration = vdi::Config();
+	const bool refreshed = configuration.Refresh();
+	const bool reloaded = configuration.ConsumeReloadedFlag();
 
 	plugin.name = plugin_name;
 	plugin.description = plugin_desc;
 	plugin.PluginUnload = vdi_plugin_unload;
 	plugin.ClientInitConnect = vdi_client_init_connect;
 	plugin.ClientPreConnect = vdi_client_pre_connect;
-
-	plugin.userdata = userdata;
 
 	custom = new (struct vdi_custom_data);
 	if (!custom)
@@ -386,8 +435,8 @@ BOOL proxy_module_entry_point(proxyPluginsManager* plugins_manager, void* userda
 	custom->somesetting = 42;
 
 	plugin.custom = custom;
-	plugin.userdata = userdata;
+
+	vdi_log_refresh_outcome(refreshed, reloaded);
 
 	return plugins_manager->RegisterPlugin(plugins_manager, &plugin);
-	vdi_log_configuration_state(refreshed);
 }

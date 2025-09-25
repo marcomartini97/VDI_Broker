@@ -18,3 +18,8 @@ pam_path: /etc/pam.d/vdi-broker
 # Optional path to a Dockerfile that can be used to build the podman image
 # when it is not present locally.
 dockerfile_path: /path/to/Dockerfile
+
+# Credentials used by the proxy to connect to the GNOME Remote Desktop service
+# inside the Podman container. Defaults fallback to "rdp" when omitted.
+rdp_username: rdp
+rdp_password: rdp
