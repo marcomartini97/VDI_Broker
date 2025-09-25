@@ -216,11 +216,10 @@ Json::Value BuildCreatePayload(const std::string& containerName, const std::stri
         devices.append(dri);
     }
     root["devices"] = devices;
+    root["systemd"] = "always";
 
     Json::Value env(Json::objectValue);
-    env["XDG_RUNTIME_DIR"] = "/tmp";
     env["GSK_RENDERER"] = "ngl";
-    env["VDI_USER"] = username;
     root["env"] = env;
 
     Json::Value mounts(Json::arrayValue);
