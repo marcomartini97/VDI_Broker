@@ -84,7 +84,7 @@ struct s_http_response
 	size_t count;
 	char** lines;
 
-	INT16 StatusCode;
+	UINT16 StatusCode;
 	const char* ReasonPhrase;
 
 	size_t ContentLength;
@@ -813,7 +813,7 @@ static BOOL http_response_parse_header_status_line(HttpResponse* response, const
 		if ((errno != 0) || (val < 0) || (val > INT16_MAX))
 			goto fail;
 
-		response->StatusCode = (INT16)val;
+		response->StatusCode = (UINT16)val;
 	}
 	response->ReasonPhrase = reason_phrase;
 
@@ -1626,7 +1626,7 @@ BOOL http_request_set_content_length(HttpRequest* request, size_t length)
 	return TRUE;
 }
 
-INT16 http_response_get_status_code(const HttpResponse* response)
+UINT16 http_response_get_status_code(const HttpResponse* response)
 {
 	WINPR_ASSERT(response);
 
@@ -1732,7 +1732,7 @@ void http_response_log_error_status_(wLog* log, DWORD level, const HttpResponse*
 		return;
 
 	char buffer[64] = { 0 };
-	const long status = http_response_get_status_code(response);
+	const UINT16 status = http_response_get_status_code(response);
 	WLog_PrintTextMessage(log, level, line, file, fkt, "Unexpected HTTP status: %s",
 	                      freerdp_http_status_string_format(status, buffer, ARRAYSIZE(buffer)));
 	http_response_print(log, level, response, file, line, fkt);

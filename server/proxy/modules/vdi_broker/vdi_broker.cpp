@@ -410,6 +410,8 @@ extern "C"
 }
 #endif
 
+void vdi_broker_proxy_module_entry_point(){}
+
 BOOL proxy_module_entry_point(proxyPluginsManager* plugins_manager, void* userdata)
 {
 	struct vdi_custom_data* custom = nullptr;
