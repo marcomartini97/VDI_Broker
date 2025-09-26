@@ -24,6 +24,8 @@
 #include <iostream>
 #include <string>
 #include <cctype>
+#include <cstdint>
+#include <inttypes.h>
 #include <unistd.h>
 #include <security/pam_appl.h>
 #include <security/pam_misc.h>
@@ -96,6 +98,10 @@ void vdi_log_configuration_state(bool refreshed)
 	const std::string pamService = configuration.PamServiceName();
 	const std::string rdpUsername = configuration.RdpUsername();
 	const std::string rdpPassword = configuration.RdpPassword();
+	const std::size_t userImageOverrides = configuration.UserImageCount();
+	const std::size_t customMounts = configuration.CustomMountCount();
+	const bool nvidiaEnabled = configuration.NvidiaGpuEnabled();
+	const std::uint32_t nvidiaSlot = configuration.NvidiaGpuSlot();
 
 	const char* configPathStr = configPath.empty() ? "<defaults>" : configPath.c_str();
 	const char* dockerfileStr = dockerfilePath.empty() ? "<unset>" : dockerfilePath.c_str();
@@ -108,6 +114,13 @@ void vdi_log_configuration_state(bool refreshed)
 	WLog_INFO(TAG, "VDI broker configuration loaded");
 	WLog_INFO(TAG, "  config_path   : %s", configPathStr);
 	WLog_INFO(TAG, "  podman_image  : %s", podmanImage.c_str());
+	WLog_INFO(TAG, "  user_images   : %" PRIu64 " overrides",
+	          static_cast<std::uint64_t>(userImageOverrides));
+	WLog_INFO(TAG, "  custom_mounts : %" PRIu64 " entries",
+	          static_cast<std::uint64_t>(customMounts));
+	WLog_INFO(TAG, "  nvidia_gpu    : %s", nvidiaEnabled ? "enabled" : "disabled");
+	if (nvidiaEnabled)
+		WLog_INFO(TAG, "  nvidia_slot   : %" PRIu32, nvidiaSlot);
 	WLog_INFO(TAG, "  dri_device    : %s", driDevice.c_str());
 	WLog_INFO(TAG, "  home_path     : %s", homePath.c_str());
 	WLog_INFO(TAG, "  shadow_path   : %s", shadowPath.c_str());
@@ -367,6 +380,7 @@ static BOOL vdi_client_pre_connect(proxyPlugin* plugin, proxyData* pdata, void* 
 		const std::string rdpPassword =
 		    configuration.RdpPassword().empty() ? "rdp" : configuration.RdpPassword();
 		freerdp_settings_set_string(settings, FreeRDP_ServerHostname, ip.c_str());
+		freerdp_settings_set_uint32(settings, FreeRDP_ServerPort, 3389);
 		freerdp_settings_set_string(settings, FreeRDP_Username, rdpUsername.c_str());
 		freerdp_settings_set_string(settings, FreeRDP_Password, rdpPassword.c_str());
 		freerdp_settings_set_string(settings, FreeRDP_Domain, "None");

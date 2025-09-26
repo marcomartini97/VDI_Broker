@@ -7,6 +7,7 @@
 #include <fstream>
 #include <iostream>
 #include <sstream>
+#include <limits>
 
 namespace
 {
@@ -26,7 +27,8 @@ VdiBrokerConfig& VdiBrokerConfig::Instance()
 VdiBrokerConfig::VdiBrokerConfig()
     : configPath_(), podmanImage_(), driDevice_(), homePath_(), shadowPath_(), groupPath_(),
       passwdPath_(), pamPath_(), pamServiceName_(kDefaultPamService), dockerfilePath_(),
-      rdpUsername_(), rdpPassword_(), hasLastWrite_(false), loaded_(false), reloaded_(false)
+      rdpUsername_(), rdpPassword_(), userImages_(), nvidiaGpuEnabled_(false),
+      nvidiaGpuSlot_(0), customMounts_(), hasLastWrite_(false), loaded_(false), reloaded_(false)
 {
     const char* env = std::getenv(kEnvConfigPath);
     if (env && *env)
@@ -173,6 +175,52 @@ std::string VdiBrokerConfig::RdpPassword() const
     return rdpPassword_;
 }
 
+std::string VdiBrokerConfig::PodmanImageForUser(const std::string& username) const
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    const std::string normalized = ToLower(username);
+    const auto it = userImages_.find(normalized);
+    if (it != userImages_.end())
+        return it->second;
+    return podmanImage_;
+}
+
+bool VdiBrokerConfig::HasUserImage(const std::string& username) const
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    return userImages_.find(ToLower(username)) != userImages_.end();
+}
+
+std::size_t VdiBrokerConfig::UserImageCount() const
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    return userImages_.size();
+}
+
+bool VdiBrokerConfig::NvidiaGpuEnabled() const
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    return nvidiaGpuEnabled_;
+}
+
+std::uint32_t VdiBrokerConfig::NvidiaGpuSlot() const
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    return nvidiaGpuSlot_;
+}
+
+std::vector<VdiBrokerConfig::Mount> VdiBrokerConfig::CustomMounts() const
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    return customMounts_;
+}
+
+std::size_t VdiBrokerConfig::CustomMountCount() const
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    return customMounts_.size();
+}
+
 bool VdiBrokerConfig::ConsumeReloadedFlag()
 {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -184,7 +232,7 @@ bool VdiBrokerConfig::ConsumeReloadedFlag()
 void VdiBrokerConfig::ApplyDefaultsUnlocked()
 {
     podmanImage_ = "vdi-gnome";
-    driDevice_ = "/dev/dri/renderD128";
+    driDevice_.clear();
     homePath_ = "/home";
     shadowPath_ = "/etc/shadow";
     groupPath_ = "/etc/group";
@@ -194,6 +242,10 @@ void VdiBrokerConfig::ApplyDefaultsUnlocked()
     dockerfilePath_.clear();
     rdpUsername_ = "rdp";
     rdpPassword_ = "rdp";
+    userImages_.clear();
+    nvidiaGpuEnabled_ = false;
+    nvidiaGpuSlot_ = 0;
+    customMounts_.clear();
 }
 
 bool VdiBrokerConfig::LoadFromFileUnlocked(const std::string& path)
@@ -220,12 +272,117 @@ bool VdiBrokerConfig::ParseYamlContentUnlocked(const std::string& content)
 {
     std::istringstream stream(content);
     std::string line;
+    bool inUserImagesBlock = false;
+    bool inCustomMountsBlock = false;
+    std::string currentUser;
+    std::string currentImage;
+    std::string currentMountSource;
+    std::string currentMountDestination;
+    bool currentMountReadOnly = false;
+
+    auto flushUserImage = [&]() {
+        if (!currentUser.empty() && !currentImage.empty())
+            userImages_[ToLower(currentUser)] = currentImage;
+        currentUser.clear();
+        currentImage.clear();
+    };
+
+    auto flushCustomMount = [&]() {
+        if (!currentMountSource.empty() && !currentMountDestination.empty())
+            customMounts_.push_back({currentMountSource, currentMountDestination, currentMountReadOnly});
+        currentMountSource.clear();
+        currentMountDestination.clear();
+        currentMountReadOnly = false;
+    };
 
     while (std::getline(stream, line))
     {
         std::string trimmed = Trim(line);
         if (trimmed.empty() || trimmed[0] == '#')
             continue;
+
+        const bool isTopLevelLine = !line.empty() &&
+                                    !std::isspace(static_cast<unsigned char>(line.front()));
+        if (inUserImagesBlock && isTopLevelLine && trimmed[0] != '-')
+        {
+            flushUserImage();
+            inUserImagesBlock = false;
+        }
+        if (inCustomMountsBlock && isTopLevelLine && trimmed[0] != '-')
+        {
+            flushCustomMount();
+            inCustomMountsBlock = false;
+        }
+
+        if (inUserImagesBlock)
+        {
+            if (trimmed[0] == '-')
+            {
+                flushUserImage();
+                trimmed = Trim(trimmed.substr(1));
+                if (trimmed.empty())
+                    continue;
+            }
+
+            const auto pos = trimmed.find(':');
+            if (pos == std::string::npos)
+                continue;
+
+            std::string key = ToLower(Trim(trimmed.substr(0, pos)));
+            std::string value = Trim(trimmed.substr(pos + 1));
+
+            const auto commentPos = value.find('#');
+            if (commentPos != std::string::npos)
+                value = Trim(value.substr(0, commentPos));
+
+            value = StripQuotes(value);
+
+            if (key == "user" || key == "username")
+                currentUser = value;
+            else if (key == "image" || key == "podman_image")
+                currentImage = value;
+
+            continue;
+        }
+
+        if (inCustomMountsBlock)
+        {
+            if (trimmed[0] == '-')
+            {
+                flushCustomMount();
+                trimmed = Trim(trimmed.substr(1));
+                if (trimmed.empty())
+                    continue;
+            }
+
+            const auto pos = trimmed.find(':');
+            if (pos == std::string::npos)
+                continue;
+
+            std::string key = ToLower(Trim(trimmed.substr(0, pos)));
+            std::string value = Trim(trimmed.substr(pos + 1));
+
+            const auto commentPos = value.find('#');
+            if (commentPos != std::string::npos)
+                value = Trim(value.substr(0, commentPos));
+
+            value = StripQuotes(value);
+
+            if (key == "source" || key == "host" || key == "src")
+                currentMountSource = value;
+            else if (key == "destination" || key == "target" || key == "container" ||
+                     key == "dest")
+                currentMountDestination = value;
+            else if (key == "read_only" || key == "readonly" || key == "read-only" ||
+                     key == "ro")
+            {
+                const std::string lower = ToLower(value);
+                currentMountReadOnly = (lower == "true" || lower == "1" || lower == "yes" ||
+                                        lower == "on");
+            }
+
+            continue;
+        }
 
         const auto pos = trimmed.find(':');
         if (pos == std::string::npos)
@@ -245,6 +402,53 @@ bool VdiBrokerConfig::ParseYamlContentUnlocked(const std::string& content)
         {
             if (!value.empty())
                 podmanImage_ = value;
+        }
+        else if (normalized == "user_images" || normalized == "custom_user_images")
+        {
+            userImages_.clear();
+            if (value.empty() || value == "|")
+            {
+                inUserImagesBlock = true;
+                currentUser.clear();
+                currentImage.clear();
+            }
+        }
+        else if (normalized == "custom_mounts" || normalized == "additional_mounts")
+        {
+            customMounts_.clear();
+            if (value.empty() || value == "|")
+            {
+                inCustomMountsBlock = true;
+                currentMountSource.clear();
+                currentMountDestination.clear();
+                currentMountReadOnly = false;
+            }
+        }
+        else if (normalized == "nvidia_gpu" || normalized == "use_nvidia_gpu" ||
+                 normalized == "enable_nvidia_gpu")
+        {
+            const std::string lower = ToLower(value);
+            if (lower == "true" || lower == "1" || lower == "yes" || lower == "on")
+                nvidiaGpuEnabled_ = true;
+            else if (lower == "false" || lower == "0" || lower == "no" || lower == "off")
+                nvidiaGpuEnabled_ = false;
+        }
+        else if (normalized == "nvidia_gpu_slot" || normalized == "nvidia_gpu_index" ||
+                 normalized == "nvidia_slot")
+        {
+            try
+            {
+                if (!value.empty())
+                {
+                    const unsigned long parsed = std::stoul(value);
+                    if (parsed <= std::numeric_limits<std::uint32_t>::max())
+                        nvidiaGpuSlot_ = static_cast<std::uint32_t>(parsed);
+                }
+            }
+            catch (...)
+            {
+                // Ignore malformed slot values and retain the previous setting.
+            }
         }
         else if (normalized == "dri_device" || normalized == "dri_render_device")
         {
@@ -295,6 +499,9 @@ bool VdiBrokerConfig::ParseYamlContentUnlocked(const std::string& content)
                 rdpPassword_ = value;
         }
     }
+
+    flushUserImage();
+    flushCustomMount();
 
     pamServiceName_ = ResolvePamService(pamPath_);
     return true;

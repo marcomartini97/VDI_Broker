@@ -1,14 +1,25 @@
 #pragma once
 
+#include <cstddef>
+#include <cstdint>
 #include <filesystem>
 #include <mutex>
 #include <string>
+#include <unordered_map>
+#include <vector>
 
 namespace vdi
 {
 class VdiBrokerConfig
 {
 public:
+    struct Mount
+    {
+        std::string source;
+        std::string destination;
+        bool readOnly;
+    };
+
     static VdiBrokerConfig& Instance();
 
     void SetConfigPath(const std::string& path);
@@ -28,6 +39,13 @@ public:
     std::string DockerfilePath() const;
     std::string RdpUsername() const;
     std::string RdpPassword() const;
+    std::string PodmanImageForUser(const std::string& username) const;
+    bool HasUserImage(const std::string& username) const;
+    std::size_t UserImageCount() const;
+    bool NvidiaGpuEnabled() const;
+    std::uint32_t NvidiaGpuSlot() const;
+    std::vector<Mount> CustomMounts() const;
+    std::size_t CustomMountCount() const;
 
 private:
     VdiBrokerConfig();
@@ -56,6 +74,10 @@ private:
     std::string dockerfilePath_;
     std::string rdpUsername_;
     std::string rdpPassword_;
+    std::unordered_map<std::string, std::string> userImages_;
+    bool nvidiaGpuEnabled_;
+    std::uint32_t nvidiaGpuSlot_;
+    std::vector<Mount> customMounts_;
     std::filesystem::file_time_type lastWrite_;
     bool hasLastWrite_;
     bool loaded_;

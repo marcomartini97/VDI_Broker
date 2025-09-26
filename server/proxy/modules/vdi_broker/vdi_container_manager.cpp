@@ -701,14 +701,15 @@ bool WaitForTcpPort(const std::string& host, std::uint16_t port)
     return false;
 }
 
-Json::Value BuildCreatePayload(const std::string& containerName, const std::string& username)
+Json::Value BuildCreatePayload(const std::string& containerName, const std::string& username,
+                               const std::string& image)
 {
     auto& config = vdi::Config();
 
     Json::Value root(Json::objectValue);
     root["name"] = containerName;
     root["hostname"] = containerName;
-    root["image"] = config.PodmanImage();
+    root["image"] = image;
 
     Json::Value caps(Json::arrayValue);
     caps.append("SYS_ADMIN");
@@ -718,22 +719,26 @@ Json::Value BuildCreatePayload(const std::string& containerName, const std::stri
     root["cap_add"] = caps;
 
     Json::Value devices(Json::arrayValue);
-    Json::Value fuse(Json::objectValue);
-    fuse["path"] = "/dev/fuse";
-    devices.append(fuse);
+    auto appendDevice = [&devices](const std::string& path) {
+        if (path.empty())
+            return;
+        Json::Value device(Json::objectValue);
+        device["path"] = path;
+        devices.append(device);
+    };
+
+    appendDevice("/dev/fuse");
 
     const auto driDevice = config.DriDevice();
     if (!driDevice.empty())
-    {
-        Json::Value dri(Json::objectValue);
-        dri["path"] = driDevice;
-        devices.append(dri);
-    }
+        appendDevice(driDevice);
     root["devices"] = devices;
     root["systemd"] = "always";
 
+    const bool nvidiaEnabled = config.NvidiaGpuEnabled();
     Json::Value env(Json::objectValue);
-    env["GSK_RENDERER"] = "ngl";
+    if (nvidiaEnabled)
+        env["GSK_RENDERER"] = "ngl";
     root["env"] = env;
 
     Json::Value mounts(Json::arrayValue);
@@ -749,7 +754,7 @@ Json::Value BuildCreatePayload(const std::string& containerName, const std::stri
         mounts.append(mount);
     };
 
-    appendMount("/etc/vdi", "/etc/vdi", true);
+    // appendMount("/etc/vdi", "/etc/vdi", true);
     appendMount(config.PasswdPath(), "/etc/passwd", true);
     appendMount(config.GroupPath(), "/etc/group", true);
     appendMount(config.ShadowPath(), "/etc/shadow", true);
@@ -758,6 +763,24 @@ Json::Value BuildCreatePayload(const std::string& containerName, const std::stri
     const auto pamPath = config.PamPath();
     if (!pamPath.empty())
         appendMount(pamPath, pamPath, true);
+
+    const auto customMounts = config.CustomMounts();
+    for (const auto& mount : customMounts)
+        appendMount(mount.source, mount.destination, mount.readOnly);
+
+    if (nvidiaEnabled)
+    {
+        const std::string base = "/dev/nvidia" + std::to_string(config.NvidiaGpuSlot());
+        const std::array<std::string, 6> nvidiaDevices = {
+            "/dev/nvidia-caps", base, "/dev/nvidiactl", "/dev/nvidia-modeset",
+            "/dev/nvidia-uvm", "/dev/nvidia-uvm-tools"};
+
+        for (const auto& dev : nvidiaDevices)
+        {
+            appendDevice(dev);
+            appendMount(dev, dev, false);
+        }
+    }
 
     root["mounts"] = mounts;
 
@@ -775,7 +798,10 @@ bool CreateContainerInternal(const std::string& containerName, const std::string
     if (!curl)
         return false;
 
-    const Json::Value payload = BuildCreatePayload(containerName, username);
+    auto& config = vdi::Config();
+    const std::string image = config.PodmanImageForUser(username);
+    const bool hasCustomImage = config.HasUserImage(username);
+    const Json::Value payload = BuildCreatePayload(containerName, username, image);
     Json::StreamWriterBuilder writerBuilder;
     writerBuilder["indentation"] = "";
     const std::string payloadStr = Json::writeString(writerBuilder, payload);
@@ -816,13 +842,20 @@ bool CreateContainerInternal(const std::string& containerName, const std::string
     curl_slist_free_all(headers);
     curl_easy_cleanup(curl);
 
-    if (!success && missingImage && allowBuild)
+    if (!success && missingImage)
     {
-        auto& config = vdi::Config();
-        const std::string image = config.PodmanImage();
-        const std::string dockerfile = config.DockerfilePath();
-        if (BuildImageFromDockerfile(image, dockerfile))
-            return CreateContainerInternal(containerName, username, false);
+        if (hasCustomImage)
+        {
+            WLog_ERR(TAG,
+                     "Podman image %s configured for user %s is missing; skipping auto-build",
+                     image.c_str(), username.c_str());
+        }
+        else if (allowBuild)
+        {
+            const std::string dockerfile = config.DockerfilePath();
+            if (BuildImageFromDockerfile(image, dockerfile))
+                return CreateContainerInternal(containerName, username, false);
+        }
     }
 
     return success;
