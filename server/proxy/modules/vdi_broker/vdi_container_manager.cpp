@@ -711,6 +711,10 @@ Json::Value BuildCreatePayload(const std::string& containerName, const std::stri
     root["hostname"] = containerName;
     root["image"] = image;
 
+    //Json::Value securityOpts(Json::arrayValue);
+    //securityOpts.append("label=disable");
+    //root["security_opt"] = securityOpts;
+
     Json::Value caps(Json::arrayValue);
     caps.append("SYS_ADMIN");
     caps.append("NET_ADMIN");
@@ -733,7 +737,6 @@ Json::Value BuildCreatePayload(const std::string& containerName, const std::stri
     if (!driDevice.empty())
         appendDevice(driDevice);
     root["devices"] = devices;
-    root["systemd"] = "always";
 
     const bool nvidiaEnabled = config.NvidiaGpuEnabled();
     Json::Value env(Json::objectValue);
@@ -760,6 +763,22 @@ Json::Value BuildCreatePayload(const std::string& containerName, const std::stri
     appendMount(config.ShadowPath(), "/etc/shadow", true);
     appendMount(config.HomePath(), "/home", false);
 
+    // Passthrough dbus
+    appendMount("/var/run/dbus/system_bus_socket","/var/run/dbus/system_bus_socket",true);
+
+    //Passthrough cgroup namespapce
+    //appendMount("/sys/fs/cgroup", "/sys/fs/cgroup", false);
+    //Json::Value cgroupns(Json::objectValue);
+    //cgroupns["nsmode"] = "host";
+    //root["cgroupns"] = cgroupns;
+
+    //Json::Value ipcns(Json::objectValue);
+    //ipcns["nsmode"] = "host";
+    //root["ipcns"] = ipcns;
+    
+    //Add a PTY for OpenRC
+    root["terminal"] = true;
+
     const auto pamPath = config.PamPath();
     if (!pamPath.empty())
         appendMount(pamPath, pamPath, true);
@@ -784,9 +803,9 @@ Json::Value BuildCreatePayload(const std::string& containerName, const std::stri
 
     root["mounts"] = mounts;
 
-    Json::Value command(Json::arrayValue);
-    command.append("/usr/sbin/init");
-    root["command"] = command;
+    //Json::Value command(Json::arrayValue);
+    //command.append("/sbin/init");
+    //root["command"] = command;
 
     return root;
 }
@@ -971,11 +990,11 @@ std::string ManageContainer(const std::string& username, const std::string& cont
         }
     }
 
-    bool compositorReady = WaitForProcessInternal(containerName, "/usr/bin/gnome-shell");
-    compositorReady &= WaitForProcessInternal(containerName,
-                                              "/usr/libexec/gnome-remote-desktop-daemon --headless");
-    if (!compositorReady)
-        WLog_WARN(TAG, "GNOME compositor not ready in container %s", containerName.c_str());
+    // bool compositorReady = WaitForProcessInternal(containerName, "/usr/bin/gnome-shell");
+    // compositorReady &= WaitForProcessInternal(containerName,
+    //                                           "/usr/libexec/gnome-remote-desktop-daemon --headless");
+    // if (!compositorReady)
+    //     WLog_WARN(TAG, "GNOME compositor not ready in container %s", containerName.c_str());
 
     const std::string ip = GetContainerIpInternal(containerName);
     if (ip.empty())
