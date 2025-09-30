@@ -721,6 +721,7 @@ Json::Value BuildCreatePayload(const std::string& containerName, const std::stri
     caps.append("NET_ADMIN");
     caps.append("SYS_PTRACE");
     caps.append("AUDIT_CONTROL");
+    caps.append("SYS_NICE");
     root["cap_add"] = caps;
 
     Json::Value devices(Json::arrayValue);
@@ -799,10 +800,6 @@ Json::Value BuildCreatePayload(const std::string& containerName, const std::stri
     root["terminal"] = true;
 
     root["systemd"] = "always";
-
-    const auto pamPath = config.PamPath();
-    if (!pamPath.empty())
-        appendMount(pamPath, pamPath, true);
 
     const auto customMounts = config.CustomMounts();
     for (const auto& mount : customMounts)
