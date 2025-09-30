@@ -746,7 +746,6 @@ Json::Value BuildCreatePayload(const std::string& containerName, const std::stri
     const auto driCardDevices = config.DriCardDevices();
     for (const auto& device : driCardDevices)
         appendDevice(device);
-    root["devices"] = devices;
 
     const bool nvidiaEnabled = config.NvidiaGpuEnabled();
     Json::Value env(Json::objectValue);
@@ -815,10 +814,10 @@ Json::Value BuildCreatePayload(const std::string& containerName, const std::stri
         for (const auto& dev : nvidiaDevices)
         {
             appendDevice(dev);
-            appendMount(dev, dev, false);
         }
     }
 
+    root["devices"] = devices;
     root["mounts"] = mounts;
 
     //Json::Value command(Json::arrayValue);
