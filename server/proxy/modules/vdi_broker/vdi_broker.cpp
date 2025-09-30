@@ -27,6 +27,9 @@
 #include <cstdint>
 #include <inttypes.h>
 #include <unistd.h>
+#include <atomic>
+#include <thread>
+#include <chrono>
 #include <security/pam_appl.h>
 #include <security/pam_misc.h>
 
@@ -102,6 +105,8 @@ void vdi_log_configuration_state(bool refreshed)
 	const std::size_t customMounts = configuration.CustomMountCount();
 	const bool nvidiaEnabled = configuration.NvidiaGpuEnabled();
 	const std::uint32_t nvidiaSlot = configuration.NvidiaGpuSlot();
+	const auto globalResourceLimits = configuration.GlobalResourceLimits();
+	const std::size_t perUserResourceLimitOverrides = configuration.ResourceLimitUserCount();
 
 	const char* configPathStr = configPath.empty() ? "<defaults>" : configPath.c_str();
 	const char* dockerfileStr = dockerfilePath.empty() ? "<unset>" : dockerfilePath.c_str();
@@ -121,6 +126,9 @@ void vdi_log_configuration_state(bool refreshed)
 	WLog_INFO(TAG, "  nvidia_gpu    : %s", nvidiaEnabled ? "enabled" : "disabled");
 	if (nvidiaEnabled)
 		WLog_INFO(TAG, "  nvidia_slot   : %" PRIu32, nvidiaSlot);
+	WLog_INFO(TAG, "  resource_limits: %" PRIu64 " global entries; %" PRIu64 " per-user overrides",
+	          static_cast<std::uint64_t>(globalResourceLimits.size()),
+	          static_cast<std::uint64_t>(perUserResourceLimitOverrides));
 	WLog_INFO(TAG, "  dri_device    : %s", driDevice.c_str());
 	WLog_INFO(TAG, "  home_path     : %s", homePath.c_str());
 	WLog_INFO(TAG, "  shadow_path   : %s", shadowPath.c_str());
@@ -193,6 +201,8 @@ struct vdi_custom_data
 {
 	proxyPluginsManager* mgr;
 	int somesetting;
+	std::atomic_bool stopConfigPolling;
+	std::thread configPollingThread;
 };
 
 static BOOL vdi_plugin_unload(proxyPlugin* plugin)
@@ -203,7 +213,16 @@ static BOOL vdi_plugin_unload(proxyPlugin* plugin)
 
 	/* Here we have to free up our custom data storage. */
 	if (plugin)
-		delete static_cast<struct vdi_custom_data*>(plugin->custom);
+	{
+		auto* custom = static_cast<struct vdi_custom_data*>(plugin->custom);
+		if (custom)
+		{
+			custom->stopConfigPolling.store(true, std::memory_order_relaxed);
+			if (custom->configPollingThread.joinable())
+				custom->configPollingThread.join();
+			delete custom;
+		}
+	}
 
 	return TRUE;
 }
@@ -449,10 +468,47 @@ BOOL proxy_module_entry_point(proxyPluginsManager* plugins_manager, void* userda
 
 	custom->mgr = plugins_manager;
 	custom->somesetting = 42;
+	custom->stopConfigPolling.store(false, std::memory_order_relaxed);
 
 	plugin.custom = custom;
 
+	try
+	{
+		custom->configPollingThread = std::thread([stopFlag = &custom->stopConfigPolling]() {
+			auto shouldStop = [&]() {
+				return stopFlag->load(std::memory_order_relaxed);
+			};
+
+			while (!shouldStop())
+			{
+				auto& configuration = vdi::Config();
+				const bool refreshed = configuration.Refresh();
+				const bool reloaded = configuration.ConsumeReloadedFlag();
+				if (reloaded || !refreshed)
+					vdi_log_refresh_outcome(refreshed, reloaded);
+
+				for (int i = 0; i < 50 && !shouldStop(); ++i)
+					std::this_thread::sleep_for(std::chrono::milliseconds(100));
+			}
+		});
+	}
+	catch (...)
+	{
+		delete custom;
+		return FALSE;
+	}
+
 	vdi_log_refresh_outcome(refreshed, reloaded);
 
-	return plugins_manager->RegisterPlugin(plugins_manager, &plugin);
+	const BOOL registered = plugins_manager->RegisterPlugin(plugins_manager, &plugin);
+	if (!registered)
+	{
+		custom->stopConfigPolling.store(true, std::memory_order_relaxed);
+		if (custom->configPollingThread.joinable())
+			custom->configPollingThread.join();
+		delete custom;
+		return FALSE;
+	}
+
+	return TRUE;
 }

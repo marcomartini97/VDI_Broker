@@ -46,6 +46,10 @@ public:
     std::uint32_t NvidiaGpuSlot() const;
     std::vector<Mount> CustomMounts() const;
     std::size_t CustomMountCount() const;
+    std::unordered_map<std::string, std::int64_t> GlobalResourceLimits() const;
+    std::unordered_map<std::string, std::int64_t>
+    ResourceLimitsForUser(const std::string& username) const;
+    std::size_t ResourceLimitUserCount() const;
 
 private:
     VdiBrokerConfig();
@@ -78,6 +82,9 @@ private:
     bool nvidiaGpuEnabled_;
     std::uint32_t nvidiaGpuSlot_;
     std::vector<Mount> customMounts_;
+    std::unordered_map<std::string, std::int64_t> globalResourceLimits_;
+    std::unordered_map<std::string, std::unordered_map<std::string, std::int64_t>>
+        userResourceLimits_;
     std::filesystem::file_time_type lastWrite_;
     bool hasLastWrite_;
     bool loaded_;

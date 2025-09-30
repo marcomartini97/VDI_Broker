@@ -1,7 +1,7 @@
 # Example configuration for the VDI broker plugin.
 # Copy this file and adjust paths according to your environment.
 
-podman_image: vdi-gnome
+podman_image: vortice-vdi
 
 # Optional per-user overrides. Each entry provides a username and the image to launch.
 user_images:
@@ -38,3 +38,16 @@ dockerfile_path: /etc/vdi/VORTICE-vdi/Containerfile
 # inside the Podman container. Defaults fallback to "rdp" when omitted.
 rdp_username: rdp
 rdp_password: rdp
+
+# Optional resource limits applied when creating the Podman container.
+# The global block seeds defaults (pids remains unlimited by default).
+# Uncomment per-user entries to override limits for specific users.
+resource_limits:
+  global:
+    pids: 0
+    # memory: 2147483648
+    # cpu: 2
+  users:
+    # - user: alice
+    #   pids: 120
+    #   memory: 2147483648

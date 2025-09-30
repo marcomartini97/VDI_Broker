@@ -763,12 +763,18 @@ Json::Value BuildCreatePayload(const std::string& containerName, const std::stri
     appendMount(config.ShadowPath(), "/etc/shadow", true);
     appendMount(config.HomePath(), "/home", false);
 
-    // Disable PIDs limit
-    Json::Value resource_limits(Json::objectValue);
-    Json::Value pids(Json::objectValue);
-    pids["limit"] = 0;
-    resource_limits["pids"] = pids;
-    root["resource_limits"] = resource_limits; 
+    const auto resourceLimits = config.ResourceLimitsForUser(username);
+    if (!resourceLimits.empty())
+    {
+        Json::Value resource_limits(Json::objectValue);
+        for (const auto& entry : resourceLimits)
+        {
+            Json::Value limit(Json::objectValue);
+            limit["limit"] = static_cast<Json::Int64>(entry.second);
+            resource_limits[entry.first] = limit;
+        }
+        root["resource_limits"] = resource_limits;
+    }
 
     //Passthrough cgroup namespapce
     //appendMount("/sys/fs/cgroup", "/sys/fs/cgroup", false);

@@ -28,7 +28,8 @@ VdiBrokerConfig::VdiBrokerConfig()
     : configPath_(), podmanImage_(), driDevice_(), homePath_(), shadowPath_(), groupPath_(),
       passwdPath_(), pamPath_(), pamServiceName_(kDefaultPamService), dockerfilePath_(),
       rdpUsername_(), rdpPassword_(), userImages_(), nvidiaGpuEnabled_(false),
-      nvidiaGpuSlot_(0), customMounts_(), hasLastWrite_(false), loaded_(false), reloaded_(false)
+      nvidiaGpuSlot_(0), customMounts_(), globalResourceLimits_(), userResourceLimits_(),
+      hasLastWrite_(false), loaded_(false), reloaded_(false)
 {
     const char* env = std::getenv(kEnvConfigPath);
     if (env && *env)
@@ -246,6 +247,9 @@ void VdiBrokerConfig::ApplyDefaultsUnlocked()
     nvidiaGpuEnabled_ = false;
     nvidiaGpuSlot_ = 0;
     customMounts_.clear();
+    globalResourceLimits_.clear();
+    globalResourceLimits_["pids"] = 0;
+    userResourceLimits_.clear();
 }
 
 bool VdiBrokerConfig::LoadFromFileUnlocked(const std::string& path)
@@ -274,11 +278,21 @@ bool VdiBrokerConfig::ParseYamlContentUnlocked(const std::string& content)
     std::string line;
     bool inUserImagesBlock = false;
     bool inCustomMountsBlock = false;
+    bool inResourceLimitsBlock = false;
+    enum class ResourceLimitsSection
+    {
+        None,
+        Global,
+        Users
+    };
+    ResourceLimitsSection resourceLimitsSection = ResourceLimitsSection::None;
     std::string currentUser;
     std::string currentImage;
     std::string currentMountSource;
     std::string currentMountDestination;
     bool currentMountReadOnly = false;
+    std::string currentResourceLimitUser;
+    std::unordered_map<std::string, std::int64_t> currentUserResourceLimits;
 
     auto flushUserImage = [&]() {
         if (!currentUser.empty() && !currentImage.empty())
@@ -293,6 +307,13 @@ bool VdiBrokerConfig::ParseYamlContentUnlocked(const std::string& content)
         currentMountSource.clear();
         currentMountDestination.clear();
         currentMountReadOnly = false;
+    };
+
+    auto flushResourceLimitUser = [&]() {
+        if (!currentResourceLimitUser.empty() && !currentUserResourceLimits.empty())
+            userResourceLimits_[ToLower(currentResourceLimitUser)] = currentUserResourceLimits;
+        currentResourceLimitUser.clear();
+        currentUserResourceLimits.clear();
     };
 
     while (std::getline(stream, line))
@@ -312,6 +333,134 @@ bool VdiBrokerConfig::ParseYamlContentUnlocked(const std::string& content)
         {
             flushCustomMount();
             inCustomMountsBlock = false;
+        }
+        if (inResourceLimitsBlock && isTopLevelLine && trimmed[0] != '-')
+        {
+            if (resourceLimitsSection == ResourceLimitsSection::Users)
+                flushResourceLimitUser();
+            inResourceLimitsBlock = false;
+            resourceLimitsSection = ResourceLimitsSection::None;
+        }
+
+        if (inResourceLimitsBlock && !isTopLevelLine)
+        {
+            if (resourceLimitsSection == ResourceLimitsSection::Users)
+            {
+                if (trimmed[0] == '-')
+                {
+                    flushResourceLimitUser();
+                    trimmed = Trim(trimmed.substr(1));
+                    if (trimmed.empty())
+                        continue;
+                }
+
+                const auto pos = trimmed.find(':');
+                if (pos == std::string::npos)
+                    continue;
+
+                std::string key = ToLower(Trim(trimmed.substr(0, pos)));
+                std::string value = Trim(trimmed.substr(pos + 1));
+
+                const auto commentPos = value.find('#');
+                if (commentPos != std::string::npos)
+                    value = Trim(value.substr(0, commentPos));
+
+                value = StripQuotes(value);
+
+                if (key == "user" || key == "username")
+                {
+                    flushResourceLimitUser();
+                    currentResourceLimitUser = value;
+                }
+                else if (!value.empty())
+                {
+                    try
+                    {
+                        const long long parsed = std::stoll(value);
+                        currentUserResourceLimits[key] = static_cast<std::int64_t>(parsed);
+                    }
+                    catch (...)
+                    {
+                        // Ignore malformed numeric values.
+                    }
+                }
+
+                continue;
+            }
+
+            if (resourceLimitsSection == ResourceLimitsSection::Global)
+            {
+                const auto pos = trimmed.find(':');
+                if (pos == std::string::npos)
+                    continue;
+
+                std::string key = ToLower(Trim(trimmed.substr(0, pos)));
+                std::string value = Trim(trimmed.substr(pos + 1));
+
+                const auto commentPos = value.find('#');
+                if (commentPos != std::string::npos)
+                    value = Trim(value.substr(0, commentPos));
+
+                value = StripQuotes(value);
+
+                if (value.empty())
+                    continue;
+
+                try
+                {
+                    const long long parsed = std::stoll(value);
+                    globalResourceLimits_[key] = static_cast<std::int64_t>(parsed);
+                }
+                catch (...)
+                {
+                    // Ignore malformed numeric values.
+                }
+
+                continue;
+            }
+
+            if (!trimmed.empty() && trimmed.back() == ':')
+            {
+                const std::string key = ToLower(Trim(trimmed.substr(0, trimmed.size() - 1)));
+                if (key == "global")
+                {
+                    resourceLimitsSection = ResourceLimitsSection::Global;
+                    continue;
+                }
+                if (key == "users" || key == "per_user" || key == "per-user")
+                {
+                    flushResourceLimitUser();
+                    resourceLimitsSection = ResourceLimitsSection::Users;
+                    continue;
+                }
+            }
+
+            const auto pos = trimmed.find(':');
+            if (pos != std::string::npos)
+            {
+                std::string key = ToLower(Trim(trimmed.substr(0, pos)));
+                std::string value = Trim(trimmed.substr(pos + 1));
+
+                const auto commentPos = value.find('#');
+                if (commentPos != std::string::npos)
+                    value = Trim(value.substr(0, commentPos));
+
+                value = StripQuotes(value);
+
+                if (key == "global" && value.empty())
+                {
+                    resourceLimitsSection = ResourceLimitsSection::Global;
+                    continue;
+                }
+                if ((key == "users" || key == "per_user" || key == "per-user") && value.empty())
+                {
+                    flushResourceLimitUser();
+                    resourceLimitsSection = ResourceLimitsSection::Users;
+                    continue;
+                }
+            }
+
+            continue;
         }
 
         if (inUserImagesBlock)
@@ -424,6 +573,15 @@ bool VdiBrokerConfig::ParseYamlContentUnlocked(const std::string& content)
                 currentMountReadOnly = false;
             }
         }
+        else if (normalized == "resource_limits" || normalized == "limits")
+        {
+            inResourceLimitsBlock = true;
+            resourceLimitsSection = ResourceLimitsSection::None;
+            flushResourceLimitUser();
+            if (!(value.empty() || value == "|"))
+                inResourceLimitsBlock = false;
+            continue;
+        }
         else if (normalized == "nvidia_gpu" || normalized == "use_nvidia_gpu" ||
                  normalized == "enable_nvidia_gpu")
         {
@@ -502,9 +660,40 @@ bool VdiBrokerConfig::ParseYamlContentUnlocked(const std::string& content)
 
     flushUserImage();
     flushCustomMount();
+    flushResourceLimitUser();
 
     pamServiceName_ = ResolvePamService(pamPath_);
     return true;
+}
+
+std::unordered_map<std::string, std::int64_t> VdiBrokerConfig::GlobalResourceLimits() const
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    return globalResourceLimits_;
+}
+
+std::unordered_map<std::string, std::int64_t>
+VdiBrokerConfig::ResourceLimitsForUser(const std::string& username) const
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    std::unordered_map<std::string, std::int64_t> limits = globalResourceLimits_;
+    if (!username.empty())
+    {
+        const std::string normalized = ToLower(username);
+        const auto it = userResourceLimits_.find(normalized);
+        if (it != userResourceLimits_.end())
+        {
+            for (const auto& entry : it->second)
+                limits[entry.first] = entry.second;
+        }
+    }
+    return limits;
+}
+
+std::size_t VdiBrokerConfig::ResourceLimitUserCount() const
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    return userResourceLimits_.size();
 }
 
 std::string VdiBrokerConfig::ResolvePamService(const std::string& pamPath) const
