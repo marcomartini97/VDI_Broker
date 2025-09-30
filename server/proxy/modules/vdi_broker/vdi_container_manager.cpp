@@ -763,8 +763,12 @@ Json::Value BuildCreatePayload(const std::string& containerName, const std::stri
     appendMount(config.ShadowPath(), "/etc/shadow", true);
     appendMount(config.HomePath(), "/home", false);
 
-    // Passthrough dbus
-    appendMount("/var/run/dbus/system_bus_socket","/var/run/dbus/system_bus_socket",true);
+    // Disable PIDs limit
+    Json::Value resource_limits(Json::objectValue);
+    Json::Value pids(Json::objectValue);
+    pids["limit"] = 0;
+    resource_limits["pids"] = pids;
+    root["resource_limits"] = resource_limits; 
 
     //Passthrough cgroup namespapce
     //appendMount("/sys/fs/cgroup", "/sys/fs/cgroup", false);
@@ -778,6 +782,8 @@ Json::Value BuildCreatePayload(const std::string& containerName, const std::stri
     
     //Add a PTY for OpenRC
     root["terminal"] = true;
+
+    root["systemd"] = "always";
 
     const auto pamPath = config.PamPath();
     if (!pamPath.empty())
