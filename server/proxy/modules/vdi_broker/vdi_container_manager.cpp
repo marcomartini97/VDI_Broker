@@ -30,6 +30,7 @@ void vdi_log_refresh_outcome(bool refreshed, bool reloaded);
 #include <sstream>
 #include <system_error>
 #include <thread>
+#include <unordered_set>
 #include <sys/socket.h>
 #include <sys/time.h>
 #include <unistd.h>
@@ -723,8 +724,12 @@ Json::Value BuildCreatePayload(const std::string& containerName, const std::stri
     root["cap_add"] = caps;
 
     Json::Value devices(Json::arrayValue);
-    auto appendDevice = [&devices](const std::string& path) {
+    std::unordered_set<std::string> appendedDevices;
+
+    auto appendDevice = [&devices, &appendedDevices](const std::string& path) {
         if (path.empty())
+            return;
+        if (!appendedDevices.insert(path).second)
             return;
         Json::Value device(Json::objectValue);
         device["path"] = path;
@@ -733,9 +738,13 @@ Json::Value BuildCreatePayload(const std::string& containerName, const std::stri
 
     appendDevice("/dev/fuse");
 
-    const auto driDevice = config.DriDevice();
-    if (!driDevice.empty())
-        appendDevice(driDevice);
+    const auto driRenderDevices = config.DriRenderDevices();
+    for (const auto& device : driRenderDevices)
+        appendDevice(device);
+
+    const auto driCardDevices = config.DriCardDevices();
+    for (const auto& device : driCardDevices)
+        appendDevice(device);
     root["devices"] = devices;
 
     const bool nvidiaEnabled = config.NvidiaGpuEnabled();

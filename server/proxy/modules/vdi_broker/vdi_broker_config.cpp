@@ -25,10 +25,11 @@ VdiBrokerConfig& VdiBrokerConfig::Instance()
 }
 
 VdiBrokerConfig::VdiBrokerConfig()
-    : configPath_(), podmanImage_(), driDevice_(), homePath_(), shadowPath_(), groupPath_(),
+    : configPath_(), podmanImage_(), homePath_(), shadowPath_(), groupPath_(),
       passwdPath_(), pamPath_(), pamServiceName_(kDefaultPamService), dockerfilePath_(),
       rdpUsername_(), rdpPassword_(), userImages_(), nvidiaGpuEnabled_(false),
-      nvidiaGpuSlot_(0), customMounts_(), globalResourceLimits_(), userResourceLimits_(),
+      nvidiaGpuSlot_(0), customMounts_(), driRenderDevices_(), driCardDevices_(),
+      globalResourceLimits_(), userResourceLimits_(),
       hasLastWrite_(false), loaded_(false), reloaded_(false)
 {
     const char* env = std::getenv(kEnvConfigPath);
@@ -116,10 +117,16 @@ std::string VdiBrokerConfig::PodmanImage() const
     return podmanImage_;
 }
 
-std::string VdiBrokerConfig::DriDevice() const
+std::vector<std::string> VdiBrokerConfig::DriRenderDevices() const
 {
     std::lock_guard<std::mutex> lock(mutex_);
-    return driDevice_;
+    return driRenderDevices_;
+}
+
+std::vector<std::string> VdiBrokerConfig::DriCardDevices() const
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    return driCardDevices_;
 }
 
 std::string VdiBrokerConfig::HomePath() const
@@ -233,7 +240,6 @@ bool VdiBrokerConfig::ConsumeReloadedFlag()
 void VdiBrokerConfig::ApplyDefaultsUnlocked()
 {
     podmanImage_ = "vdi-gnome";
-    driDevice_.clear();
     homePath_ = "/home";
     shadowPath_ = "/etc/shadow";
     groupPath_ = "/etc/group";
@@ -247,6 +253,8 @@ void VdiBrokerConfig::ApplyDefaultsUnlocked()
     nvidiaGpuEnabled_ = false;
     nvidiaGpuSlot_ = 0;
     customMounts_.clear();
+    driRenderDevices_.clear();
+    driCardDevices_.clear();
     globalResourceLimits_.clear();
     globalResourceLimits_["pids"] = 0;
     userResourceLimits_.clear();
@@ -279,6 +287,8 @@ bool VdiBrokerConfig::ParseYamlContentUnlocked(const std::string& content)
     bool inUserImagesBlock = false;
     bool inCustomMountsBlock = false;
     bool inResourceLimitsBlock = false;
+    bool inDriRenderDevicesBlock = false;
+    bool inDriCardDevicesBlock = false;
     enum class ResourceLimitsSection
     {
         None,
@@ -316,6 +326,41 @@ bool VdiBrokerConfig::ParseYamlContentUnlocked(const std::string& content)
         currentUserResourceLimits.clear();
     };
 
+    auto addDeviceEntry = [&](std::vector<std::string>& target, const std::string& value) {
+        const std::string trimmedValue = Trim(StripQuotes(value));
+        if (trimmedValue.empty())
+            return;
+        if (std::find(target.begin(), target.end(), trimmedValue) == target.end())
+            target.push_back(trimmedValue);
+    };
+
+    auto parseInlineDeviceList = [&](const std::string& content, std::vector<std::string>& target) {
+        if (content.empty())
+            return;
+
+        std::string normalizedContent = Trim(content);
+        if (normalizedContent.empty())
+            return;
+
+        if (normalizedContent.front() == '[' && normalizedContent.back() == ']')
+            normalizedContent = normalizedContent.substr(1, normalizedContent.size() - 2);
+
+        std::stringstream deviceStream(normalizedContent);
+        std::string token;
+        bool parsedAny = false;
+        while (std::getline(deviceStream, token, ','))
+        {
+            const std::string candidate = Trim(token);
+            if (candidate.empty())
+                continue;
+            addDeviceEntry(target, candidate);
+            parsedAny = true;
+        }
+
+        if (!parsedAny)
+            addDeviceEntry(target, normalizedContent);
+    };
+
     while (std::getline(stream, line))
     {
         std::string trimmed = Trim(line);
@@ -334,12 +379,48 @@ bool VdiBrokerConfig::ParseYamlContentUnlocked(const std::string& content)
             flushCustomMount();
             inCustomMountsBlock = false;
         }
+        if (inDriRenderDevicesBlock && isTopLevelLine && trimmed[0] != '-')
+        {
+            inDriRenderDevicesBlock = false;
+        }
+        if (inDriCardDevicesBlock && isTopLevelLine && trimmed[0] != '-')
+        {
+            inDriCardDevicesBlock = false;
+        }
         if (inResourceLimitsBlock && isTopLevelLine && trimmed[0] != '-')
         {
             if (resourceLimitsSection == ResourceLimitsSection::Users)
                 flushResourceLimitUser();
             inResourceLimitsBlock = false;
             resourceLimitsSection = ResourceLimitsSection::None;
+        }
+
+        if (inDriRenderDevicesBlock && !isTopLevelLine)
+        {
+            std::string valueLine = trimmed;
+            if (!valueLine.empty() && valueLine[0] == '-')
+                valueLine = Trim(valueLine.substr(1));
+
+            const auto commentPos = valueLine.find('#');
+            if (commentPos != std::string::npos)
+                valueLine = Trim(valueLine.substr(0, commentPos));
+
+            addDeviceEntry(driRenderDevices_, valueLine);
+            continue;
+        }
+
+        if (inDriCardDevicesBlock && !isTopLevelLine)
+        {
+            std::string valueLine = trimmed;
+            if (!valueLine.empty() && valueLine[0] == '-')
+                valueLine = Trim(valueLine.substr(1));
+
+            const auto commentPos = valueLine.find('#');
+            if (commentPos != std::string::npos)
+                valueLine = Trim(valueLine.substr(0, commentPos));
+
+            addDeviceEntry(driCardDevices_, valueLine);
+            continue;
         }
 
         if (inResourceLimitsBlock && !isTopLevelLine)
@@ -582,6 +663,40 @@ bool VdiBrokerConfig::ParseYamlContentUnlocked(const std::string& content)
                 inResourceLimitsBlock = false;
             continue;
         }
+        else if (normalized == "dri_render_devices" || normalized == "dri_render_nodes")
+        {
+            driRenderDevices_.clear();
+            inDriRenderDevicesBlock = false;
+            if (value.empty() || value == "|")
+            {
+                inDriRenderDevicesBlock = true;
+            }
+            else
+            {
+                inDriRenderDevicesBlock = false;
+                parseInlineDeviceList(value, driRenderDevices_);
+            }
+        }
+        else if (normalized == "dri_card_devices" || normalized == "dri_cards")
+        {
+            driCardDevices_.clear();
+            inDriCardDevicesBlock = false;
+            if (value.empty() || value == "|")
+            {
+                inDriCardDevicesBlock = true;
+            }
+            else
+            {
+                inDriCardDevicesBlock = false;
+                parseInlineDeviceList(value, driCardDevices_);
+            }
+        }
+        else if (normalized == "dri_device" || normalized == "dri_render_device")
+        {
+            driRenderDevices_.clear();
+            inDriRenderDevicesBlock = false;
+            parseInlineDeviceList(value, driRenderDevices_);
+        }
         else if (normalized == "nvidia_gpu" || normalized == "use_nvidia_gpu" ||
                  normalized == "enable_nvidia_gpu")
         {
@@ -607,11 +722,6 @@ bool VdiBrokerConfig::ParseYamlContentUnlocked(const std::string& content)
             {
                 // Ignore malformed slot values and retain the previous setting.
             }
-        }
-        else if (normalized == "dri_device" || normalized == "dri_render_device")
-        {
-            if (!value.empty())
-                driDevice_ = value;
         }
         else if (normalized == "home_path" || normalized == "home_directory_path" ||
                  normalized == "home_dir")

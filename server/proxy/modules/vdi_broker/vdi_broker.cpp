@@ -91,7 +91,8 @@ void vdi_log_configuration_state(bool refreshed)
 	auto& configuration = vdi::Config();
 	const std::string configPath = configuration.ConfigPath();
 	const std::string podmanImage = configuration.PodmanImage();
-	const std::string driDevice = configuration.DriDevice();
+	const auto driRenderDevices = configuration.DriRenderDevices();
+	const auto driCardDevices = configuration.DriCardDevices();
 	const std::string homePath = configuration.HomePath();
 	const std::string shadowPath = configuration.ShadowPath();
 	const std::string groupPath = configuration.GroupPath();
@@ -126,10 +127,18 @@ void vdi_log_configuration_state(bool refreshed)
 	WLog_INFO(TAG, "  nvidia_gpu    : %s", nvidiaEnabled ? "enabled" : "disabled");
 	if (nvidiaEnabled)
 		WLog_INFO(TAG, "  nvidia_slot   : %" PRIu32, nvidiaSlot);
-	WLog_INFO(TAG, "  resource_limits: %" PRIu64 " global entries; %" PRIu64 " per-user overrides",
+	WLog_INFO(TAG, "  resource_limits: %" PRIu64 " global entries; %" PRIu64
+	          " per-user overrides",
 	          static_cast<std::uint64_t>(globalResourceLimits.size()),
 	          static_cast<std::uint64_t>(perUserResourceLimitOverrides));
-	WLog_INFO(TAG, "  dri_device    : %s", driDevice.c_str());
+	const char* firstRenderDevice =
+	    driRenderDevices.empty() ? "<unset>" : driRenderDevices.front().c_str();
+	const char* firstCardDevice =
+	    driCardDevices.empty() ? "<unset>" : driCardDevices.front().c_str();
+	WLog_INFO(TAG, "  dri_render    : %" PRIu64 " entries (first: %s)",
+	          static_cast<std::uint64_t>(driRenderDevices.size()), firstRenderDevice);
+	WLog_INFO(TAG, "  dri_cards     : %" PRIu64 " entries (first: %s)",
+	          static_cast<std::uint64_t>(driCardDevices.size()), firstCardDevice);
 	WLog_INFO(TAG, "  home_path     : %s", homePath.c_str());
 	WLog_INFO(TAG, "  shadow_path   : %s", shadowPath.c_str());
 	WLog_INFO(TAG, "  group_path    : %s", groupPath.c_str());

@@ -29,7 +29,8 @@ public:
     bool ConsumeReloadedFlag();
 
     std::string PodmanImage() const;
-    std::string DriDevice() const;
+    std::vector<std::string> DriRenderDevices() const;
+    std::vector<std::string> DriCardDevices() const;
     std::string HomePath() const;
     std::string ShadowPath() const;
     std::string GroupPath() const;
@@ -68,7 +69,6 @@ private:
     mutable std::mutex mutex_;
     std::string configPath_;
     std::string podmanImage_;
-    std::string driDevice_;
     std::string homePath_;
     std::string shadowPath_;
     std::string groupPath_;
@@ -82,6 +82,8 @@ private:
     bool nvidiaGpuEnabled_;
     std::uint32_t nvidiaGpuSlot_;
     std::vector<Mount> customMounts_;
+    std::vector<std::string> driRenderDevices_;
+    std::vector<std::string> driCardDevices_;
     std::unordered_map<std::string, std::int64_t> globalResourceLimits_;
     std::unordered_map<std::string, std::unordered_map<std::string, std::int64_t>>
         userResourceLimits_;

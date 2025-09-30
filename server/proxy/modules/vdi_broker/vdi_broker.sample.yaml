@@ -18,8 +18,13 @@ custom_mounts:
 nvidia_gpu: false
 nvidia_gpu_slot: 0
 
-# Override the render node passed into the container (optional, comment for software rendering).
-dri_device: /dev/dri/renderD128
+# Override render nodes (optional, comment for software rendering).
+dri_render_devices:
+  # - /dev/dri/renderD128
+  # - /dev/dri/renderD129
+dri_card_devices:
+  # - /dev/dri/card0
+  # - /dev/dri/card1
 
 # Host directories bound into the VDI session container.
 home_path: /home
