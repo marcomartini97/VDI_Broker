@@ -1,5 +1,7 @@
 #include "vdi_broker_config.h"
 
+#include "vdi_logging.h"
+
 #include <algorithm>
 #include <cctype>
 #include <cstdlib>
@@ -18,6 +20,665 @@ constexpr char kDefaultPamService[] = "vdi-broker";
 
 namespace vdi
 {
+class ConfigYamlParser
+{
+public:
+    explicit ConfigYamlParser(VdiBrokerConfig& config);
+
+    bool Parse(const std::string& content);
+
+private:
+    enum class ResourceSection
+    {
+        None,
+        Global,
+        Users
+    };
+
+    void ProcessLine(const std::string& line);
+    void ResetBlocksForTopLevel(const std::string& trimmed);
+    bool HandleBlockLine(const std::string& trimmed, bool isTopLevel);
+    bool ProcessResourceLimitsLine(const std::string& trimmed);
+    bool ProcessUserResourceLimitLine(std::string trimmed);
+    bool ProcessGlobalResourceLimitLine(const std::string& trimmed);
+    bool ProcessUserImagesLine(std::string trimmed);
+    bool ProcessCustomMountsLine(std::string trimmed);
+    bool ProcessDriDevicesLine(std::string trimmed, std::vector<std::string>& target);
+    void ProcessTopLevelLine(const std::string& trimmed);
+    void HandleTopLevelEntry(const std::string& key, const std::string& value);
+    void StartUserImagesBlock();
+    void StartCustomMountsBlock();
+    void StartResourceLimitsBlock();
+    void StartResourceLimitsUsersSection();
+    void StartResourceLimitsGlobalSection();
+    void StartDriRenderDevicesBlock();
+    void StartDriCardDevicesBlock();
+    void FlushUserImage();
+    void FlushCustomMount();
+    void FlushResourceLimitUser();
+    void FlushPending();
+
+    static bool ShouldStartBlock(const std::string& value);
+    static std::string RemoveCommentAndStrip(const std::string& value);
+    static bool IsTruthy(const std::string& value);
+    static bool IsFalsy(const std::string& value);
+    static void AppendDeviceEntry(std::vector<std::string>& target, const std::string& value);
+    static void ParseInlineDeviceList(const std::string& content, std::vector<std::string>& target);
+
+    VdiBrokerConfig& config_;
+    bool inUserImagesBlock_ = false;
+    bool inCustomMountsBlock_ = false;
+    bool inResourceLimitsBlock_ = false;
+    bool inDriRenderDevicesBlock_ = false;
+    bool inDriCardDevicesBlock_ = false;
+    ResourceSection resourceSection_ = ResourceSection::None;
+    std::string currentUser_;
+    std::string currentImage_;
+    std::string currentMountSource_;
+    std::string currentMountDestination_;
+    bool currentMountReadOnly_ = false;
+    std::string currentResourceLimitUser_;
+    std::unordered_map<std::string, std::int64_t> currentUserResourceLimits_;
+};
+
+ConfigYamlParser::ConfigYamlParser(VdiBrokerConfig& config) : config_(config)
+{
+}
+
+bool ConfigYamlParser::Parse(const std::string& content)
+{
+    std::istringstream stream(content);
+    std::string line;
+    while (std::getline(stream, line))
+        ProcessLine(line);
+
+    FlushPending();
+    config_.pamServiceName_ = config_.ResolvePamService(config_.pamPath_);
+    return true;
+}
+
+void ConfigYamlParser::ProcessLine(const std::string& line)
+{
+    const std::string trimmed = VdiBrokerConfig::Trim(line);
+    if (trimmed.empty() || trimmed[0] == '#')
+        return;
+
+    const bool isTopLevel =
+        !line.empty() && !std::isspace(static_cast<unsigned char>(line.front()));
+
+    if (isTopLevel)
+        ResetBlocksForTopLevel(trimmed);
+
+    if (HandleBlockLine(trimmed, isTopLevel))
+        return;
+
+    ProcessTopLevelLine(trimmed);
+}
+
+void ConfigYamlParser::ResetBlocksForTopLevel(const std::string& trimmed)
+{
+    if (trimmed.empty())
+        return;
+
+    const bool isBlockContinuation = trimmed[0] == '-';
+
+    if (inUserImagesBlock_ && !isBlockContinuation)
+    {
+        FlushUserImage();
+        inUserImagesBlock_ = false;
+    }
+
+    if (inCustomMountsBlock_ && !isBlockContinuation)
+    {
+        FlushCustomMount();
+        inCustomMountsBlock_ = false;
+    }
+
+    if (inDriRenderDevicesBlock_ && !isBlockContinuation)
+        inDriRenderDevicesBlock_ = false;
+
+    if (inDriCardDevicesBlock_ && !isBlockContinuation)
+        inDriCardDevicesBlock_ = false;
+
+    if (inResourceLimitsBlock_ && !isBlockContinuation)
+    {
+        if (resourceSection_ == ResourceSection::Users)
+            FlushResourceLimitUser();
+        inResourceLimitsBlock_ = false;
+        resourceSection_ = ResourceSection::None;
+    }
+}
+
+bool ConfigYamlParser::HandleBlockLine(const std::string& trimmed, bool isTopLevel)
+{
+    if (inDriRenderDevicesBlock_ && !isTopLevel)
+        return ProcessDriDevicesLine(trimmed, config_.driRenderDevices_);
+
+    if (inDriCardDevicesBlock_ && !isTopLevel)
+        return ProcessDriDevicesLine(trimmed, config_.driCardDevices_);
+
+    if (inResourceLimitsBlock_ && !isTopLevel)
+        return ProcessResourceLimitsLine(trimmed);
+
+    if (inUserImagesBlock_)
+        return ProcessUserImagesLine(trimmed);
+
+    if (inCustomMountsBlock_)
+        return ProcessCustomMountsLine(trimmed);
+
+    return false;
+}
+
+bool ConfigYamlParser::ProcessResourceLimitsLine(const std::string& trimmed)
+{
+    if (resourceSection_ == ResourceSection::Users)
+        return ProcessUserResourceLimitLine(trimmed);
+
+    if (resourceSection_ == ResourceSection::Global)
+        return ProcessGlobalResourceLimitLine(trimmed);
+
+    if (!trimmed.empty() && trimmed.back() == ':')
+    {
+        const std::string key =
+            VdiBrokerConfig::ToLower(VdiBrokerConfig::Trim(trimmed.substr(0, trimmed.size() - 1)));
+        if (key == "global")
+        {
+            StartResourceLimitsGlobalSection();
+            return true;
+        }
+        if (key == "users" || key == "per_user" || key == "per-user")
+        {
+            StartResourceLimitsUsersSection();
+            return true;
+        }
+    }
+
+    const auto pos = trimmed.find(':');
+    if (pos != std::string::npos)
+    {
+        const std::string key =
+            VdiBrokerConfig::ToLower(VdiBrokerConfig::Trim(trimmed.substr(0, pos)));
+        const std::string value = RemoveCommentAndStrip(trimmed.substr(pos + 1));
+
+        if (key == "global" && value.empty())
+        {
+            StartResourceLimitsGlobalSection();
+            return true;
+        }
+        if ((key == "users" || key == "per_user" || key == "per-user") && value.empty())
+        {
+            StartResourceLimitsUsersSection();
+            return true;
+        }
+    }
+
+    return true;
+}
+
+bool ConfigYamlParser::ProcessUserResourceLimitLine(std::string trimmed)
+{
+    if (trimmed.empty())
+        return true;
+
+    if (trimmed[0] == '-')
+    {
+        FlushResourceLimitUser();
+        trimmed = VdiBrokerConfig::Trim(trimmed.substr(1));
+        if (trimmed.empty())
+            return true;
+    }
+
+    const auto pos = trimmed.find(':');
+    if (pos == std::string::npos)
+        return true;
+
+    const std::string key =
+        VdiBrokerConfig::ToLower(VdiBrokerConfig::Trim(trimmed.substr(0, pos)));
+    const std::string value = RemoveCommentAndStrip(trimmed.substr(pos + 1));
+
+    if (key == "user" || key == "username")
+    {
+        FlushResourceLimitUser();
+        currentResourceLimitUser_ = value;
+    }
+    else if (!value.empty())
+    {
+        try
+        {
+            const long long parsed = std::stoll(value);
+            currentUserResourceLimits_[key] = static_cast<std::int64_t>(parsed);
+        }
+        catch (...)
+        {
+        }
+    }
+
+    return true;
+}
+
+bool ConfigYamlParser::ProcessGlobalResourceLimitLine(const std::string& trimmed)
+{
+    const auto pos = trimmed.find(':');
+    if (pos == std::string::npos)
+        return true;
+
+    const std::string key =
+        VdiBrokerConfig::ToLower(VdiBrokerConfig::Trim(trimmed.substr(0, pos)));
+    const std::string value = RemoveCommentAndStrip(trimmed.substr(pos + 1));
+
+    if (value.empty())
+        return true;
+
+    try
+    {
+        const long long parsed = std::stoll(value);
+        config_.globalResourceLimits_[key] = static_cast<std::int64_t>(parsed);
+    }
+    catch (...)
+    {
+    }
+
+    return true;
+}
+
+bool ConfigYamlParser::ProcessUserImagesLine(std::string trimmed)
+{
+    if (trimmed.empty())
+        return true;
+
+    if (trimmed[0] == '-')
+    {
+        FlushUserImage();
+        trimmed = VdiBrokerConfig::Trim(trimmed.substr(1));
+        if (trimmed.empty())
+            return true;
+    }
+
+    const auto pos = trimmed.find(':');
+    if (pos == std::string::npos)
+        return true;
+
+    const std::string key =
+        VdiBrokerConfig::ToLower(VdiBrokerConfig::Trim(trimmed.substr(0, pos)));
+    const std::string value = RemoveCommentAndStrip(trimmed.substr(pos + 1));
+
+    if (key == "user" || key == "username")
+        currentUser_ = value;
+    else if (key == "image" || key == "podman_image")
+        currentImage_ = value;
+
+    return true;
+}
+
+bool ConfigYamlParser::ProcessCustomMountsLine(std::string trimmed)
+{
+    if (trimmed.empty())
+        return true;
+
+    if (trimmed[0] == '-')
+    {
+        FlushCustomMount();
+        trimmed = VdiBrokerConfig::Trim(trimmed.substr(1));
+        if (trimmed.empty())
+            return true;
+    }
+
+    const auto pos = trimmed.find(':');
+    if (pos == std::string::npos)
+        return true;
+
+    const std::string key =
+        VdiBrokerConfig::ToLower(VdiBrokerConfig::Trim(trimmed.substr(0, pos)));
+    const std::string value = RemoveCommentAndStrip(trimmed.substr(pos + 1));
+
+    if (key == "source" || key == "host" || key == "src")
+        currentMountSource_ = value;
+    else if (key == "destination" || key == "target" || key == "container" ||
+             key == "dest")
+        currentMountDestination_ = value;
+    else if (key == "read_only" || key == "readonly" || key == "read-only" || key == "ro")
+        currentMountReadOnly_ = IsTruthy(value);
+
+    return true;
+}
+
+bool ConfigYamlParser::ProcessDriDevicesLine(std::string trimmed, std::vector<std::string>& target)
+{
+    if (!trimmed.empty() && trimmed[0] == '-')
+        trimmed = VdiBrokerConfig::Trim(trimmed.substr(1));
+
+    const std::string value = RemoveCommentAndStrip(trimmed);
+    AppendDeviceEntry(target, value);
+    return true;
+}
+
+void ConfigYamlParser::ProcessTopLevelLine(const std::string& trimmed)
+{
+    const auto pos = trimmed.find(':');
+    if (pos == std::string::npos)
+        return;
+
+    const std::string key = VdiBrokerConfig::Trim(trimmed.substr(0, pos));
+    const std::string value = RemoveCommentAndStrip(trimmed.substr(pos + 1));
+    HandleTopLevelEntry(key, value);
+}
+
+void ConfigYamlParser::HandleTopLevelEntry(const std::string& key, const std::string& value)
+{
+    const std::string normalized = VdiBrokerConfig::ToLower(key);
+
+    if (normalized == "podman_image")
+    {
+        if (!value.empty())
+            config_.podmanImage_ = value;
+        return;
+    }
+
+    if (normalized == "user_images" || normalized == "custom_user_images")
+    {
+        config_.userImages_.clear();
+        if (ShouldStartBlock(value))
+            StartUserImagesBlock();
+        else
+            inUserImagesBlock_ = false;
+        return;
+    }
+
+    if (normalized == "custom_mounts" || normalized == "additional_mounts")
+    {
+        config_.customMounts_.clear();
+        if (ShouldStartBlock(value))
+            StartCustomMountsBlock();
+        else
+            inCustomMountsBlock_ = false;
+        return;
+    }
+
+    if (normalized == "resource_limits" || normalized == "limits")
+    {
+        FlushResourceLimitUser();
+        if (ShouldStartBlock(value))
+            StartResourceLimitsBlock();
+        else
+        {
+            inResourceLimitsBlock_ = false;
+            resourceSection_ = ResourceSection::None;
+        }
+        return;
+    }
+
+    if (normalized == "dri_render_devices" || normalized == "dri_render_nodes")
+    {
+        config_.driRenderDevices_.clear();
+        if (ShouldStartBlock(value))
+        {
+            StartDriRenderDevicesBlock();
+        }
+        else
+        {
+            inDriRenderDevicesBlock_ = false;
+            ParseInlineDeviceList(value, config_.driRenderDevices_);
+        }
+        return;
+    }
+
+    if (normalized == "dri_card_devices" || normalized == "dri_cards")
+    {
+        config_.driCardDevices_.clear();
+        if (ShouldStartBlock(value))
+        {
+            StartDriCardDevicesBlock();
+        }
+        else
+        {
+            inDriCardDevicesBlock_ = false;
+            ParseInlineDeviceList(value, config_.driCardDevices_);
+        }
+        return;
+    }
+
+    if (normalized == "dri_device" || normalized == "dri_render_device")
+    {
+        config_.driRenderDevices_.clear();
+        inDriRenderDevicesBlock_ = false;
+        ParseInlineDeviceList(value, config_.driRenderDevices_);
+        return;
+    }
+
+    if (normalized == "nvidia_gpu" || normalized == "use_nvidia_gpu" ||
+        normalized == "enable_nvidia_gpu")
+    {
+        if (IsTruthy(value))
+            config_.nvidiaGpuEnabled_ = true;
+        else if (IsFalsy(value))
+            config_.nvidiaGpuEnabled_ = false;
+        return;
+    }
+
+    if (normalized == "nvidia_gpu_slot" || normalized == "nvidia_gpu_index" ||
+        normalized == "nvidia_slot")
+    {
+        if (!value.empty())
+        {
+            try
+            {
+                const unsigned long parsed = std::stoul(value);
+                if (parsed <= std::numeric_limits<std::uint32_t>::max())
+                    config_.nvidiaGpuSlot_ = static_cast<std::uint32_t>(parsed);
+            }
+            catch (...)
+            {
+            }
+        }
+        return;
+    }
+
+    if (normalized == "home_path" || normalized == "home_directory_path" ||
+        normalized == "home_dir")
+    {
+        if (!value.empty())
+            config_.homePath_ = value;
+        return;
+    }
+
+    if (normalized == "shadow_path")
+    {
+        if (!value.empty())
+            config_.shadowPath_ = value;
+        return;
+    }
+
+    if (normalized == "group_path")
+    {
+        if (!value.empty())
+            config_.groupPath_ = value;
+        return;
+    }
+
+    if (normalized == "passwd_path" || normalized == "password_path")
+    {
+        if (!value.empty())
+            config_.passwdPath_ = value;
+        return;
+    }
+
+    if (normalized == "pam_path" || normalized == "pam_config_path")
+    {
+        if (!value.empty())
+        {
+            config_.pamPath_ = value;
+            config_.pamServiceName_ = config_.ResolvePamService(config_.pamPath_);
+        }
+        return;
+    }
+
+    if (normalized == "dockerfile_path")
+    {
+        config_.dockerfilePath_ = value;
+        return;
+    }
+
+    if (normalized == "rdp_username")
+    {
+        if (!value.empty())
+            config_.rdpUsername_ = value;
+        return;
+    }
+
+    if (normalized == "rdp_password")
+    {
+        if (!value.empty())
+            config_.rdpPassword_ = value;
+        return;
+    }
+}
+
+void ConfigYamlParser::StartUserImagesBlock()
+{
+    inUserImagesBlock_ = true;
+    currentUser_.clear();
+    currentImage_.clear();
+}
+
+void ConfigYamlParser::StartCustomMountsBlock()
+{
+    inCustomMountsBlock_ = true;
+    currentMountSource_.clear();
+    currentMountDestination_.clear();
+    currentMountReadOnly_ = false;
+}
+
+void ConfigYamlParser::StartResourceLimitsBlock()
+{
+    inResourceLimitsBlock_ = true;
+    resourceSection_ = ResourceSection::None;
+}
+
+void ConfigYamlParser::StartResourceLimitsUsersSection()
+{
+    FlushResourceLimitUser();
+    resourceSection_ = ResourceSection::Users;
+}
+
+void ConfigYamlParser::StartResourceLimitsGlobalSection()
+{
+    resourceSection_ = ResourceSection::Global;
+}
+
+void ConfigYamlParser::StartDriRenderDevicesBlock()
+{
+    inDriRenderDevicesBlock_ = true;
+}
+
+void ConfigYamlParser::StartDriCardDevicesBlock()
+{
+    inDriCardDevicesBlock_ = true;
+}
+
+void ConfigYamlParser::FlushUserImage()
+{
+    if (!currentUser_.empty() && !currentImage_.empty())
+        config_.userImages_[VdiBrokerConfig::ToLower(currentUser_)] = currentImage_;
+
+    currentUser_.clear();
+    currentImage_.clear();
+}
+
+void ConfigYamlParser::FlushCustomMount()
+{
+    if (!currentMountSource_.empty() && !currentMountDestination_.empty())
+        config_.customMounts_.push_back({currentMountSource_, currentMountDestination_,
+                                         currentMountReadOnly_});
+
+    currentMountSource_.clear();
+    currentMountDestination_.clear();
+    currentMountReadOnly_ = false;
+}
+
+void ConfigYamlParser::FlushResourceLimitUser()
+{
+    if (!currentResourceLimitUser_.empty() && !currentUserResourceLimits_.empty())
+        config_.userResourceLimits_[VdiBrokerConfig::ToLower(currentResourceLimitUser_)] =
+            currentUserResourceLimits_;
+
+    currentResourceLimitUser_.clear();
+    currentUserResourceLimits_.clear();
+}
+
+void ConfigYamlParser::FlushPending()
+{
+    FlushUserImage();
+    FlushCustomMount();
+    FlushResourceLimitUser();
+}
+
+bool ConfigYamlParser::ShouldStartBlock(const std::string& value)
+{
+    return value.empty() || value == "|";
+}
+
+std::string ConfigYamlParser::RemoveCommentAndStrip(const std::string& value)
+{
+    std::string result = VdiBrokerConfig::Trim(value);
+    const auto commentPos = result.find('#');
+    if (commentPos != std::string::npos)
+        result = VdiBrokerConfig::Trim(result.substr(0, commentPos));
+    return VdiBrokerConfig::StripQuotes(result);
+}
+
+bool ConfigYamlParser::IsTruthy(const std::string& value)
+{
+    const std::string lower = VdiBrokerConfig::ToLower(value);
+    return lower == "true" || lower == "1" || lower == "yes" || lower == "on";
+}
+
+bool ConfigYamlParser::IsFalsy(const std::string& value)
+{
+    const std::string lower = VdiBrokerConfig::ToLower(value);
+    return lower == "false" || lower == "0" || lower == "no" || lower == "off";
+}
+
+void ConfigYamlParser::AppendDeviceEntry(std::vector<std::string>& target,
+                                         const std::string& value)
+{
+    if (value.empty())
+        return;
+
+    if (std::find(target.begin(), target.end(), value) != target.end())
+        return;
+
+    target.push_back(value);
+}
+
+void ConfigYamlParser::ParseInlineDeviceList(const std::string& content,
+                                             std::vector<std::string>& target)
+{
+    if (content.empty())
+        return;
+
+    std::string normalized = VdiBrokerConfig::Trim(content);
+    if (normalized.empty())
+        return;
+
+    if (normalized.front() == '[' && normalized.back() == ']')
+        normalized = normalized.substr(1, normalized.size() - 2);
+
+    std::stringstream stream(normalized);
+    std::string token;
+    bool parsedAny = false;
+    while (std::getline(stream, token, ','))
+    {
+        const std::string candidate = VdiBrokerConfig::Trim(token);
+        if (candidate.empty())
+            continue;
+        AppendDeviceEntry(target, candidate);
+        parsedAny = true;
+    }
+
+    if (!parsedAny)
+        AppendDeviceEntry(target, normalized);
+}
+
 VdiBrokerConfig& VdiBrokerConfig::Instance()
 {
     static VdiBrokerConfig instance;
@@ -282,498 +943,8 @@ bool VdiBrokerConfig::LoadFromFileUnlocked(const std::string& path)
 
 bool VdiBrokerConfig::ParseYamlContentUnlocked(const std::string& content)
 {
-    std::istringstream stream(content);
-    std::string line;
-    bool inUserImagesBlock = false;
-    bool inCustomMountsBlock = false;
-    bool inResourceLimitsBlock = false;
-    bool inDriRenderDevicesBlock = false;
-    bool inDriCardDevicesBlock = false;
-    enum class ResourceLimitsSection
-    {
-        None,
-        Global,
-        Users
-    };
-    ResourceLimitsSection resourceLimitsSection = ResourceLimitsSection::None;
-    std::string currentUser;
-    std::string currentImage;
-    std::string currentMountSource;
-    std::string currentMountDestination;
-    bool currentMountReadOnly = false;
-    std::string currentResourceLimitUser;
-    std::unordered_map<std::string, std::int64_t> currentUserResourceLimits;
-
-    auto flushUserImage = [&]() {
-        if (!currentUser.empty() && !currentImage.empty())
-            userImages_[ToLower(currentUser)] = currentImage;
-        currentUser.clear();
-        currentImage.clear();
-    };
-
-    auto flushCustomMount = [&]() {
-        if (!currentMountSource.empty() && !currentMountDestination.empty())
-            customMounts_.push_back({currentMountSource, currentMountDestination, currentMountReadOnly});
-        currentMountSource.clear();
-        currentMountDestination.clear();
-        currentMountReadOnly = false;
-    };
-
-    auto flushResourceLimitUser = [&]() {
-        if (!currentResourceLimitUser.empty() && !currentUserResourceLimits.empty())
-            userResourceLimits_[ToLower(currentResourceLimitUser)] = currentUserResourceLimits;
-        currentResourceLimitUser.clear();
-        currentUserResourceLimits.clear();
-    };
-
-    auto addDeviceEntry = [&](std::vector<std::string>& target, const std::string& value) {
-        const std::string trimmedValue = Trim(StripQuotes(value));
-        if (trimmedValue.empty())
-            return;
-        if (std::find(target.begin(), target.end(), trimmedValue) == target.end())
-            target.push_back(trimmedValue);
-    };
-
-    auto parseInlineDeviceList = [&](const std::string& content, std::vector<std::string>& target) {
-        if (content.empty())
-            return;
-
-        std::string normalizedContent = Trim(content);
-        if (normalizedContent.empty())
-            return;
-
-        if (normalizedContent.front() == '[' && normalizedContent.back() == ']')
-            normalizedContent = normalizedContent.substr(1, normalizedContent.size() - 2);
-
-        std::stringstream deviceStream(normalizedContent);
-        std::string token;
-        bool parsedAny = false;
-        while (std::getline(deviceStream, token, ','))
-        {
-            const std::string candidate = Trim(token);
-            if (candidate.empty())
-                continue;
-            addDeviceEntry(target, candidate);
-            parsedAny = true;
-        }
-
-        if (!parsedAny)
-            addDeviceEntry(target, normalizedContent);
-    };
-
-    while (std::getline(stream, line))
-    {
-        std::string trimmed = Trim(line);
-        if (trimmed.empty() || trimmed[0] == '#')
-            continue;
-
-        const bool isTopLevelLine = !line.empty() &&
-                                    !std::isspace(static_cast<unsigned char>(line.front()));
-        if (inUserImagesBlock && isTopLevelLine && trimmed[0] != '-')
-        {
-            flushUserImage();
-            inUserImagesBlock = false;
-        }
-        if (inCustomMountsBlock && isTopLevelLine && trimmed[0] != '-')
-        {
-            flushCustomMount();
-            inCustomMountsBlock = false;
-        }
-        if (inDriRenderDevicesBlock && isTopLevelLine && trimmed[0] != '-')
-        {
-            inDriRenderDevicesBlock = false;
-        }
-        if (inDriCardDevicesBlock && isTopLevelLine && trimmed[0] != '-')
-        {
-            inDriCardDevicesBlock = false;
-        }
-        if (inResourceLimitsBlock && isTopLevelLine && trimmed[0] != '-')
-        {
-            if (resourceLimitsSection == ResourceLimitsSection::Users)
-                flushResourceLimitUser();
-            inResourceLimitsBlock = false;
-            resourceLimitsSection = ResourceLimitsSection::None;
-        }
-
-        if (inDriRenderDevicesBlock && !isTopLevelLine)
-        {
-            std::string valueLine = trimmed;
-            if (!valueLine.empty() && valueLine[0] == '-')
-                valueLine = Trim(valueLine.substr(1));
-
-            const auto commentPos = valueLine.find('#');
-            if (commentPos != std::string::npos)
-                valueLine = Trim(valueLine.substr(0, commentPos));
-
-            addDeviceEntry(driRenderDevices_, valueLine);
-            continue;
-        }
-
-        if (inDriCardDevicesBlock && !isTopLevelLine)
-        {
-            std::string valueLine = trimmed;
-            if (!valueLine.empty() && valueLine[0] == '-')
-                valueLine = Trim(valueLine.substr(1));
-
-            const auto commentPos = valueLine.find('#');
-            if (commentPos != std::string::npos)
-                valueLine = Trim(valueLine.substr(0, commentPos));
-
-            addDeviceEntry(driCardDevices_, valueLine);
-            continue;
-        }
-
-        if (inResourceLimitsBlock && !isTopLevelLine)
-        {
-            if (resourceLimitsSection == ResourceLimitsSection::Users)
-            {
-                if (trimmed[0] == '-')
-                {
-                    flushResourceLimitUser();
-                    trimmed = Trim(trimmed.substr(1));
-                    if (trimmed.empty())
-                        continue;
-                }
-
-                const auto pos = trimmed.find(':');
-                if (pos == std::string::npos)
-                    continue;
-
-                std::string key = ToLower(Trim(trimmed.substr(0, pos)));
-                std::string value = Trim(trimmed.substr(pos + 1));
-
-                const auto commentPos = value.find('#');
-                if (commentPos != std::string::npos)
-                    value = Trim(value.substr(0, commentPos));
-
-                value = StripQuotes(value);
-
-                if (key == "user" || key == "username")
-                {
-                    flushResourceLimitUser();
-                    currentResourceLimitUser = value;
-                }
-                else if (!value.empty())
-                {
-                    try
-                    {
-                        const long long parsed = std::stoll(value);
-                        currentUserResourceLimits[key] = static_cast<std::int64_t>(parsed);
-                    }
-                    catch (...)
-                    {
-                        // Ignore malformed numeric values.
-                    }
-                }
-
-                continue;
-            }
-
-            if (resourceLimitsSection == ResourceLimitsSection::Global)
-            {
-                const auto pos = trimmed.find(':');
-                if (pos == std::string::npos)
-                    continue;
-
-                std::string key = ToLower(Trim(trimmed.substr(0, pos)));
-                std::string value = Trim(trimmed.substr(pos + 1));
-
-                const auto commentPos = value.find('#');
-                if (commentPos != std::string::npos)
-                    value = Trim(value.substr(0, commentPos));
-
-                value = StripQuotes(value);
-
-                if (value.empty())
-                    continue;
-
-                try
-                {
-                    const long long parsed = std::stoll(value);
-                    globalResourceLimits_[key] = static_cast<std::int64_t>(parsed);
-                }
-                catch (...)
-                {
-                    // Ignore malformed numeric values.
-                }
-
-                continue;
-            }
-
-            if (!trimmed.empty() && trimmed.back() == ':')
-            {
-                const std::string key = ToLower(Trim(trimmed.substr(0, trimmed.size() - 1)));
-                if (key == "global")
-                {
-                    resourceLimitsSection = ResourceLimitsSection::Global;
-                    continue;
-                }
-                if (key == "users" || key == "per_user" || key == "per-user")
-                {
-                    flushResourceLimitUser();
-                    resourceLimitsSection = ResourceLimitsSection::Users;
-                    continue;
-                }
-            }
-
-            const auto pos = trimmed.find(':');
-            if (pos != std::string::npos)
-            {
-                std::string key = ToLower(Trim(trimmed.substr(0, pos)));
-                std::string value = Trim(trimmed.substr(pos + 1));
-
-                const auto commentPos = value.find('#');
-                if (commentPos != std::string::npos)
-                    value = Trim(value.substr(0, commentPos));
-
-                value = StripQuotes(value);
-
-                if (key == "global" && value.empty())
-                {
-                    resourceLimitsSection = ResourceLimitsSection::Global;
-                    continue;
-                }
-                if ((key == "users" || key == "per_user" || key == "per-user") && value.empty())
-                {
-                    flushResourceLimitUser();
-                    resourceLimitsSection = ResourceLimitsSection::Users;
-                    continue;
-                }
-            }
-
-            continue;
-        }
-
-        if (inUserImagesBlock)
-        {
-            if (trimmed[0] == '-')
-            {
-                flushUserImage();
-                trimmed = Trim(trimmed.substr(1));
-                if (trimmed.empty())
-                    continue;
-            }
-
-            const auto pos = trimmed.find(':');
-            if (pos == std::string::npos)
-                continue;
-
-            std::string key = ToLower(Trim(trimmed.substr(0, pos)));
-            std::string value = Trim(trimmed.substr(pos + 1));
-
-            const auto commentPos = value.find('#');
-            if (commentPos != std::string::npos)
-                value = Trim(value.substr(0, commentPos));
-
-            value = StripQuotes(value);
-
-            if (key == "user" || key == "username")
-                currentUser = value;
-            else if (key == "image" || key == "podman_image")
-                currentImage = value;
-
-            continue;
-        }
-
-        if (inCustomMountsBlock)
-        {
-            if (trimmed[0] == '-')
-            {
-                flushCustomMount();
-                trimmed = Trim(trimmed.substr(1));
-                if (trimmed.empty())
-                    continue;
-            }
-
-            const auto pos = trimmed.find(':');
-            if (pos == std::string::npos)
-                continue;
-
-            std::string key = ToLower(Trim(trimmed.substr(0, pos)));
-            std::string value = Trim(trimmed.substr(pos + 1));
-
-            const auto commentPos = value.find('#');
-            if (commentPos != std::string::npos)
-                value = Trim(value.substr(0, commentPos));
-
-            value = StripQuotes(value);
-
-            if (key == "source" || key == "host" || key == "src")
-                currentMountSource = value;
-            else if (key == "destination" || key == "target" || key == "container" ||
-                     key == "dest")
-                currentMountDestination = value;
-            else if (key == "read_only" || key == "readonly" || key == "read-only" ||
-                     key == "ro")
-            {
-                const std::string lower = ToLower(value);
-                currentMountReadOnly = (lower == "true" || lower == "1" || lower == "yes" ||
-                                        lower == "on");
-            }
-
-            continue;
-        }
-
-        const auto pos = trimmed.find(':');
-        if (pos == std::string::npos)
-            continue;
-
-        std::string key = Trim(trimmed.substr(0, pos));
-        std::string value = Trim(trimmed.substr(pos + 1));
-
-        const auto comment = value.find('#');
-        if (comment != std::string::npos)
-            value = Trim(value.substr(0, comment));
-
-        value = StripQuotes(value);
-        const std::string normalized = ToLower(key);
-
-        if (normalized == "podman_image")
-        {
-            if (!value.empty())
-                podmanImage_ = value;
-        }
-        else if (normalized == "user_images" || normalized == "custom_user_images")
-        {
-            userImages_.clear();
-            if (value.empty() || value == "|")
-            {
-                inUserImagesBlock = true;
-                currentUser.clear();
-                currentImage.clear();
-            }
-        }
-        else if (normalized == "custom_mounts" || normalized == "additional_mounts")
-        {
-            customMounts_.clear();
-            if (value.empty() || value == "|")
-            {
-                inCustomMountsBlock = true;
-                currentMountSource.clear();
-                currentMountDestination.clear();
-                currentMountReadOnly = false;
-            }
-        }
-        else if (normalized == "resource_limits" || normalized == "limits")
-        {
-            inResourceLimitsBlock = true;
-            resourceLimitsSection = ResourceLimitsSection::None;
-            flushResourceLimitUser();
-            if (!(value.empty() || value == "|"))
-                inResourceLimitsBlock = false;
-            continue;
-        }
-        else if (normalized == "dri_render_devices" || normalized == "dri_render_nodes")
-        {
-            driRenderDevices_.clear();
-            inDriRenderDevicesBlock = false;
-            if (value.empty() || value == "|")
-            {
-                inDriRenderDevicesBlock = true;
-            }
-            else
-            {
-                inDriRenderDevicesBlock = false;
-                parseInlineDeviceList(value, driRenderDevices_);
-            }
-        }
-        else if (normalized == "dri_card_devices" || normalized == "dri_cards")
-        {
-            driCardDevices_.clear();
-            inDriCardDevicesBlock = false;
-            if (value.empty() || value == "|")
-            {
-                inDriCardDevicesBlock = true;
-            }
-            else
-            {
-                inDriCardDevicesBlock = false;
-                parseInlineDeviceList(value, driCardDevices_);
-            }
-        }
-        else if (normalized == "dri_device" || normalized == "dri_render_device")
-        {
-            driRenderDevices_.clear();
-            inDriRenderDevicesBlock = false;
-            parseInlineDeviceList(value, driRenderDevices_);
-        }
-        else if (normalized == "nvidia_gpu" || normalized == "use_nvidia_gpu" ||
-                 normalized == "enable_nvidia_gpu")
-        {
-            const std::string lower = ToLower(value);
-            if (lower == "true" || lower == "1" || lower == "yes" || lower == "on")
-                nvidiaGpuEnabled_ = true;
-            else if (lower == "false" || lower == "0" || lower == "no" || lower == "off")
-                nvidiaGpuEnabled_ = false;
-        }
-        else if (normalized == "nvidia_gpu_slot" || normalized == "nvidia_gpu_index" ||
-                 normalized == "nvidia_slot")
-        {
-            try
-            {
-                if (!value.empty())
-                {
-                    const unsigned long parsed = std::stoul(value);
-                    if (parsed <= std::numeric_limits<std::uint32_t>::max())
-                        nvidiaGpuSlot_ = static_cast<std::uint32_t>(parsed);
-                }
-            }
-            catch (...)
-            {
-                // Ignore malformed slot values and retain the previous setting.
-            }
-        }
-        else if (normalized == "home_path" || normalized == "home_directory_path" ||
-                 normalized == "home_dir")
-        {
-            if (!value.empty())
-                homePath_ = value;
-        }
-        else if (normalized == "shadow_path")
-        {
-            if (!value.empty())
-                shadowPath_ = value;
-        }
-        else if (normalized == "group_path")
-        {
-            if (!value.empty())
-                groupPath_ = value;
-        }
-        else if (normalized == "passwd_path" || normalized == "password_path")
-        {
-            if (!value.empty())
-                passwdPath_ = value;
-        }
-        else if (normalized == "pam_path" || normalized == "pam_config_path")
-        {
-            if (!value.empty())
-            {
-                pamPath_ = value;
-                pamServiceName_ = ResolvePamService(pamPath_);
-            }
-        }
-        else if (normalized == "dockerfile_path")
-        {
-            dockerfilePath_ = value;
-        }
-        else if (normalized == "rdp_username")
-        {
-            if (!value.empty())
-                rdpUsername_ = value;
-        }
-        else if (normalized == "rdp_password")
-        {
-            if (!value.empty())
-                rdpPassword_ = value;
-        }
-    }
-
-    flushUserImage();
-    flushCustomMount();
-    flushResourceLimitUser();
-
-    pamServiceName_ = ResolvePamService(pamPath_);
-    return true;
+    ConfigYamlParser parser(*this);
+    return parser.Parse(content);
 }
 
 std::unordered_map<std::string, std::int64_t> VdiBrokerConfig::GlobalResourceLimits() const

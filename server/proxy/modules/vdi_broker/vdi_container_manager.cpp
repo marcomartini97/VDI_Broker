@@ -1,6 +1,7 @@
 #include "vdi_container_manager.h"
 
 #include "vdi_broker_config.h"
+#include "vdi_logging.h"
 
 void vdi_log_refresh_outcome(bool refreshed, bool reloaded);
 
@@ -122,7 +123,7 @@ bool WriteTarHeader(std::ofstream& stream, const std::string& tarName, char type
 
     if (!SetTarHeaderName(tarName, header))
     {
-        WLog_ERR(TAG, "Tar entry name too long: %s", tarName.c_str());
+        VDI_LOG_ERROR(TAG, "Tar entry name too long: %s", tarName.c_str());
         return false;
     }
 
@@ -132,7 +133,7 @@ bool WriteTarHeader(std::ofstream& stream, const std::string& tarName, char type
         !WriteOctal(header.size, sizeof(header.size), size) ||
         !WriteOctal(header.mtime, sizeof(header.mtime), mtime))
     {
-        WLog_ERR(TAG, "Failed to encode tar header fields for entry: %s", tarName.c_str());
+        VDI_LOG_ERROR(TAG, "Failed to encode tar header fields for entry: %s", tarName.c_str());
         return false;
     }
 
@@ -166,7 +167,7 @@ bool AddFileEntry(std::ofstream& tarStream, const std::filesystem::path& sourceP
     const auto fileSize = std::filesystem::file_size(sourcePath, ec);
     if (ec)
     {
-        WLog_ERR(TAG, "Failed to stat file for tar entry: %s (%s)",
+        VDI_LOG_ERROR(TAG, "Failed to stat file for tar entry: %s (%s)",
                  sourcePath.string().c_str(), ec.message().c_str());
         return false;
     }
@@ -177,7 +178,7 @@ bool AddFileEntry(std::ofstream& tarStream, const std::filesystem::path& sourceP
     std::ifstream input(sourcePath, std::ios::binary);
     if (!input)
     {
-        WLog_ERR(TAG, "Failed to open file for tar entry: %s", sourcePath.string().c_str());
+        VDI_LOG_ERROR(TAG, "Failed to open file for tar entry: %s", sourcePath.string().c_str());
         return false;
     }
 
@@ -189,7 +190,7 @@ bool AddFileEntry(std::ofstream& tarStream, const std::filesystem::path& sourceP
 
     if (!tarStream)
     {
-        WLog_ERR(TAG, "Failed while writing tar contents for: %s", tarName.c_str());
+        VDI_LOG_ERROR(TAG, "Failed while writing tar contents for: %s", tarName.c_str());
         return false;
     }
 
@@ -205,7 +206,7 @@ bool CreateTarArchive(const std::filesystem::path& contextDir, const std::filesy
     std::ofstream tarStream(tarPath, std::ios::binary | std::ios::trunc);
     if (!tarStream)
     {
-        WLog_ERR(TAG, "Failed to create temporary build context: %s", tarPath.string().c_str());
+        VDI_LOG_ERROR(TAG, "Failed to create temporary build context: %s", tarPath.string().c_str());
         return false;
     }
 
@@ -214,7 +215,7 @@ bool CreateTarArchive(const std::filesystem::path& contextDir, const std::filesy
     std::error_code ec;
     if (!std::filesystem::exists(contextDir, ec))
     {
-        WLog_ERR(TAG, "Build context directory missing: %s", contextDir.string().c_str());
+        VDI_LOG_ERROR(TAG, "Build context directory missing: %s", contextDir.string().c_str());
         return false;
     }
 
@@ -228,7 +229,7 @@ bool CreateTarArchive(const std::filesystem::path& contextDir, const std::filesy
         const auto relative = std::filesystem::relative(it->path(), contextDir, ec);
         if (ec)
         {
-            WLog_ERR(TAG, "Failed to resolve relative path for tar entry: %s (%s)",
+            VDI_LOG_ERROR(TAG, "Failed to resolve relative path for tar entry: %s (%s)",
                      it->path().string().c_str(), ec.message().c_str());
             return false;
         }
@@ -239,7 +240,7 @@ bool CreateTarArchive(const std::filesystem::path& contextDir, const std::filesy
 
         if (it->is_symlink())
         {
-            WLog_WARN(TAG, "Symlinks are not supported in build context: %s",
+            VDI_LOG_WARN(TAG, "Symlinks are not supported in build context: %s",
                       it->path().string().c_str());
             return false;
         }
@@ -258,7 +259,7 @@ bool CreateTarArchive(const std::filesystem::path& contextDir, const std::filesy
         }
         else
         {
-            WLog_ERR(TAG, "Unsupported file type in build context: %s",
+            VDI_LOG_ERROR(TAG, "Unsupported file type in build context: %s",
                      it->path().string().c_str());
             return false;
         }
@@ -317,14 +318,14 @@ bool BuildImageFromDockerfile(const std::string& image, const std::string& docke
 {
     if (dockerfilePath.empty())
     {
-        WLog_ERR(TAG, "Dockerfile path not configured; unable to build image %s", image.c_str());
+        VDI_LOG_ERROR(TAG, "Dockerfile path not configured; unable to build image %s", image.c_str());
         return false;
     }
 
     std::filesystem::path dockerfile(dockerfilePath);
     if (!std::filesystem::exists(dockerfile))
     {
-        WLog_ERR(TAG, "Dockerfile not found at %s", dockerfilePath.c_str());
+        VDI_LOG_ERROR(TAG, "Dockerfile not found at %s", dockerfilePath.c_str());
         return false;
     }
 
@@ -339,7 +340,7 @@ bool BuildImageFromDockerfile(const std::string& image, const std::string& docke
     }
     catch (const std::filesystem::filesystem_error& ex)
     {
-        WLog_ERR(TAG, "Failed to resolve Dockerfile relative path: %s", ex.what());
+        VDI_LOG_ERROR(TAG, "Failed to resolve Dockerfile relative path: %s", ex.what());
         return false;
     }
 
@@ -353,7 +354,7 @@ bool BuildImageFromDockerfile(const std::string& image, const std::string& docke
     }
     catch (const std::filesystem::filesystem_error& ex)
     {
-        WLog_ERR(TAG, "Failed to resolve temporary directory for build context: %s", ex.what());
+        VDI_LOG_ERROR(TAG, "Failed to resolve temporary directory for build context: %s", ex.what());
         return false;
     }
 
@@ -379,7 +380,7 @@ bool BuildImageFromDockerfile(const std::string& image, const std::string& docke
     const auto tarSize = std::filesystem::file_size(tarPath, ec);
     if (ec)
     {
-        WLog_ERR(TAG, "Failed to stat build context archive: %s", ec.message().c_str());
+        VDI_LOG_ERROR(TAG, "Failed to stat build context archive: %s", ec.message().c_str());
         return false;
     }
 
@@ -387,14 +388,14 @@ bool BuildImageFromDockerfile(const std::string& image, const std::string& docke
     readContext.stream.open(tarPath, std::ios::binary);
     if (!readContext.stream)
     {
-        WLog_ERR(TAG, "Failed to open build context archive for upload: %s", tarPath.string().c_str());
+        VDI_LOG_ERROR(TAG, "Failed to open build context archive for upload: %s", tarPath.string().c_str());
         return false;
     }
 
     CURL* curl = curl_easy_init();
     if (!curl)
     {
-        WLog_ERR(TAG, "Failed to initialise curl for Podman image build");
+        VDI_LOG_ERROR(TAG, "Failed to initialise curl for Podman image build");
         return false;
     }
 
@@ -402,7 +403,7 @@ bool BuildImageFromDockerfile(const std::string& image, const std::string& docke
         curl_easy_escape(curl, image.c_str(), static_cast<int>(image.size())), curl_free);
     if (!escapedImage)
     {
-        WLog_ERR(TAG, "Failed to escape image name for Podman request");
+        VDI_LOG_ERROR(TAG, "Failed to escape image name for Podman request");
         curl_easy_cleanup(curl);
         return false;
     }
@@ -411,7 +412,7 @@ bool BuildImageFromDockerfile(const std::string& image, const std::string& docke
         curl_easy_escape(curl, dockerfileName.c_str(), static_cast<int>(dockerfileName.size())), curl_free);
     if (!escapedDockerfile)
     {
-        WLog_ERR(TAG, "Failed to escape Dockerfile path for Podman request");
+        VDI_LOG_ERROR(TAG, "Failed to escape Dockerfile path for Podman request");
         curl_easy_cleanup(curl);
         return false;
     }
@@ -422,7 +423,7 @@ bool BuildImageFromDockerfile(const std::string& image, const std::string& docke
     url += "&dockerfile=";
     url += escapedDockerfile.get();
 
-    WLog_INFO(TAG, "Building Podman image '%s' using Dockerfile %s via Podman API", image.c_str(),
+    VDI_LOG_INFO(TAG, "Building Podman image '%s' using Dockerfile %s via Podman API", image.c_str(),
               dockerfilePath.c_str());
 
     curl_easy_setopt(curl, CURLOPT_UNIX_SOCKET_PATH, kPodmanSocket);
@@ -453,17 +454,17 @@ bool BuildImageFromDockerfile(const std::string& image, const std::string& docke
 
     if (res != CURLE_OK)
     {
-        WLog_ERR(TAG, "Podman image build failed: %s", curl_easy_strerror(res));
+        VDI_LOG_ERROR(TAG, "Podman image build failed: %s", curl_easy_strerror(res));
         return false;
     }
 
     if (httpCode >= 400)
     {
-        WLog_ERR(TAG, "Podman image build returned HTTP status %ld", httpCode);
+        VDI_LOG_ERROR(TAG, "Podman image build returned HTTP status %ld", httpCode);
         return false;
     }
 
-    WLog_INFO(TAG, "Successfully built Podman image '%s'", image.c_str());
+    VDI_LOG_INFO(TAG, "Successfully built Podman image '%s'", image.c_str());
     return true;
 }
 
@@ -484,7 +485,7 @@ std::string GetContainerInfo(const std::string& containerName, const std::string
     const CURLcode res = curl_easy_perform(curl);
     if (res != CURLE_OK)
     {
-        WLog_ERR(TAG, "Failed to query container info: %s", curl_easy_strerror(res));
+        VDI_LOG_ERROR(TAG, "Failed to query container info: %s", curl_easy_strerror(res));
         curl_easy_cleanup(curl);
         return {};
     }
@@ -497,7 +498,7 @@ std::string GetContainerInfo(const std::string& containerName, const std::string
         return {};
     if (httpCode >= 400)
     {
-        WLog_ERR(TAG, "HTTP error code while querying container info: %ld", httpCode);
+        VDI_LOG_ERROR(TAG, "HTTP error code while querying container info: %ld", httpCode);
         return {};
     }
 
@@ -508,7 +509,7 @@ bool ContainerExistsInternal(const std::string& containerName)
 {
     const std::string payload = GetContainerInfo(containerName, "/json");
     if (payload.empty())
-        WLog_INFO(TAG, "Container does not exist: %s", containerName.c_str());
+        VDI_LOG_INFO(TAG, "Container does not exist: %s", containerName.c_str());
     return !payload.empty();
 }
 
@@ -525,7 +526,7 @@ bool ContainerRunningInternal(const std::string& containerName)
 
     if (!Json::parseFromStream(builder, stream, &root, &errs))
     {
-        WLog_ERR(TAG, "Failed to parse container info: %s", errs.c_str());
+        VDI_LOG_ERROR(TAG, "Failed to parse container info: %s", errs.c_str());
         return false;
     }
 
@@ -535,7 +536,7 @@ bool ContainerRunningInternal(const std::string& containerName)
 
 bool WaitForProcessInternal(const std::string& containerName, const std::string& processName)
 {
-    WLog_INFO(TAG, "Waiting for <%s> in container: %s", processName.c_str(), containerName.c_str());
+    VDI_LOG_INFO(TAG, "Waiting for <%s> in container: %s", processName.c_str(), containerName.c_str());
 
     auto trim = [](const std::string& value) {
         const auto start = value.find_first_not_of(" \t");
@@ -600,14 +601,14 @@ bool WaitForProcessInternal(const std::string& containerName, const std::string&
 
         if (!Json::parseFromStream(builder, stream, &root, &errs))
         {
-            WLog_ERR(TAG, "Error parsing JSON: %s", errs.c_str());
+            VDI_LOG_ERROR(TAG, "Error parsing JSON: %s", errs.c_str());
             return false;
         }
 
         const auto& processes = root["Processes"];
         if (!processes.isArray())
         {
-            WLog_ERR(TAG, "Invalid JSON: 'Processes' missing or not array");
+            VDI_LOG_ERROR(TAG, "Invalid JSON: 'Processes' missing or not array");
             return false;
         }
 
@@ -620,14 +621,14 @@ bool WaitForProcessInternal(const std::string& containerName, const std::string&
         std::this_thread::sleep_for(kReadinessPollInterval);
     }
 
-    WLog_WARN(TAG, "Process <%s> not detected in container %s after %d attempts",
+    VDI_LOG_WARN(TAG, "Process <%s> not detected in container %s after %d attempts",
               processName.c_str(), containerName.c_str(), kProcessCheckAttempts);
     return false;
 }
 
 bool WaitForTcpPort(const std::string& host, std::uint16_t port)
 {
-    WLog_INFO(TAG, "Waiting for TCP port %" PRIu16 " on host %s", port, host.c_str());
+    VDI_LOG_INFO(TAG, "Waiting for TCP port %" PRIu16 " on host %s", port, host.c_str());
 
     const auto deadline = std::chrono::steady_clock::now() + kPortReadyTimeout;
     const std::string portString = std::to_string(port);
@@ -645,7 +646,7 @@ bool WaitForTcpPort(const std::string& host, std::uint16_t port)
         const int gaiErr = getaddrinfo(host.c_str(), portString.c_str(), &hints, &info);
         if (gaiErr != 0)
         {
-            WLog_ERR(TAG, "Failed to resolve address %s for port check: %s", host.c_str(),
+            VDI_LOG_ERROR(TAG, "Failed to resolve address %s for port check: %s", host.c_str(),
                      gai_strerror(gaiErr));
             return false;
         }
@@ -690,7 +691,7 @@ bool WaitForTcpPort(const std::string& host, std::uint16_t port)
 
         if (connected)
         {
-            WLog_INFO(TAG, "Port %" PRIu16 " is reachable on host %s", port, host.c_str());
+            VDI_LOG_INFO(TAG, "Port %" PRIu16 " is reachable on host %s", port, host.c_str());
             std::this_thread::sleep_for(std::chrono::milliseconds(200));
             return true;
         }
@@ -698,133 +699,173 @@ bool WaitForTcpPort(const std::string& host, std::uint16_t port)
         std::this_thread::sleep_for(kReadinessPollInterval);
     }
 
-    WLog_ERR(TAG, "Timed out waiting for port %" PRIu16 " on host %s", port, host.c_str());
+    VDI_LOG_ERROR(TAG, "Timed out waiting for port %" PRIu16 " on host %s", port, host.c_str());
     return false;
 }
 
-Json::Value BuildCreatePayload(const std::string& containerName, const std::string& username,
-                               const std::string& image)
+class ContainerPayloadBuilder
 {
-    auto& config = vdi::Config();
+public:
+    ContainerPayloadBuilder(const std::string& containerName, const std::string& username,
+                             const std::string& image, vdi::VdiBrokerConfig& config)
+        : config_(config), containerName_(containerName), username_(username), image_(image),
+          nvidiaEnabled_(config.NvidiaGpuEnabled())
+    {
+        root_["name"] = containerName_;
+        root_["hostname"] = containerName_;
+        root_["image"] = image_;
+        root_["terminal"] = true;
+        root_["systemd"] = "always";
+    }
 
-    Json::Value root(Json::objectValue);
-    root["name"] = containerName;
-    root["hostname"] = containerName;
-    root["image"] = image;
+    Json::Value Build()
+    {
+        AddCapabilities();
+        AddDevices();
+        AddEnvironment();
+        AddMounts();
+        AddResourceLimits();
 
-    //Json::Value securityOpts(Json::arrayValue);
-    //securityOpts.append("label=disable");
-    //root["security_opt"] = securityOpts;
+        root_["devices"] = devices_;
+        root_["mounts"] = mounts_;
+        return root_;
+    }
 
-    Json::Value caps(Json::arrayValue);
-    caps.append("SYS_ADMIN");
-    caps.append("NET_ADMIN");
-    caps.append("SYS_PTRACE");
-    caps.append("AUDIT_CONTROL");
-    caps.append("SYS_NICE");
-    root["cap_add"] = caps;
+private:
+    void AddCapabilities()
+    {
+        Json::Value caps(Json::arrayValue);
+        caps.append("SYS_ADMIN");
+        caps.append("NET_ADMIN");
+        caps.append("SYS_PTRACE");
+        caps.append("AUDIT_CONTROL");
+        caps.append("SYS_NICE");
+        root_["cap_add"] = caps;
+    }
 
-    Json::Value devices(Json::arrayValue);
-    std::unordered_set<std::string> appendedDevices;
+    void AddDevices()
+    {
+        AddDefaultDevices();
+        AddNvidiaDevices();
+    }
 
-    auto appendDevice = [&devices, &appendedDevices](const std::string& path) {
+    void AddDefaultDevices()
+    {
+        AppendDevice("/dev/fuse");
+
+        const auto driRenderDevices = config_.DriRenderDevices();
+        for (const auto& device : driRenderDevices)
+            AppendDevice(device);
+
+        const auto driCardDevices = config_.DriCardDevices();
+        for (const auto& device : driCardDevices)
+            AppendDevice(device);
+    }
+
+    void AddNvidiaDevices()
+    {
+        if (!nvidiaEnabled_)
+            return;
+
+        const std::string base = "/dev/nvidia" + std::to_string(config_.NvidiaGpuSlot());
+        const std::array<std::string, 6> nvidiaDevices = {
+            "/dev/nvidia-caps", base, "/dev/nvidiactl", "/dev/nvidia-modeset",
+            "/dev/nvidia-uvm", "/dev/nvidia-uvm-tools"};
+
+        for (const auto& dev : nvidiaDevices)
+            AppendDevice(dev);
+    }
+
+    void AddEnvironment()
+    {
+        Json::Value env(Json::objectValue);
+        if (nvidiaEnabled_)
+            env["GSK_RENDERER"] = "ngl";
+        root_["env"] = env;
+    }
+
+    void AddMounts()
+    {
+        AddDefaultMounts();
+        AddCustomMounts();
+    }
+
+    void AddDefaultMounts()
+    {
+        AppendMount(config_.PasswdPath(), "/etc/passwd", true);
+        AppendMount(config_.GroupPath(), "/etc/group", true);
+        AppendMount(config_.ShadowPath(), "/etc/shadow", true);
+        AppendMount(config_.HomePath(), "/home", false);
+    }
+
+    void AddCustomMounts()
+    {
+        const auto customMounts = config_.CustomMounts();
+        for (const auto& mount : customMounts)
+            AppendMount(mount.source, mount.destination, mount.readOnly);
+    }
+
+    void AddResourceLimits()
+    {
+        const auto resourceLimits = config_.ResourceLimitsForUser(username_);
+        if (resourceLimits.empty())
+            return;
+
+        Json::Value limits(Json::objectValue);
+        for (const auto& entry : resourceLimits)
+        {
+            Json::Value limit(Json::objectValue);
+            limit["limit"] = static_cast<Json::Int64>(entry.second);
+            limits[entry.first] = limit;
+        }
+
+        root_["resource_limits"] = limits;
+    }
+
+    void AppendDevice(const std::string& path)
+    {
         if (path.empty())
             return;
-        if (!appendedDevices.insert(path).second)
+
+        if (!appendedDevices_.insert(path).second)
             return;
+
         Json::Value device(Json::objectValue);
         device["path"] = path;
-        devices.append(device);
-    };
+        devices_.append(device);
+    }
 
-    appendDevice("/dev/fuse");
-
-    const auto driRenderDevices = config.DriRenderDevices();
-    for (const auto& device : driRenderDevices)
-        appendDevice(device);
-
-    const auto driCardDevices = config.DriCardDevices();
-    for (const auto& device : driCardDevices)
-        appendDevice(device);
-
-    const bool nvidiaEnabled = config.NvidiaGpuEnabled();
-    Json::Value env(Json::objectValue);
-    if (nvidiaEnabled)
-        env["GSK_RENDERER"] = "ngl";
-    root["env"] = env;
-
-    Json::Value mounts(Json::arrayValue);
-    auto appendMount = [&mounts](const std::string& source, const std::string& destination, bool readOnly) {
+    void AppendMount(const std::string& source, const std::string& destination, bool readOnly)
+    {
         if (source.empty() || destination.empty())
             return;
+
         Json::Value mount(Json::objectValue);
         mount["Source"] = source;
         mount["Destination"] = destination;
         mount["Type"] = "bind";
         if (readOnly)
             mount["ReadOnly"] = true;
-        mounts.append(mount);
-    };
-
-    // appendMount("/etc/vdi", "/etc/vdi", true);
-    appendMount(config.PasswdPath(), "/etc/passwd", true);
-    appendMount(config.GroupPath(), "/etc/group", true);
-    appendMount(config.ShadowPath(), "/etc/shadow", true);
-    appendMount(config.HomePath(), "/home", false);
-
-    const auto resourceLimits = config.ResourceLimitsForUser(username);
-    if (!resourceLimits.empty())
-    {
-        Json::Value resource_limits(Json::objectValue);
-        for (const auto& entry : resourceLimits)
-        {
-            Json::Value limit(Json::objectValue);
-            limit["limit"] = static_cast<Json::Int64>(entry.second);
-            resource_limits[entry.first] = limit;
-        }
-        root["resource_limits"] = resource_limits;
+        mounts_.append(mount);
     }
 
-    //Passthrough cgroup namespapce
-    //appendMount("/sys/fs/cgroup", "/sys/fs/cgroup", false);
-    //Json::Value cgroupns(Json::objectValue);
-    //cgroupns["nsmode"] = "host";
-    //root["cgroupns"] = cgroupns;
+    vdi::VdiBrokerConfig& config_;
+    std::string containerName_;
+    std::string username_;
+    std::string image_;
+    Json::Value root_{Json::objectValue};
+    Json::Value devices_{Json::arrayValue};
+    Json::Value mounts_{Json::arrayValue};
+    std::unordered_set<std::string> appendedDevices_;
+    bool nvidiaEnabled_ = false;
+};
 
-    //Json::Value ipcns(Json::objectValue);
-    //ipcns["nsmode"] = "host";
-    //root["ipcns"] = ipcns;
-    
-    //Add a PTY for OpenRC
-    root["terminal"] = true;
-
-    root["systemd"] = "always";
-
-    const auto customMounts = config.CustomMounts();
-    for (const auto& mount : customMounts)
-        appendMount(mount.source, mount.destination, mount.readOnly);
-
-    if (nvidiaEnabled)
-    {
-        const std::string base = "/dev/nvidia" + std::to_string(config.NvidiaGpuSlot());
-        const std::array<std::string, 6> nvidiaDevices = {
-            "/dev/nvidia-caps", base, "/dev/nvidiactl", "/dev/nvidia-modeset",
-            "/dev/nvidia-uvm", "/dev/nvidia-uvm-tools"};
-
-        for (const auto& dev : nvidiaDevices)
-        {
-            appendDevice(dev);
-        }
-    }
-
-    root["devices"] = devices;
-    root["mounts"] = mounts;
-
-    //Json::Value command(Json::arrayValue);
-    //command.append("/sbin/init");
-    //root["command"] = command;
-
-    return root;
+Json::Value BuildCreatePayload(const std::string& containerName, const std::string& username,
+                               const std::string& image)
+{
+    auto& config = vdi::Config();
+    ContainerPayloadBuilder builder(containerName, username, image, config);
+    return builder.Build();
 }
 
 bool CreateContainerInternal(const std::string& containerName, const std::string& username,
@@ -842,7 +883,7 @@ bool CreateContainerInternal(const std::string& containerName, const std::string
     writerBuilder["indentation"] = "";
     const std::string payloadStr = Json::writeString(writerBuilder, payload);
 
-    WLog_INFO(TAG, "Creating container %s with payload: %s", containerName.c_str(),
+    VDI_LOG_INFO(TAG, "Creating container %s with payload: %s", containerName.c_str(),
               payloadStr.c_str());
 
     struct curl_slist* headers = nullptr;
@@ -865,14 +906,14 @@ bool CreateContainerInternal(const std::string& containerName, const std::string
         success = (httpCode >= 200 && httpCode < 300);
         if (!success)
         {
-            WLog_ERR(TAG, "Failed to create container, HTTP code: %ld", httpCode);
+            VDI_LOG_ERROR(TAG, "Failed to create container, HTTP code: %ld", httpCode);
             if (httpCode == 404)
                 missingImage = true;
         }
     }
     else
     {
-        WLog_ERR(TAG, "Failed to create container: %s", curl_easy_strerror(res));
+        VDI_LOG_ERROR(TAG, "Failed to create container: %s", curl_easy_strerror(res));
     }
 
     curl_slist_free_all(headers);
@@ -882,7 +923,7 @@ bool CreateContainerInternal(const std::string& containerName, const std::string
     {
         if (hasCustomImage)
         {
-            WLog_ERR(TAG,
+            VDI_LOG_ERROR(TAG,
                      "Podman image %s configured for user %s is missing; skipping auto-build",
                      image.c_str(), username.c_str());
         }
@@ -905,7 +946,7 @@ bool StartContainerInternal(const std::string& containerName)
 
     const std::string url = BuildUrl(containerName, "/start");
 
-    WLog_INFO(TAG, "Starting container: %s", containerName.c_str());
+    VDI_LOG_INFO(TAG, "Starting container: %s", containerName.c_str());
 
     struct curl_slist* headers = nullptr;
     headers = curl_slist_append(headers, "Content-Type: application/json");
@@ -924,11 +965,11 @@ bool StartContainerInternal(const std::string& containerName)
         curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &httpCode);
         success = (httpCode >= 200 && httpCode < 300);
         if (!success)
-            WLog_ERR(TAG, "Failed to start container, HTTP code: %ld", httpCode);
+            VDI_LOG_ERROR(TAG, "Failed to start container, HTTP code: %ld", httpCode);
     }
     else
     {
-        WLog_ERR(TAG, "Failed to start container: %s", curl_easy_strerror(res));
+        VDI_LOG_ERROR(TAG, "Failed to start container: %s", curl_easy_strerror(res));
     }
 
     curl_slist_free_all(headers);
@@ -949,14 +990,14 @@ std::string GetContainerIpInternal(const std::string& containerName)
 
     if (!Json::parseFromStream(builder, stream, &root, &errs))
     {
-        WLog_ERR(TAG, "Failed to parse container JSON info: %s", errs.c_str());
+        VDI_LOG_ERROR(TAG, "Failed to parse container JSON info: %s", errs.c_str());
         return {};
     }
 
     const auto& networks = root["NetworkSettings"]["Networks"];
     if (!networks.isObject())
     {
-        WLog_ERR(TAG, "No network information available for container.");
+        VDI_LOG_ERROR(TAG, "No network information available for container.");
         return {};
     }
 
@@ -966,7 +1007,7 @@ std::string GetContainerIpInternal(const std::string& containerName)
         const std::string ip = network["IPAddress"].asString();
         if (!ip.empty())
         {
-            WLog_INFO(TAG, "Found IP: %s", ip.c_str());
+            VDI_LOG_INFO(TAG, "Found IP: %s", ip.c_str());
             return ip;
         }
     }
@@ -980,7 +1021,8 @@ namespace vdi
 
 std::string ManageContainer(const std::string& username, const std::string& containerPrefix)
 {
-    auto& configuration = Config();
+	vdi::logging::ScopedLogUser scopedUser(username);
+	auto& configuration = Config();
     const bool refreshed = configuration.Refresh();
     const bool reloaded = configuration.ConsumeReloadedFlag();
     if (reloaded || !refreshed)
@@ -993,7 +1035,7 @@ std::string ManageContainer(const std::string& username, const std::string& cont
     {
         if (!CreateContainerInternal(containerName, username))
         {
-            WLog_ERR(TAG, "Failed to create container for user %s", username.c_str());
+            VDI_LOG_ERROR(TAG, "Failed to create container for user %s", username.c_str());
             return {};
         }
     }
@@ -1002,7 +1044,7 @@ std::string ManageContainer(const std::string& username, const std::string& cont
     {
         if (!StartContainerInternal(containerName))
         {
-            WLog_ERR(TAG, "Failed to start container %s", containerName.c_str());
+            VDI_LOG_ERROR(TAG, "Failed to start container %s", containerName.c_str());
             return {};
         }
     }
@@ -1011,18 +1053,18 @@ std::string ManageContainer(const std::string& username, const std::string& cont
     // compositorReady &= WaitForProcessInternal(containerName,
     //                                           "/usr/libexec/gnome-remote-desktop-daemon --headless");
     // if (!compositorReady)
-    //     WLog_WARN(TAG, "GNOME compositor not ready in container %s", containerName.c_str());
+    //     VDI_LOG_WARN(TAG, "GNOME compositor not ready in container %s", containerName.c_str());
 
     const std::string ip = GetContainerIpInternal(containerName);
     if (ip.empty())
     {
-        WLog_ERR(TAG, "Failed to retrieve IP for container %s", containerName.c_str());
+        VDI_LOG_ERROR(TAG, "Failed to retrieve IP for container %s", containerName.c_str());
         return {};
     }
 
     if (!WaitForTcpPort(ip, kRdpPort))
     {
-        WLog_ERR(TAG, "RDP port %" PRIu16 " not ready on host %s", kRdpPort, ip.c_str());
+        VDI_LOG_ERROR(TAG, "RDP port %" PRIu16 " not ready on host %s", kRdpPort, ip.c_str());
         return {};
     }
 

@@ -41,6 +41,7 @@
 
 #include "vdi_broker_config.h"
 #include "vdi_container_manager.h"
+#include "vdi_logging.h"
 
 #define TAG MODULE_TAG("vdi_broker")
 static constexpr char plugin_name[] = "vdi-broker";
@@ -49,28 +50,98 @@ static constexpr char plugin_desc[] =
 static constexpr char kConfigPathKey[] = "config_path";
 static constexpr char kDefaultPamServiceName[] = "vdi-broker";
 
+void vdi_log_refresh_outcome(bool refreshed, bool reloaded);
+
 namespace
 {
 std::string build_container_prefix(const std::string& suffix)
 {
-    if (suffix.empty())
-        return "vdi-";
+	if (suffix.empty())
+		return "vdi-";
 
-    std::string sanitized;
-    sanitized.reserve(suffix.size());
-    for (const char ch : suffix)
-    {
-        const unsigned char uch = static_cast<unsigned char>(ch);
-        if (std::isalnum(uch) || ch == '_' || ch == '-')
-            sanitized.push_back(static_cast<char>(std::tolower(uch)));
-        else
-            sanitized.push_back('_');
-    }
+	std::string sanitized;
+	sanitized.reserve(suffix.size());
+	for (const char ch : suffix)
+	{
+		const unsigned char uch = static_cast<unsigned char>(ch);
+		if (std::isalnum(uch) || ch == '_' || ch == '-')
+			sanitized.push_back(static_cast<char>(std::tolower(uch)));
+		else
+			sanitized.push_back('_');
+	}
 
-    if (sanitized.empty())
-        return "vdi-";
+	if (sanitized.empty())
+		return "vdi-";
 
-    return std::string("vdi_") + sanitized + "-";
+	return std::string("vdi_") + sanitized + "-";
+}
+
+struct ParsedUsername
+{
+	std::string user;
+	std::string suffix;
+};
+
+ParsedUsername split_username(const std::string& username)
+{
+	ParsedUsername parsed{};
+	const auto hashPos = username.find('#');
+	if (hashPos == std::string::npos)
+	{
+		parsed.user = username;
+		return parsed;
+	}
+
+	parsed.user = username.substr(0, hashPos);
+	if (hashPos + 1 < username.size())
+		parsed.suffix = username.substr(hashPos + 1);
+
+	return parsed;
+}
+
+bool load_client_credentials(rdpSettings* settings, std::string& username, std::string& password)
+{
+	WINPR_ASSERT(settings);
+
+	const char* rawUser = freerdp_settings_get_string(settings, FreeRDP_Username);
+	const char* rawPass = freerdp_settings_get_string(settings, FreeRDP_Password);
+	if (!rawUser || !*rawUser || !rawPass)
+		return false;
+
+	username.assign(rawUser);
+	password.assign(rawPass);
+	return true;
+}
+
+struct RdpCredentials
+{
+	std::string username;
+	std::string password;
+};
+
+RdpCredentials load_rdp_credentials()
+{
+	auto& configuration = vdi::Config();
+	const bool refreshedConfig = configuration.Refresh();
+	const bool reloadedConfig = configuration.ConsumeReloadedFlag();
+	vdi_log_refresh_outcome(refreshedConfig, reloadedConfig);
+
+	RdpCredentials creds{};
+	creds.username = configuration.RdpUsername().empty() ? "rdp" : configuration.RdpUsername();
+	creds.password = configuration.RdpPassword().empty() ? "rdp" : configuration.RdpPassword();
+	return creds;
+}
+
+void configure_target_settings(rdpSettings* settings, const std::string& ip,
+					 const RdpCredentials& creds)
+{
+	WINPR_ASSERT(settings);
+
+	freerdp_settings_set_string(settings, FreeRDP_ServerHostname, ip.c_str());
+	freerdp_settings_set_uint32(settings, FreeRDP_ServerPort, 3389);
+	freerdp_settings_set_string(settings, FreeRDP_Username, creds.username.c_str());
+	freerdp_settings_set_string(settings, FreeRDP_Password, creds.password.c_str());
+	freerdp_settings_set_string(settings, FreeRDP_Domain, "None");
 }
 } // namespace
 
@@ -114,20 +185,20 @@ void vdi_log_configuration_state(bool refreshed)
 	const char* rdpPasswordStr = rdpPassword.empty() ? "<unset>" : "<redacted>";
 
 	if (!refreshed)
-		WLog_WARN(TAG, "Failed to refresh VDI broker configuration at %s; using defaults",
-		         configPathStr);
+		VDI_LOG_WARN(TAG, "Failed to refresh VDI broker configuration at %s; using defaults",
+		             configPathStr);
 
-	WLog_INFO(TAG, "VDI broker configuration loaded");
-	WLog_INFO(TAG, "  config_path   : %s", configPathStr);
-	WLog_INFO(TAG, "  podman_image  : %s", podmanImage.c_str());
-	WLog_INFO(TAG, "  user_images   : %" PRIu64 " overrides",
+	VDI_LOG_INFO(TAG, "VDI broker configuration loaded");
+	VDI_LOG_INFO(TAG, "  config_path   : %s", configPathStr);
+	VDI_LOG_INFO(TAG, "  podman_image  : %s", podmanImage.c_str());
+	VDI_LOG_INFO(TAG, "  user_images   : %" PRIu64 " overrides",
 	          static_cast<std::uint64_t>(userImageOverrides));
-	WLog_INFO(TAG, "  custom_mounts : %" PRIu64 " entries",
+	VDI_LOG_INFO(TAG, "  custom_mounts : %" PRIu64 " entries",
 	          static_cast<std::uint64_t>(customMounts));
-	WLog_INFO(TAG, "  nvidia_gpu    : %s", nvidiaEnabled ? "enabled" : "disabled");
+	VDI_LOG_INFO(TAG, "  nvidia_gpu    : %s", nvidiaEnabled ? "enabled" : "disabled");
 	if (nvidiaEnabled)
-		WLog_INFO(TAG, "  nvidia_slot   : %" PRIu32, nvidiaSlot);
-	WLog_INFO(TAG, "  resource_limits: %" PRIu64 " global entries; %" PRIu64
+		VDI_LOG_INFO(TAG, "  nvidia_slot   : %" PRIu32, nvidiaSlot);
+	VDI_LOG_INFO(TAG, "  resource_limits: %" PRIu64 " global entries; %" PRIu64
 	          " per-user overrides",
 	          static_cast<std::uint64_t>(globalResourceLimits.size()),
 	          static_cast<std::uint64_t>(perUserResourceLimitOverrides));
@@ -135,19 +206,19 @@ void vdi_log_configuration_state(bool refreshed)
 	    driRenderDevices.empty() ? "<unset>" : driRenderDevices.front().c_str();
 	const char* firstCardDevice =
 	    driCardDevices.empty() ? "<unset>" : driCardDevices.front().c_str();
-	WLog_INFO(TAG, "  dri_render    : %" PRIu64 " entries (first: %s)",
+	VDI_LOG_INFO(TAG, "  dri_render    : %" PRIu64 " entries (first: %s)",
 	          static_cast<std::uint64_t>(driRenderDevices.size()), firstRenderDevice);
-	WLog_INFO(TAG, "  dri_cards     : %" PRIu64 " entries (first: %s)",
+	VDI_LOG_INFO(TAG, "  dri_cards     : %" PRIu64 " entries (first: %s)",
 	          static_cast<std::uint64_t>(driCardDevices.size()), firstCardDevice);
-	WLog_INFO(TAG, "  home_path     : %s", homePath.c_str());
-	WLog_INFO(TAG, "  shadow_path   : %s", shadowPath.c_str());
-	WLog_INFO(TAG, "  group_path    : %s", groupPath.c_str());
-	WLog_INFO(TAG, "  passwd_path   : %s", passwdPath.c_str());
-	WLog_INFO(TAG, "  pam_path      : %s", pamPath.c_str());
-	WLog_INFO(TAG, "  pam_service   : %s", pamService.c_str());
-	WLog_INFO(TAG, "  dockerfile    : %s", dockerfileStr);
-	WLog_INFO(TAG, "  rdp_username  : %s", rdpUsername.c_str());
-	WLog_INFO(TAG, "  rdp_password  : %s", rdpPasswordStr);
+	VDI_LOG_INFO(TAG, "  home_path     : %s", homePath.c_str());
+	VDI_LOG_INFO(TAG, "  shadow_path   : %s", shadowPath.c_str());
+	VDI_LOG_INFO(TAG, "  group_path    : %s", groupPath.c_str());
+	VDI_LOG_INFO(TAG, "  passwd_path   : %s", passwdPath.c_str());
+	VDI_LOG_INFO(TAG, "  pam_path      : %s", pamPath.c_str());
+	VDI_LOG_INFO(TAG, "  pam_service   : %s", pamService.c_str());
+	VDI_LOG_INFO(TAG, "  dockerfile    : %s", dockerfileStr);
+	VDI_LOG_INFO(TAG, "  rdp_username  : %s", rdpUsername.c_str());
+	VDI_LOG_INFO(TAG, "  rdp_password  : %s", rdpPasswordStr);
 }
 
 void vdi_log_refresh_outcome(bool refreshed, bool reloaded)
@@ -163,8 +234,8 @@ void vdi_log_refresh_outcome(bool refreshed, bool reloaded)
 		auto& configuration = vdi::Config();
 		const std::string configPath = configuration.ConfigPath();
 		const char* configPathStr = configPath.empty() ? "<defaults>" : configPath.c_str();
-		WLog_WARN(TAG, "Failed to refresh VDI broker configuration at %s; using defaults",
-		         configPathStr);
+		VDI_LOG_WARN(TAG, "Failed to refresh VDI broker configuration at %s; using defaults",
+		             configPathStr);
 	}
 }
 
@@ -248,7 +319,7 @@ static BOOL vdi_client_init_connect(proxyPlugin* plugin, proxyData* pdata, void*
 	freerdp_settings_set_bool (settings, FreeRDP_NlaSecurity, TRUE);
 
 
-	WLog_INFO(TAG, "called");
+	VDI_LOG_INFO(TAG, "Client init connect called");
 	return TRUE;
 }
 
@@ -284,12 +355,12 @@ static int pam_conversation(int num_msg, const struct pam_message** msg,
                 responses[i].resp_retcode = 0;
                 break;
             case PAM_ERROR_MSG:
-                std::cerr << "PAM Error Message: " << msg[i]->msg << std::endl;
+                VDI_LOG_WARN(TAG, "PAM Error Message: %s", msg[i]->msg ? msg[i]->msg : "<null>");
                 responses[i].resp = nullptr;
                 responses[i].resp_retcode = 0;
                 break;
             case PAM_TEXT_INFO:
-                std::cout << "PAM Info: " << msg[i]->msg << std::endl;
+                VDI_LOG_INFO(TAG, "PAM Info: %s", msg[i]->msg ? msg[i]->msg : "<null>");
                 responses[i].resp = nullptr;
                 responses[i].resp_retcode = 0;
                 break;
@@ -327,14 +398,14 @@ bool vdi_auth(const std::string& username, const std::string& password) {
     // Start PAM transaction
     int retval = pam_start(pamService.c_str(), username.c_str(), &conv, &pamh);
     if (retval != PAM_SUCCESS) {
-        std::cerr << "pam_start failed: " << pam_strerror(pamh, retval) << std::endl;
+        VDI_LOG_ERROR(TAG, "pam_start failed: %s", pam_strerror(pamh, retval));
         return false;
     }
 
     // Authenticate the user
     retval = pam_authenticate(pamh, 0);
     if (retval != PAM_SUCCESS) {
-        std::cerr << "pam_authenticate failed: " << pam_strerror(pamh, retval) << std::endl;
+        VDI_LOG_ERROR(TAG, "pam_authenticate failed: %s", pam_strerror(pamh, retval));
         pam_end(pamh, retval);
         return false;
     }
@@ -342,7 +413,7 @@ bool vdi_auth(const std::string& username, const std::string& password) {
     // Check account status
     retval = pam_acct_mgmt(pamh, 0);
     if (retval != PAM_SUCCESS) {
-        std::cerr << "pam_acct_mgmt failed: " << pam_strerror(pamh, retval) << std::endl;
+        VDI_LOG_ERROR(TAG, "pam_acct_mgmt failed: %s", pam_strerror(pamh, retval));
         pam_end(pamh, retval);
         return false;
     }
@@ -350,7 +421,7 @@ bool vdi_auth(const std::string& username, const std::string& password) {
     // End PAM transaction
     retval = pam_end(pamh, PAM_SUCCESS);
     if (retval != PAM_SUCCESS) {
-        std::cerr << "pam_end failed: " << pam_strerror(pamh, retval) << std::endl;
+        VDI_LOG_ERROR(TAG, "pam_end failed: %s", pam_strerror(pamh, retval));
         return false;
     }
 
@@ -364,55 +435,44 @@ static BOOL vdi_client_pre_connect(proxyPlugin* plugin, proxyData* pdata, void* 
 	WINPR_ASSERT(pdata->pc);
 	WINPR_ASSERT(custom);
 
-        //Set target to another thing
+	// Set target to another thing
 	auto settings = pdata->pc->context.settings;
-	const char* uname = freerdp_settings_get_string(settings, FreeRDP_Username);
-	const char* passw = freerdp_settings_get_string(settings, FreeRDP_Password);
 
-	if(uname == nullptr)
-		return FALSE;
-	if(passw == nullptr)
+	std::string username;
+	std::string password;
+	if (!load_client_credentials(settings, username, password))
 		return FALSE;
 
-	std::string username = uname;
-	std::string password = passw;
+	const ParsedUsername parsed = split_username(username);
+	if (parsed.user.empty())
+	{
+		VDI_LOG_ERROR(TAG, "Refusing authentication with empty username");
+		return FALSE;
+	}
+
+	vdi::logging::ScopedLogUser scopedUser(parsed.user);
+
+	VDI_LOG_INFO(TAG, "Username full: %s", username.c_str());
 
 	vdi_refresh_configuration(pdata);
 
-	WLog_INFO(TAG, "Username full: %s", username.c_str());
-
-	auto hashPos = username.find('#');
-	std::string containerSuffix;
-	if ((hashPos != std::string::npos) && (hashPos + 1 < username.size()))
-		containerSuffix = username.substr(hashPos + 1);
-
-	std::string user = (hashPos == std::string::npos) ? username : username.substr(0, hashPos);
-
-	if(!vdi_auth(user, password)) {
+	if (!vdi_auth(parsed.user, password))
 		return FALSE;
-	}
-	WLog_INFO(TAG, "Username: %s", username.c_str());
-	const std::string containerPrefix = build_container_prefix(containerSuffix);
-	const std::string requestedContainer = containerPrefix + user;
-	WLog_INFO(TAG, "Requesting container: %s", requestedContainer.c_str());
-	std::string ip = vdi::ManageContainer(user, containerPrefix);
-	if (!ip.empty())
-	{
-		WLog_INFO(TAG, "Setting target address: %s", ip.c_str());
-		auto& configuration = vdi::Config();
-		const bool refreshedConfig = configuration.Refresh();
-		const bool reloadedConfig = configuration.ConsumeReloadedFlag();
-		vdi_log_refresh_outcome(refreshedConfig, reloadedConfig);
-		const std::string rdpUsername =
-		    configuration.RdpUsername().empty() ? "rdp" : configuration.RdpUsername();
-		const std::string rdpPassword =
-		    configuration.RdpPassword().empty() ? "rdp" : configuration.RdpPassword();
-		freerdp_settings_set_string(settings, FreeRDP_ServerHostname, ip.c_str());
-		freerdp_settings_set_uint32(settings, FreeRDP_ServerPort, 3389);
-		freerdp_settings_set_string(settings, FreeRDP_Username, rdpUsername.c_str());
-		freerdp_settings_set_string(settings, FreeRDP_Password, rdpPassword.c_str());
-		freerdp_settings_set_string(settings, FreeRDP_Domain, "None");
-	}
+
+	VDI_LOG_INFO(TAG, "Authenticated user: %s", parsed.user.c_str());
+
+	const std::string containerPrefix = build_container_prefix(parsed.suffix);
+	const std::string requestedContainer = containerPrefix + parsed.user;
+	VDI_LOG_INFO(TAG, "Requesting container: %s", requestedContainer.c_str());
+
+	const std::string ip = vdi::ManageContainer(parsed.user, containerPrefix);
+	if (ip.empty())
+		return FALSE;
+
+	VDI_LOG_INFO(TAG, "Setting target address: %s", ip.c_str());
+
+	const RdpCredentials rdpCreds = load_rdp_credentials();
+	configure_target_settings(settings, ip, rdpCreds);
 
 	return TRUE;
 }
@@ -443,19 +503,10 @@ void printDelayBetweenCalls() {
     lastTime = currentTime;
 }
 
-#ifdef __cplusplus
-extern "C"
+static BOOL vdi_internal_proxy_module_entry_point(proxyPluginsManager* plugins_manager,
+							     void* userdata)
 {
-#endif
-	FREERDP_API BOOL proxy_module_entry_point(proxyPluginsManager* plugins_manager, void* userdata);
-#ifdef __cplusplus
-}
-#endif
-
-void vdi_broker_proxy_module_entry_point(){}
-
-BOOL proxy_module_entry_point(proxyPluginsManager* plugins_manager, void* userdata)
-{
+	vdi::logging::ScopedLogUser scopedUser("system");
 	struct vdi_custom_data* custom = nullptr;
 	proxyPlugin plugin = {};
 
@@ -484,6 +535,7 @@ BOOL proxy_module_entry_point(proxyPluginsManager* plugins_manager, void* userda
 	try
 	{
 		custom->configPollingThread = std::thread([stopFlag = &custom->stopConfigPolling]() {
+			vdi::logging::ScopedLogUser scopedUser("system");
 			auto shouldStop = [&]() {
 				return stopFlag->load(std::memory_order_relaxed);
 			};
@@ -521,3 +573,25 @@ BOOL proxy_module_entry_point(proxyPluginsManager* plugins_manager, void* userda
 
 	return TRUE;
 }
+
+#ifdef __cplusplus
+extern "C"
+{
+#endif
+
+FREERDP_ENTRY_POINT(FREERDP_API BOOL proxy_module_entry_point(proxyPluginsManager* plugins_manager,
+							    void* userdata))
+{
+	return vdi_internal_proxy_module_entry_point(plugins_manager, userdata);
+}
+
+FREERDP_ENTRY_POINT(FREERDP_API BOOL
+				   vdi_broker_proxy_module_entry_point(proxyPluginsManager* plugins_manager,
+							 void* userdata))
+{
+	return vdi_internal_proxy_module_entry_point(plugins_manager, userdata);
+}
+
+#ifdef __cplusplus
+}
+#endif

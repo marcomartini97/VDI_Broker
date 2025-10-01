@@ -10,6 +10,8 @@
 
 namespace vdi
 {
+class ConfigYamlParser;
+
 class VdiBrokerConfig
 {
 public:
@@ -56,6 +58,8 @@ private:
     VdiBrokerConfig();
     VdiBrokerConfig(const VdiBrokerConfig&) = delete;
     VdiBrokerConfig& operator=(const VdiBrokerConfig&) = delete;
+
+    friend class ConfigYamlParser;
 
     void ApplyDefaultsUnlocked();
     bool LoadFromFileUnlocked(const std::string& path);
