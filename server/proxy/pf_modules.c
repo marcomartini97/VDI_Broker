@@ -27,6 +27,10 @@
 #include <winpr/path.h>
 #include <winpr/library.h>
 
+#if !defined(_WIN32)
+#include <dlfcn.h>
+#endif
+
 #include <freerdp/version.h>
 #include <freerdp/api.h>
 #include <freerdp/build-config.h>
@@ -509,10 +513,25 @@ static BOOL pf_modules_load_static_module(const char* module_name, proxyModule* 
 			name[x] = '_';
 	}
 
+#if defined(_WIN32)
 	proxyModuleEntryPoint pEntryPoint = GetProcAddressAs(handle, name, proxyModuleEntryPoint);
+#else
+	dlerror();
+	proxyModuleEntryPoint pEntryPoint = (proxyModuleEntryPoint)dlsym(handle, name);
+#endif
 	if (!pEntryPoint)
 	{
+#if !defined(_WIN32)
+		// NOLINTNEXTLINE(concurrency-mt-unsafe)
+		const char* err = dlerror();
+		if (err)
+			WLog_DBG(TAG, "GetProcAddress failed for static %s (module %s): %s", name, module_name,
+			         err);
+		else
+			WLog_DBG(TAG, "GetProcAddress failed for static %s (module %s)", name, module_name);
+#else
 		WLog_DBG(TAG, "GetProcAddress failed for static %s (module %s)", name, module_name);
+#endif
 		goto error;
 	}
 	if (!ArrayList_Append(module->handles, handle))
