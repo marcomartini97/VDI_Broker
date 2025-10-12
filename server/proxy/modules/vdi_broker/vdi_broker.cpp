@@ -527,7 +527,6 @@ static BOOL vdi_internal_proxy_module_entry_point(proxyPluginsManager* plugins_m
 		return FALSE;
 
 	custom->mgr = plugins_manager;
-	custom->somesetting = 42;
 	custom->stopConfigPolling.store(false, std::memory_order_relaxed);
 
 	plugin.custom = custom;

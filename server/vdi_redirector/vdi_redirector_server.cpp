@@ -82,7 +82,7 @@ std::optional<std::string> build_routing_token(const std::string& ip, std::uint1
 	const uint16_t portToken = reverse_bytes16(port);
 
 	std::ostringstream osstoken;
-	osstoken << "Cookie: msts=" << ipToken << "." << portToken << ".0000\r\n";
+	osstoken << "Cookie: msts=" << ipToken << "." << portToken << ".0000";
 	return osstoken.str();
 }
 
@@ -116,20 +116,25 @@ BOOL send_redirection(freerdp_peer* peer, const std::string& targetAddress,
 	BOOL success = TRUE;
 	do
 	{
-		UINT32 flags = LB_TARGET_NET_ADDRESS;
-		if (credentials)
-			flags |= LB_USERNAME | LB_PASSWORD | LB_DOMAIN;
+		UINT32 flags = 0;
+		flags |= LB_TARGET_NET_ADDRESS;
 		if (routingToken && !routingToken->empty())
 			flags |= LB_LOAD_BALANCE_INFO;
+
+		if (credentials)
+			flags |= LB_USERNAME | LB_PASSWORD | LB_DOMAIN;
 		if (!redirection_set_flags(redirection, flags))
 		{
 			success = FALSE;
 			break;
 		}
-		if (!redirection_set_string_option(redirection, LB_TARGET_NET_ADDRESS, targetAddress.c_str()))
+		if (flags & LB_TARGET_NET_ADDRESS)
 		{
-			success = FALSE;
-			break;
+			if (!redirection_set_string_option(redirection, LB_TARGET_NET_ADDRESS, targetAddress.c_str()))
+			{
+				success = FALSE;
+				break;
+			}
 		}
 		if (credentials)
 		{
@@ -592,10 +597,10 @@ BOOL RedirectorServer::PeerPostConnect(freerdp_peer* peer)
 		             client, ip.c_str(), kContainerPort);
 	}
 
-	if (peer->Disconnect)
-		peer->Disconnect(peer);
-	if (peer->Close)
-		peer->Close(peer);
+	//if (peer->Disconnect)
+	//	peer->Disconnect(peer);
+	//if (peer->Close)
+	//	peer->Close(peer);
 	return TRUE;
 }
 

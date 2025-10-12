@@ -3,10 +3,6 @@
 #include "vdi_broker_config.h"
 #include "vdi_logging.h"
 
-void vdi_log_refresh_outcome(bool refreshed, bool reloaded);
-
-#include <freerdp/server/proxy/proxy_modules_api.h>
-
 #include <winpr/wlog.h>
 
 #include <curl/curl.h>

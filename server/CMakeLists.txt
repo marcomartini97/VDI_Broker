@@ -21,6 +21,7 @@ option(WITH_PROXY "Compile with proxy server" ON)
 option(WITH_PLATFORM_SERVER "Compile with platform server" ON)
 
 add_subdirectory(common)
+add_subdirectory(vdi-common)
 if(WITH_SHADOW)
   if(APPLE)
     message(WARNING "Mac shadow server implementation no longer compiles")

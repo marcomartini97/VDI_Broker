@@ -1,9 +1,9 @@
-#include "vdi_redirector_config.h"
-#include "vdi_redirector_constants.h"
-#include "vdi_redirector_server.h"
+#include "vdi_proxy_config.h"
+#include "vdi_proxy_server.h"
+#include "vdi_proxy_utils.h"
+
 #include "vdi_logging.h"
 #include "vdi_broker_config.h"
-#include "vdi_redirector_utils.h"
 
 #include <winpr/winsock.h>
 
@@ -14,9 +14,12 @@
 #include <iostream>
 #include <string>
 
-#define TAG MODULE_TAG("vdi_redirector")
+#define TAG MODULE_TAG("vdi_proxy")
 
-namespace redirector
+namespace vdi::proxy
+{
+
+namespace
 {
 
 void print_usage(const char* program)
@@ -27,11 +30,10 @@ void print_usage(const char* program)
 	          << "  --config <path>         Broker configuration file\n"
 	          << "  --certificate <path>    Server certificate (PEM)\n"
 	          << "  --private-key <path>    Server private key (PEM)\n"
-	          << "  --routing-token         Enable routing token load-balance info\n"
 	          << "  --help                  Show this help message\n";
 }
 
-bool parse_arguments(int argc, char** argv, RedirectorOptions& options)
+bool parse_arguments(int argc, char** argv, ProxyOptions& options)
 {
 	for (int i = 1; i < argc; ++i)
 	{
@@ -41,7 +43,7 @@ bool parse_arguments(int argc, char** argv, RedirectorOptions& options)
 			print_usage(argv[0]);
 			return false;
 		}
-		if (arg == "--bind")
+		else if (arg == "--bind")
 		{
 			if (i + 1 >= argc)
 				return false;
@@ -79,10 +81,6 @@ bool parse_arguments(int argc, char** argv, RedirectorOptions& options)
 				return false;
 			options.privateKeyPath = argv[++i];
 		}
-		else if (arg == "--routing-token")
-		{
-			options.useRoutingToken = true;
-		}
 		else
 		{
 			std::cerr << "Unknown argument: " << arg << '\n';
@@ -100,7 +98,7 @@ bool parse_arguments(int argc, char** argv, RedirectorOptions& options)
 	return true;
 }
 
-std::atomic<RedirectorServer*> g_activeServer{ nullptr };
+std::atomic<VdiProxyServer*> g_activeServer{ nullptr };
 
 void handle_signal(int)
 {
@@ -111,7 +109,7 @@ void handle_signal(int)
 
 int run(int argc, char** argv)
 {
-	RedirectorOptions options;
+	ProxyOptions options;
 	if (!parse_arguments(argc, argv, options))
 		return EXIT_FAILURE;
 
@@ -129,28 +127,30 @@ int run(int argc, char** argv)
 		return EXIT_FAILURE;
 	}
 
-    RedirectorServer server;
-    if (!server.Initialize(options))
-    {
-        WSACleanup();
-        return EXIT_FAILURE;
-    }
+	VdiProxyServer server;
+	if (!server.Initialize(options))
+	{
+		WSACleanup();
+		return EXIT_FAILURE;
+	}
 
 	g_activeServer.store(&server);
 	std::signal(SIGINT, handle_signal);
 	std::signal(SIGTERM, handle_signal);
 
-    server.Run();
+	server.Run();
 
-    g_activeServer.store(nullptr);
-    WSACleanup();
-    VDI_LOG_INFO(TAG, "VDI redirector stopped");
-    return EXIT_SUCCESS;
+	g_activeServer.store(nullptr);
+	WSACleanup();
+	VDI_LOG_INFO(TAG, "VDI proxy stopped");
+	return EXIT_SUCCESS;
 }
 
-} // namespace redirector
+} // namespace
+
+} // namespace vdi::proxy
 
 int main(int argc, char** argv)
 {
-	return redirector::run(argc, argv);
+	return vdi::proxy::run(argc, argv);
 }

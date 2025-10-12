@@ -1,4 +1,4 @@
-#include "vdi_redirector_utils.h"
+#include "vdi_proxy_utils.h"
 
 #include "vdi_broker_config.h"
 #include "vdi_logging.h"
@@ -16,8 +16,11 @@
 #include <security/pam_appl.h>
 #include <security/pam_misc.h>
 
-#define TAG MODULE_TAG("vdi_redirector")
+#define TAG MODULE_TAG("vdi_proxy")
 static constexpr char kDefaultPamServiceName[] = "vdi-broker";
+
+namespace vdi::proxy
+{
 
 ParsedUsername split_username(const std::string& username)
 {
@@ -170,3 +173,5 @@ bool vdi_auth(const std::string& username, const std::string& password)
 
 	return true;
 }
+
+} // namespace vdi::proxy

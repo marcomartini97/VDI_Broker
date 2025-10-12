@@ -1,0 +1,64 @@
+# Example configuration for the VDI broker plugin.
+# Copy this file and adjust paths according to your environment.
+
+podman_image: vortice-vdi
+
+# Optional per-user overrides. Each entry provides a username and the image to launch.
+user_images:
+  # - user: alice
+  #   image: custom-gnome-alice
+
+# Additional bind mounts into the container (optional).
+custom_mounts:
+  # - source: /etc/timezone
+  #   destination: /etc/timezone
+  #   read_only: true
+
+# Enable NVIDIA GPU passthrough and set the device slot (e.g., 0, 1, 2).
+nvidia_gpu: false
+nvidia_gpu_slot: 0
+
+# Override render nodes (optional, comment for software rendering).
+dri_render_devices:
+  # - /dev/dri/renderD128
+  # - /dev/dri/renderD129
+dri_card_devices:
+  # - /dev/dri/card0
+  # - /dev/dri/card1
+
+# Host directories bound into the VDI session container.
+home_path: /home
+shadow_path: /etc/shadow
+group_path: /etc/group
+passwd_path: /etc/passwd
+
+# Path to the PAM stack file used for authentication.
+pam_path: /etc/pam.d/vdi-broker
+
+# Optional path to a Dockerfile that can be used to build the podman image
+# when it is not present locally.
+dockerfile_path: /etc/vdi/VORTICE-vdi/Containerfile
+
+# Credentials used by the redirector to connect to the GNOME Remote Desktop service
+# inside the Podman container. Defaults fallback to "rdp" when omitted.
+rdp_username: rdp
+rdp_password: rdp
+
+# Optional redirector splash screen customization.
+# Provide a path to a PNG/JPEG/BMP to show while provisioning, or leave empty to disable.
+redirector_background_image: ""
+# Hex RGB value used when no background image is supplied.
+redirector_background_color: "#1d4ed8"
+
+# Optional resource limits applied when creating the Podman container.
+# The global block seeds defaults (pids remains unlimited by default).
+# Uncomment per-user entries to override limits for specific users.
+resource_limits:
+  global:
+    pids: 0
+    # memory: 2147483648
+    # cpu: 2
+  users:
+    # - user: alice
+    #   pids: 120
+    #   memory: 2147483648

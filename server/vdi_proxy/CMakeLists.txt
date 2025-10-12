@@ -4,7 +4,7 @@ if(NOT FREERDP_DEFAULT_PROJECT_VERSION)
 	set(FREERDP_DEFAULT_PROJECT_VERSION "1.0.0.0")
 endif()
 
-project(vdi-redirector
+project(vdi-proxy
 	VERSION ${FREERDP_DEFAULT_PROJECT_VERSION}
 	LANGUAGES CXX
 )
@@ -30,10 +30,9 @@ if(NOT PAM_FOUND)
 endif()
 
 set(SRCS
-	vdi_redirector.cpp
-	vdi_redirector_server.cpp
-	vdi_redirector_utils.cpp
-	vdi_status_display.cpp
+	vdi_proxy.cpp
+	vdi_proxy_server.cpp
+	vdi_proxy_utils.cpp
 )
 
 AddTargetWithResourceFile(${PROJECT_NAME} TRUE "${PROJECT_VERSION}" SRCS FALSE)
@@ -42,14 +41,21 @@ target_compile_features(${PROJECT_NAME} PRIVATE cxx_std_17)
 target_include_directories(${PROJECT_NAME}
 	PRIVATE
 		${CMAKE_CURRENT_SOURCE_DIR}
+		${JSONCPP_INCLUDE_DIRS}
+		${PAM_INCLUDE_DIRS}
+		${CMAKE_CURRENT_SOURCE_DIR}/../vdi-common
 )
 
 target_link_libraries(${PROJECT_NAME}
 	PRIVATE
 		winpr
 		vdi-common
+		CURL::libcurl
+		${JSONCPP_LIBRARIES}
+		${PAM_LIBRARIES}
 		freerdp-server
 		freerdp
+		freerdp-server-proxy
 )
 
 install(TARGETS ${PROJECT_NAME} DESTINATION ${CMAKE_INSTALL_BINDIR})

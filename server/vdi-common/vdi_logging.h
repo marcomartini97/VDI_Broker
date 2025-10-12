@@ -186,3 +186,6 @@ inline void LogMessage(const char* tag, LogLevel level, const char* fmt, ...)
 
 #define VDI_LOG_ERROR(tag, fmt, ...) \
 	::vdi::logging::LogMessage(tag, ::vdi::logging::LogLevel::Error, fmt, ##__VA_ARGS__)
+
+void vdi_log_configuration_state(bool refreshed);
+void vdi_log_refresh_outcome(bool refreshed, bool reloaded);
