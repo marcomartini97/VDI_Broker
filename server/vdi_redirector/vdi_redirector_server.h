@@ -2,11 +2,14 @@
 
 #include "vdi_redirector_config.h"
 
+#include "vdi_vortice_client.h"
+
 #include <freerdp/listener.h>
 #include <freerdp/peer.h>
 #include <winpr/wtypes.h>
 
 #include <string>
+#include <memory>
 
 namespace redirector
 {
@@ -51,6 +54,7 @@ private:
 	RedirectorOptions options_;
 	freerdp_listener* listener_ = nullptr;
 	HANDLE stopEvent_ = nullptr;
+	std::unique_ptr<VorticeClient> vorticeClient_;
 };
 
 } // namespace redirector

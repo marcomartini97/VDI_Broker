@@ -194,6 +194,7 @@ RedirectorServer::RedirectorServer() = default;
 RedirectorServer::~RedirectorServer()
 {
     Stop();
+    vorticeClient_.reset();
     if (listener_)
     {
         freerdp_listener_free(listener_);
@@ -225,6 +226,15 @@ bool RedirectorServer::Initialize(RedirectorOptions options)
 
 	listener_->info = this;
 	listener_->PeerAccepted = PeerAccepted;
+
+	if (options_.enableVortice)
+	{
+		vorticeClient_ = std::make_unique<VorticeClient>(options_.vorticeEndpoint);
+		if (vorticeClient_ && !vorticeClient_->EnsureConnected())
+		{
+			VDI_LOG_WARN(TAG, "Unable to connect to Vortice broker immediately; retrying on demand");
+		}
+	}
 	return true;
 }
 
@@ -286,6 +296,8 @@ void RedirectorServer::Stop()
 {
 	if (stopEvent_)
 		SetEvent(stopEvent_);
+	if (vorticeClient_)
+		vorticeClient_->Stop();
 }
 
 const RedirectorOptions& RedirectorServer::Options() const
@@ -498,7 +510,7 @@ BOOL RedirectorServer::PeerPostConnect(freerdp_peer* peer)
 	vdi_log_refresh_outcome(refreshed, reloaded);
 
 	// Present a provisioning overlay only if the client negotiated fast-path updates.
-	StatusDisplay statusDisplay;
+	vdi::StatusDisplay statusDisplay;
 	const bool clientFastPath =
 	    freerdp_settings_get_bool(settings, FreeRDP_FastPathOutput) ? true : false;
 	const UINT32 clientMaxRequest =
@@ -539,6 +551,72 @@ BOOL RedirectorServer::PeerPostConnect(freerdp_peer* peer)
 	}
 
 	const RdpCredentials containerCreds = load_rdp_credentials();
+
+	bool useVortice = false;
+	std::string proxyHost;
+	std::uint16_t proxyPort = 0;
+	if (server->options_.enableVortice && server->vorticeClient_)
+	{
+		if (server->vorticeClient_->EnsureConnected())
+		{
+			proxyHost = server->vorticeClient_->ProxyHost();
+			proxyPort = server->vorticeClient_->ProxyPort();
+			if (!proxyHost.empty() && proxyPort != 0)
+			{
+				vdi::vortice::RedirectMessage redirect{};
+				redirect.username = rawUser;
+				redirect.password = rawPassword;
+				redirect.targetHost = ip;
+				redirect.targetPort = kContainerPort;
+				redirect.targetUsername = containerCreds.username;
+				redirect.targetPassword = containerCreds.password;
+
+				if (server->vorticeClient_->SendRedirect(redirect))
+				{
+					useVortice = true;
+					if (statusDisplay.Ready())
+						statusDisplay.ShowMessage("Routing session through proxy...");
+				}
+				else
+				{
+					VDI_LOG_WARN(TAG,
+					             "Vortice broker unavailable or rejected redirect; using local session");
+					if (statusDisplay.Ready())
+						statusDisplay.ShowMessage("Proxy unavailable, using local session...");
+				}
+			}
+		}
+		else
+		{
+			VDI_LOG_WARN(TAG, "Unable to reach Vortice broker; using local session instead");
+		}
+	}
+
+	if (useVortice)
+	{
+		if (!freerdp_settings_set_string(settings, FreeRDP_ServerHostname, proxyHost.c_str()))
+			return FALSE;
+		(void)freerdp_settings_set_uint32(settings, FreeRDP_ServerPort, proxyPort);
+
+		if (!send_redirection(peer, proxyHost, nullptr, nullptr))
+		{
+			if (statusDisplay.Ready())
+				statusDisplay.ShowMessage("Unable to route session through proxy");
+			return FALSE;
+		}
+
+		if (statusDisplay.Ready())
+			statusDisplay.ShowMessage("Redirecting via proxy...");
+
+		const std::string clientIp = resolve_client_ip(peer);
+		const char* client = clientIp.empty() ? "<unknown>" : clientIp.c_str();
+		VDI_LOG_INFO(TAG,
+		             "Proxy redirect for user %s (client %s) via %s:%" PRIu16
+		             " targeting container %s:%" PRIu16,
+		             parsed.user.c_str(), client, proxyHost.c_str(), proxyPort, ip.c_str(),
+		             kContainerPort);
+		return TRUE;
+	}
 
 	std::optional<std::string> routingToken;
 	if (server->Options().useRoutingToken)

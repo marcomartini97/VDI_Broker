@@ -3,6 +3,8 @@
 #include <cstdint>
 #include <string>
 
+#include "vdi_vortice_protocol.h"
+
 namespace redirector
 {
 /**
@@ -16,6 +18,8 @@ struct RedirectorOptions
 	std::string certificatePath;
 	std::string privateKeyPath;
 	bool useRoutingToken = false;
+	bool enableVortice = false;
+	std::string vorticeEndpoint = vdi::vortice::kDefaultEndpoint;
 };
 
 } // namespace redirector

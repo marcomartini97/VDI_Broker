@@ -28,6 +28,8 @@ void print_usage(const char* program)
 	          << "  --certificate <path>    Server certificate (PEM)\n"
 	          << "  --private-key <path>    Server private key (PEM)\n"
 	          << "  --routing-token         Enable routing token load-balance info\n"
+	          << "  --vortice               Enable Vortice broker integration\n"
+	          << "  --vortice-endpoint <endpoint>  Vortice endpoint (unix:/path or tcp:host:port)\n"
 	          << "  --help                  Show this help message\n";
 }
 
@@ -83,6 +85,17 @@ bool parse_arguments(int argc, char** argv, RedirectorOptions& options)
 		{
 			options.useRoutingToken = true;
 		}
+		else if (arg == "--vortice")
+		{
+			options.enableVortice = true;
+		}
+		else if (arg == "--vortice-endpoint")
+		{
+			if (i + 1 >= argc)
+				return false;
+			options.vorticeEndpoint = argv[++i];
+			options.enableVortice = true;
+		}
 		else
 		{
 			std::cerr << "Unknown argument: " << arg << '\n';
@@ -95,6 +108,16 @@ bool parse_arguments(int argc, char** argv, RedirectorOptions& options)
 	{
 		std::cerr << "Both --certificate and --private-key must be provided\n";
 		return false;
+	}
+
+	if (options.enableVortice)
+	{
+		vdi::vortice::Endpoint endpoint{};
+		if (!vdi::vortice::ParseEndpoint(options.vorticeEndpoint, endpoint))
+		{
+			std::cerr << "Invalid --vortice-endpoint value: " << options.vorticeEndpoint << '\n';
+			return false;
+		}
 	}
 
 	return true;

@@ -33,7 +33,7 @@ set(SRCS
 	vdi_redirector.cpp
 	vdi_redirector_server.cpp
 	vdi_redirector_utils.cpp
-	vdi_status_display.cpp
+	vdi_vortice_client.cpp
 )
 
 AddTargetWithResourceFile(${PROJECT_NAME} TRUE "${PROJECT_VERSION}" SRCS FALSE)

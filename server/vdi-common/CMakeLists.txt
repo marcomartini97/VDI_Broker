@@ -16,6 +16,8 @@ add_library(vdi-common STATIC
 	vdi_broker_config.cpp
 	vdi_container_manager.cpp
 	vdi_logging_utils.cpp
+	vdi_status_display.cpp
+	vdi_vortice_protocol.cpp
 )
 
 target_compile_features(vdi-common PUBLIC cxx_std_17)

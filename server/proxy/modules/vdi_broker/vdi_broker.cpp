@@ -28,8 +28,11 @@
 #include <inttypes.h>
 #include <unistd.h>
 #include <atomic>
-#include <thread>
 #include <chrono>
+#include <cstdlib>
+#include <memory>
+#include <optional>
+#include <thread>
 #include <security/pam_appl.h>
 #include <security/pam_misc.h>
 
@@ -42,6 +45,8 @@
 #include "vdi_broker_config.h"
 #include "vdi_container_manager.h"
 #include "vdi_logging.h"
+#include "vdi_status_display.h"
+#include "vdi_vortice_server.h"
 
 #define TAG MODULE_TAG("vdi_broker")
 static constexpr char plugin_name[] = "vdi-broker";
@@ -49,8 +54,6 @@ static constexpr char plugin_desc[] =
     "Intercepts RDP Authentication and forwards the connection to an RDP Enabled Container";
 static constexpr char kConfigPathKey[] = "config_path";
 static constexpr char kDefaultPamServiceName[] = "vdi-broker";
-
-void vdi_log_refresh_outcome(bool refreshed, bool reloaded);
 
 namespace
 {
@@ -133,12 +136,12 @@ RdpCredentials load_rdp_credentials()
 }
 
 void configure_target_settings(rdpSettings* settings, const std::string& ip,
-					 const RdpCredentials& creds)
+			 const RdpCredentials& creds, std::uint16_t port = 3389)
 {
 	WINPR_ASSERT(settings);
 
 	freerdp_settings_set_string(settings, FreeRDP_ServerHostname, ip.c_str());
-	freerdp_settings_set_uint32(settings, FreeRDP_ServerPort, 3389);
+	freerdp_settings_set_uint32(settings, FreeRDP_ServerPort, port);
 	freerdp_settings_set_string(settings, FreeRDP_Username, creds.username.c_str());
 	freerdp_settings_set_string(settings, FreeRDP_Password, creds.password.c_str());
 	freerdp_settings_set_string(settings, FreeRDP_Domain, "None");
@@ -283,6 +286,7 @@ struct vdi_custom_data
 	int somesetting;
 	std::atomic_bool stopConfigPolling;
 	std::thread configPollingThread;
+	std::unique_ptr<vdi::broker::VorticeServer> vorticeServer;
 };
 
 static BOOL vdi_plugin_unload(proxyPlugin* plugin)
@@ -300,6 +304,8 @@ static BOOL vdi_plugin_unload(proxyPlugin* plugin)
 			custom->stopConfigPolling.store(true, std::memory_order_relaxed);
 			if (custom->configPollingThread.joinable())
 				custom->configPollingThread.join();
+			if (custom->vorticeServer)
+				custom->vorticeServer->Stop();
 			delete custom;
 		}
 	}
@@ -435,18 +441,23 @@ static BOOL vdi_client_pre_connect(proxyPlugin* plugin, proxyData* pdata, void* 
 	WINPR_ASSERT(pdata->pc);
 	WINPR_ASSERT(custom);
 
-	// Set target to another thing
 	auto settings = pdata->pc->context.settings;
+	auto* customData = static_cast<struct vdi_custom_data*>(custom);
+
 
 	std::string username;
 	std::string password;
 	if (!load_client_credentials(settings, username, password))
+	{
+		VDI_LOG_ERROR(TAG, "Received empty credentials from client");
 		return FALSE;
+	}
 
 	const ParsedUsername parsed = split_username(username);
 	if (parsed.user.empty())
 	{
-		VDI_LOG_ERROR(TAG, "Refusing authentication with empty username");
+		const auto error_auth = "Refusing authentication with empty username";
+		VDI_LOG_ERROR(TAG, error_auth);
 		return FALSE;
 	}
 
@@ -457,9 +468,28 @@ static BOOL vdi_client_pre_connect(proxyPlugin* plugin, proxyData* pdata, void* 
 	vdi_refresh_configuration(pdata);
 
 	if (!vdi_auth(parsed.user, password))
+	{
+		VDI_LOG_INFO(TAG, "Authenticated failed for user: %s", parsed.user.c_str());
 		return FALSE;
+	}
 
 	VDI_LOG_INFO(TAG, "Authenticated user: %s", parsed.user.c_str());
+
+	if (customData && customData->vorticeServer)
+	{
+		auto match = customData->vorticeServer->ConsumeMatch(username, password);
+		if (match)
+		{
+			VDI_LOG_INFO(TAG, "Using Vortice target %s:%" PRIu16 " for user %s",
+			             match->targetHost.c_str(), match->targetPort, parsed.user.c_str());
+			RdpCredentials overrideCreds;
+			overrideCreds.username = match->rdpUsername;
+			overrideCreds.password = match->rdpPassword;
+			configure_target_settings(settings, match->targetHost, overrideCreds,
+			                         match->targetPort);
+			return TRUE;
+		}
+	}
 
 	const std::string containerPrefix = build_container_prefix(parsed.suffix);
 	const std::string requestedContainer = containerPrefix + parsed.user;
@@ -467,7 +497,10 @@ static BOOL vdi_client_pre_connect(proxyPlugin* plugin, proxyData* pdata, void* 
 
 	const std::string ip = vdi::ManageContainer(parsed.user, containerPrefix);
 	if (ip.empty())
+	{
+		VDI_LOG_ERROR(TAG, "Couldn't get an IP from container");
 		return FALSE;
+	}
 
 	VDI_LOG_INFO(TAG, "Setting target address: %s", ip.c_str());
 
@@ -522,12 +555,33 @@ static BOOL vdi_internal_proxy_module_entry_point(proxyPluginsManager* plugins_m
 	plugin.ClientInitConnect = vdi_client_init_connect;
 	plugin.ClientPreConnect = vdi_client_pre_connect;
 
-	custom = new (struct vdi_custom_data);
+	custom = new vdi_custom_data();
 	if (!custom)
 		return FALSE;
 
 	custom->mgr = plugins_manager;
 	custom->stopConfigPolling.store(false, std::memory_order_relaxed);
+
+	std::string proxyHost = "127.0.0.1";
+	std::uint16_t proxyPort = 3389;
+	if (initialConfig)
+	{
+		if (initialConfig->Host && *initialConfig->Host)
+			proxyHost = initialConfig->Host;
+		if (initialConfig->Port != 0)
+			proxyPort = initialConfig->Port;
+	}
+
+	const char* endpointEnv = std::getenv("VDI_VORTICE_ENDPOINT");
+	std::string vorticeEndpoint =
+	    endpointEnv && *endpointEnv ? endpointEnv : vdi::vortice::kDefaultEndpoint;
+	custom->vorticeServer =
+	    std::make_unique<vdi::broker::VorticeServer>(vorticeEndpoint, proxyHost, proxyPort);
+	if (custom->vorticeServer && !custom->vorticeServer->Start())
+	{
+		VDI_LOG_WARN(TAG, "Unable to start Vortice server; continuing with standalone behaviour");
+		custom->vorticeServer.reset();
+	}
 
 	plugin.custom = custom;
 
@@ -566,6 +620,8 @@ static BOOL vdi_internal_proxy_module_entry_point(proxyPluginsManager* plugins_m
 		custom->stopConfigPolling.store(true, std::memory_order_relaxed);
 		if (custom->configPollingThread.joinable())
 			custom->configPollingThread.join();
+		if (custom->vorticeServer)
+			custom->vorticeServer->Stop();
 		delete custom;
 		return FALSE;
 	}

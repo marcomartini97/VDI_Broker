@@ -7,7 +7,7 @@
 #include <string>
 #include <vector>
 
-namespace redirector
+namespace vdi
 {
 
 class StatusDisplay
@@ -56,4 +56,4 @@ private:
 	static constexpr int kVerticalSpacing = 4;
 };
 
-} // namespace redirector
+} // namespace vdi

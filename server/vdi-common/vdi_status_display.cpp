@@ -14,15 +14,10 @@
 
 #define TAG MODULE_TAG("status_display")
 
-namespace redirector
-{
-namespace
-{
 // Public-domain 8x8 font by Daniel Hepper: https://github.com/dhepper/font8x8
 // Adapted for use as a simple status overlay.
 static const std::uint8_t kFont8x8[128][8] = {
 #include "font8x8_basic.inl"
-};
 
 // Convert RGB components to a 32-bit BGRX color value (X is unused/alpha)
 constexpr std::uint32_t make_bgrx(std::uint8_t r, std::uint8_t g, std::uint8_t b)
@@ -81,11 +76,9 @@ std::uint32_t read_pixel(const wImage* image, std::uint32_t x, std::uint32_t y)
 	return make_bgrx(r, g, b);
 }
 
-} // namespace
+vdi::StatusDisplay::StatusDisplay() = default;
 
-redirector::StatusDisplay::StatusDisplay() = default;
-
-bool redirector::StatusDisplay::Initialize(freerdp_peer* peer, rdpSettings* settings,
+bool vdi::StatusDisplay::Initialize(freerdp_peer* peer, rdpSettings* settings,
                                const std::string& backgroundImagePath,
                                std::uint32_t fallbackColorBgrx)
 {
@@ -140,12 +133,12 @@ bool redirector::StatusDisplay::Initialize(freerdp_peer* peer, rdpSettings* sett
 	}
 }
 
-bool redirector::StatusDisplay::Ready() const
+bool vdi::StatusDisplay::Ready() const
 {
 	return ready_;
 }
 
-void redirector::StatusDisplay::ShowMessage(const std::string& message)
+void vdi::StatusDisplay::ShowMessage(const std::string& message)
 {
 	if (!ready_)
 		return;
@@ -156,7 +149,7 @@ void redirector::StatusDisplay::ShowMessage(const std::string& message)
 	Present();
 }
 
-void redirector::StatusDisplay::ResetCanvas()
+void vdi::StatusDisplay::ResetCanvas()
 {
 	// Reset canvas to background
 	canvas_ = background_;
@@ -180,7 +173,7 @@ void redirector::StatusDisplay::ResetCanvas()
 	maxY_ = height_ - 1;
 }
 
-void redirector::StatusDisplay::DrawMessage(const std::string& message)
+void vdi::StatusDisplay::DrawMessage(const std::string& message)
 {
 	// Early out if message is empty or display is not ready
 	if (message.empty() || !ready_)
@@ -342,7 +335,7 @@ void redirector::StatusDisplay::DrawMessage(const std::string& message)
 	fullRefresh_ = false;
 }
 
-void redirector::StatusDisplay::DrawLine(const std::string& line, std::uint32_t startY)
+void vdi::StatusDisplay::DrawLine(const std::string& line, std::uint32_t startY)
 {
 	const int scaledGlyphWidth = kGlyphWidth * kGlyphScale;
 	const int scaledGlyphHeight = kGlyphHeight * kGlyphScale;
@@ -382,7 +375,7 @@ void redirector::StatusDisplay::DrawLine(const std::string& line, std::uint32_t 
 	}
 }
 
-void redirector::StatusDisplay::DrawGlyph(char ch, std::uint32_t startX, std::uint32_t startY)
+void vdi::StatusDisplay::DrawGlyph(char ch, std::uint32_t startX, std::uint32_t startY)
 {
 	const unsigned char index = static_cast<unsigned char>(ch);
 	const std::uint8_t* glyph = kFont8x8[(index < 128) ? index : static_cast<unsigned char>('?')];
@@ -448,7 +441,7 @@ void redirector::StatusDisplay::DrawGlyph(char ch, std::uint32_t startX, std::ui
 	}
 }
 
-void redirector::StatusDisplay::Present()
+void vdi::StatusDisplay::Present()
 {
 	if (!update_ || !peer_)
 		return;
@@ -516,7 +509,7 @@ void redirector::StatusDisplay::Present()
 	maxY_ = 0;
 }
 
-bool redirector::StatusDisplay::LoadBackgroundImage(const std::string& path, std::uint32_t fallbackColorBgrx)
+bool vdi::StatusDisplay::LoadBackgroundImage(const std::string& path, std::uint32_t fallbackColorBgrx)
 {
 	wImage* image = winpr_image_new();
 	if (!image)
@@ -551,7 +544,7 @@ bool redirector::StatusDisplay::LoadBackgroundImage(const std::string& path, std
 	return true;
 }
 
-std::vector<std::string> redirector::StatusDisplay::WrapText(const std::string& text, std::size_t maxColumns)
+std::vector<std::string> vdi::StatusDisplay::WrapText(const std::string& text, std::size_t maxColumns)
 {
 	if (maxColumns == 0)
 		maxColumns = 1;
@@ -612,8 +605,9 @@ std::vector<std::string> redirector::StatusDisplay::WrapText(const std::string& 
 			result.push_back(current);
 	}
 
-    if (result.empty())
-        result.emplace_back();
+	if (result.empty())
+		result.emplace_back();
 
-    return result;
+	return result;
 }
+
