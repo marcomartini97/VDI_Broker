@@ -3,10 +3,20 @@
 
 podman_image: vortice-vdi
 
+# Podman networking configuration. Leave type unset for managed bridge mode,
+# set type to bridge-unmanaged to attach without provisioning, or macvlan
+# (no host-to-container traffic) with a required parent interface.
+network:
+  name: vortice-network
+  interface_name: vortice0
+  # type: bridge-unmanaged  # reuse an existing bridge without podman management
+  # type: macvlan           # isolates containers from the host; requires a parent uplink
+  # parent: br0              # host bridge name (optional for bridge modes, required for macvlan, for macvlan can also choose a non-bridge interface)
+
 # Optional per-user overrides. Each entry provides a username and the image to launch.
 user_images:
   # - user: alice
-  #   image: custom-gnome-alice
+  #   image: vortice-alice
 
 # Additional bind mounts into the container (optional).
 custom_mounts:

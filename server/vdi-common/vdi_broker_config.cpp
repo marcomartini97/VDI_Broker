@@ -44,6 +44,7 @@ private:
     bool ProcessUserImagesLine(std::string trimmed);
     bool ProcessCustomMountsLine(std::string trimmed);
     bool ProcessDriDevicesLine(std::string trimmed, std::vector<std::string>& target);
+    bool ProcessNetworkLine(std::string trimmed);
     void ProcessTopLevelLine(const std::string& trimmed);
     void HandleTopLevelEntry(const std::string& key, const std::string& value);
     void StartUserImagesBlock();
@@ -53,6 +54,7 @@ private:
     void StartResourceLimitsGlobalSection();
     void StartDriRenderDevicesBlock();
     void StartDriCardDevicesBlock();
+    void StartNetworkBlock();
     void FlushUserImage();
     void FlushCustomMount();
     void FlushResourceLimitUser();
@@ -62,6 +64,7 @@ private:
     static std::string RemoveCommentAndStrip(const std::string& value);
     static bool IsTruthy(const std::string& value);
     static bool IsFalsy(const std::string& value);
+    static bool IsBridgeUnmanagedToken(const std::string& value);
     static void AppendDeviceEntry(std::vector<std::string>& target, const std::string& value);
     static void ParseInlineDeviceList(const std::string& content, std::vector<std::string>& target);
 
@@ -71,6 +74,8 @@ private:
     bool inResourceLimitsBlock_ = false;
     bool inDriRenderDevicesBlock_ = false;
     bool inDriCardDevicesBlock_ = false;
+    bool inNetworkBlock_ = false;
+    bool macVlanParentRequired_ = false;
     ResourceSection resourceSection_ = ResourceSection::None;
     std::string currentUser_;
     std::string currentImage_;
@@ -93,6 +98,16 @@ bool ConfigYamlParser::Parse(const std::string& content)
         ProcessLine(line);
 
     FlushPending();
+    if (macVlanParentRequired_)
+    {
+        config_.podmanNetworkMode_ = VdiBrokerConfig::PodmanNetworkMode::Bridge;
+        macVlanParentRequired_ = false;
+    }
+    if (config_.podmanNetworkMode_ == VdiBrokerConfig::PodmanNetworkMode::MacVlan)
+    {
+        if (config_.podmanNetworkParentInterface_.empty())
+            config_.podmanNetworkMode_ = VdiBrokerConfig::PodmanNetworkMode::Bridge;
+    }
     config_.pamServiceName_ = config_.ResolvePamService(config_.pamPath_);
     return true;
 }
@@ -147,10 +162,23 @@ void ConfigYamlParser::ResetBlocksForTopLevel(const std::string& trimmed)
         inResourceLimitsBlock_ = false;
         resourceSection_ = ResourceSection::None;
     }
+
+    if (inNetworkBlock_ && !isBlockContinuation)
+    {
+        inNetworkBlock_ = false;
+        if (macVlanParentRequired_)
+        {
+            config_.podmanNetworkMode_ = VdiBrokerConfig::PodmanNetworkMode::Bridge;
+            macVlanParentRequired_ = false;
+        }
+    }
 }
 
 bool ConfigYamlParser::HandleBlockLine(const std::string& trimmed, bool isTopLevel)
 {
+    if (inNetworkBlock_ && !isTopLevel)
+        return ProcessNetworkLine(trimmed);
+
     if (inDriRenderDevicesBlock_ && !isTopLevel)
         return ProcessDriDevicesLine(trimmed, config_.driRenderDevices_);
 
@@ -352,6 +380,78 @@ bool ConfigYamlParser::ProcessDriDevicesLine(std::string trimmed, std::vector<st
     return true;
 }
 
+bool ConfigYamlParser::ProcessNetworkLine(std::string trimmed)
+{
+    if (trimmed.empty())
+        return true;
+
+    if (trimmed[0] == '-')
+        trimmed = VdiBrokerConfig::Trim(trimmed.substr(1));
+
+    if (trimmed.empty())
+        return true;
+
+    if (trimmed.back() == ':')
+        return true;
+
+    const auto pos = trimmed.find(':');
+    if (pos == std::string::npos)
+        return true;
+
+    const std::string key =
+        VdiBrokerConfig::ToLower(VdiBrokerConfig::Trim(trimmed.substr(0, pos)));
+    const std::string value = RemoveCommentAndStrip(trimmed.substr(pos + 1));
+
+    if (key == "name")
+    {
+        if (!value.empty())
+            config_.podmanNetworkName_ = value;
+        return true;
+    }
+
+    if (key == "interface_name" || key == "network_interface" || key == "container_interface")
+    {
+        config_.podmanNetworkInterface_ = value;
+        return true;
+    }
+
+    if (key == "type" || key == "mode")
+    {
+        const std::string lower = VdiBrokerConfig::ToLower(value);
+        if (lower == "none" || lower == "disabled")
+        {
+            config_.podmanNetworkMode_ = VdiBrokerConfig::PodmanNetworkMode::None;
+            macVlanParentRequired_ = false;
+        }
+        else if (lower == "macvlan")
+        {
+            config_.podmanNetworkMode_ = VdiBrokerConfig::PodmanNetworkMode::MacVlan;
+            macVlanParentRequired_ = config_.podmanNetworkParentInterface_.empty();
+        }
+        else if (IsBridgeUnmanagedToken(value))
+        {
+            config_.podmanNetworkMode_ = VdiBrokerConfig::PodmanNetworkMode::BridgeUnmanaged;
+            macVlanParentRequired_ = false;
+        }
+        else
+        {
+            config_.podmanNetworkMode_ = VdiBrokerConfig::PodmanNetworkMode::Bridge;
+            macVlanParentRequired_ = false;
+        }
+        return true;
+    }
+
+    if (key == "parent" || key == "master" || key == "master_interface")
+    {
+        config_.podmanNetworkParentInterface_ = value;
+        if (config_.podmanNetworkMode_ == VdiBrokerConfig::PodmanNetworkMode::MacVlan)
+            macVlanParentRequired_ = config_.podmanNetworkParentInterface_.empty();
+        return true;
+    }
+
+    return true;
+}
+
 void ConfigYamlParser::ProcessTopLevelLine(const std::string& trimmed)
 {
     const auto pos = trimmed.find(':');
@@ -371,6 +471,39 @@ void ConfigYamlParser::HandleTopLevelEntry(const std::string& key, const std::st
     {
         if (!value.empty())
             config_.podmanImage_ = value;
+        return;
+    }
+
+    if (normalized == "network")
+    {
+        if (ShouldStartBlock(value))
+        {
+            StartNetworkBlock();
+        }
+        else
+        {
+            const std::string lower = VdiBrokerConfig::ToLower(value);
+            if (lower == "none" || lower == "disabled" || IsFalsy(value))
+            {
+                config_.podmanNetworkMode_ = VdiBrokerConfig::PodmanNetworkMode::None;
+                macVlanParentRequired_ = false;
+            }
+            else if (lower == "macvlan")
+            {
+                config_.podmanNetworkMode_ = VdiBrokerConfig::PodmanNetworkMode::MacVlan;
+                macVlanParentRequired_ = config_.podmanNetworkParentInterface_.empty();
+            }
+            else if (IsBridgeUnmanagedToken(value))
+            {
+                config_.podmanNetworkMode_ = VdiBrokerConfig::PodmanNetworkMode::BridgeUnmanaged;
+                macVlanParentRequired_ = false;
+            }
+            else
+            {
+                config_.podmanNetworkMode_ = VdiBrokerConfig::PodmanNetworkMode::Bridge;
+                macVlanParentRequired_ = false;
+            }
+        }
         return;
     }
 
@@ -588,6 +721,12 @@ void ConfigYamlParser::StartDriCardDevicesBlock()
     inDriCardDevicesBlock_ = true;
 }
 
+void ConfigYamlParser::StartNetworkBlock()
+{
+    inNetworkBlock_ = true;
+    macVlanParentRequired_ = false;
+}
+
 void ConfigYamlParser::FlushUserImage()
 {
     if (!currentUser_.empty() && !currentImage_.empty())
@@ -649,6 +788,13 @@ bool ConfigYamlParser::IsFalsy(const std::string& value)
 {
     const std::string lower = VdiBrokerConfig::ToLower(value);
     return lower == "false" || lower == "0" || lower == "no" || lower == "off";
+}
+
+bool ConfigYamlParser::IsBridgeUnmanagedToken(const std::string& value)
+{
+    const std::string lower = VdiBrokerConfig::ToLower(value);
+    return lower == "bridge-unmanaged" || lower == "bridge_unmanaged" ||
+           lower == "bridge unmanaged" || lower == "unmanaged" || lower == "bridgeunmanaged";
 }
 
 void ConfigYamlParser::AppendDeviceEntry(std::vector<std::string>& target,
@@ -947,6 +1093,10 @@ void VdiBrokerConfig::ApplyDefaultsUnlocked()
     userResourceLimits_.clear();
     redirectorBackgroundImage_.clear();
     redirectorBackgroundColorBgrx_ = 0x001D4ED8u;
+    podmanNetworkMode_ = PodmanNetworkMode::Bridge;
+    podmanNetworkName_ = "vortice-network";
+    podmanNetworkInterface_ = "vortice0";
+    podmanNetworkParentInterface_.clear();
 }
 
 bool VdiBrokerConfig::LoadFromFileUnlocked(const std::string& path)
@@ -1003,6 +1153,42 @@ std::size_t VdiBrokerConfig::ResourceLimitUserCount() const
 {
     std::lock_guard<std::mutex> lock(mutex_);
     return userResourceLimits_.size();
+}
+
+VdiBrokerConfig::PodmanNetworkMode VdiBrokerConfig::ActivePodmanNetworkMode() const
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    switch (podmanNetworkMode_)
+    {
+        case PodmanNetworkMode::None:
+            return PodmanNetworkMode::None;
+        case PodmanNetworkMode::MacVlan:
+            return podmanNetworkParentInterface_.empty() ? PodmanNetworkMode::Bridge
+                                                         : PodmanNetworkMode::MacVlan;
+        case PodmanNetworkMode::BridgeUnmanaged:
+            return PodmanNetworkMode::BridgeUnmanaged;
+        case PodmanNetworkMode::Bridge:
+        default:
+            return PodmanNetworkMode::Bridge;
+    }
+}
+
+std::string VdiBrokerConfig::PodmanNetworkName() const
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    return podmanNetworkName_;
+}
+
+std::string VdiBrokerConfig::PodmanNetworkInterface() const
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    return podmanNetworkInterface_;
+}
+
+std::string VdiBrokerConfig::PodmanNetworkParentInterface() const
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    return podmanNetworkParentInterface_;
 }
 
 std::string VdiBrokerConfig::ResolvePamService(const std::string& pamPath) const

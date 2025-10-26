@@ -11,11 +11,34 @@
 
 #define TAG MODULE_TAG("config")
 
+namespace
+{
+const char* PodmanModeToString(vdi::VdiBrokerConfig::PodmanNetworkMode mode)
+{
+	switch (mode)
+	{
+		case vdi::VdiBrokerConfig::PodmanNetworkMode::MacVlan:
+			return "macvlan";
+		case vdi::VdiBrokerConfig::PodmanNetworkMode::BridgeUnmanaged:
+			return "bridge-unmanaged";
+		case vdi::VdiBrokerConfig::PodmanNetworkMode::Bridge:
+			return "bridge";
+		case vdi::VdiBrokerConfig::PodmanNetworkMode::None:
+		default:
+			return "disabled";
+	}
+}
+} // namespace
+
 void vdi_log_configuration_state(bool refreshed)
 {
 	auto& configuration = vdi::Config();
 	const std::string configPath = configuration.ConfigPath();
 	const std::string podmanImage = configuration.PodmanImage();
+	const auto networkMode = configuration.ActivePodmanNetworkMode();
+	const std::string networkName = configuration.PodmanNetworkName();
+	const std::string networkInterface = configuration.PodmanNetworkInterface();
+	const std::string networkParent = configuration.PodmanNetworkParentInterface();
 	const auto driRenderDevices = configuration.DriRenderDevices();
 	const auto driCardDevices = configuration.DriCardDevices();
 	const std::string homePath = configuration.HomePath();
@@ -52,6 +75,16 @@ void vdi_log_configuration_state(bool refreshed)
 	VDI_LOG_INFO(TAG, "VDI broker configuration loaded");
 	VDI_LOG_INFO(TAG, "  config_path   : %s", configPathStr);
 	VDI_LOG_INFO(TAG, "  podman_image  : %s", podmanImage.c_str());
+	VDI_LOG_INFO(TAG, "  network_mode  : %s", PodmanModeToString(networkMode));
+	if (networkMode != vdi::VdiBrokerConfig::PodmanNetworkMode::None)
+	{
+		const char* nameStr = networkName.empty() ? "<unset>" : networkName.c_str();
+		const char* ifaceStr = networkInterface.empty() ? "<default>" : networkInterface.c_str();
+		VDI_LOG_INFO(TAG, "  network_name  : %s", nameStr);
+		VDI_LOG_INFO(TAG, "  network_if    : %s", ifaceStr);
+		if (!networkParent.empty())
+			VDI_LOG_INFO(TAG, "  network_parent: %s", networkParent.c_str());
+	}
 	VDI_LOG_INFO(TAG, "  user_images   : %" PRIu64 " overrides",
 	             static_cast<std::uint64_t>(userImageOverrides));
 	VDI_LOG_INFO(TAG, "  custom_mounts : %" PRIu64 " entries",

@@ -132,14 +132,7 @@ BOOL vdi_proxy_client_pre_connect(proxyPlugin* plugin, proxyData* pdata, void* c
 	rdpSettings* settings = pdata->pc->context.settings;
 	WINPR_ASSERT(settings);
 
-	const RdpCredentials creds = load_rdp_credentials();
-	if (!freerdp_settings_set_string(settings, FreeRDP_Username, creds.username.c_str()))
-		return FALSE;
-	if (!freerdp_settings_set_string(settings, FreeRDP_Password, creds.password.c_str()))
-		return FALSE;
-	if (!freerdp_settings_set_string(settings, FreeRDP_Domain, ""))
-		return FALSE;
-	VDI_LOG_INFO(TAG, "Set container credentials user=%s", creds.username.c_str());
+	const RdpCredentials fallbackCreds = load_rdp_credentials();
 
 	rdpSettings* server_settings = pdata->ps->context.settings;
 	const char* rawUser = freerdp_settings_get_string(server_settings, FreeRDP_Username);
@@ -171,19 +164,59 @@ BOOL vdi_proxy_client_pre_connect(proxyPlugin* plugin, proxyData* pdata, void* c
 	}
 
 	const std::string containerPrefix = build_container_prefix(parsed.suffix);
-	const std::string ip = ManageContainer(parsed.user, containerPrefix);
-	if (ip.empty())
+	const std::string containerDetails = ManageContainer(parsed.user, containerPrefix);
+	if (containerDetails.empty())
 	{
 		VDI_LOG_ERROR(TAG, "Failed to allocate container for user %s", parsed.user.c_str());
 		return FALSE;
 	}
+
+	vdi::ContainerConnectionInfo containerInfo;
+	std::string containerParseError;
+	if (!vdi::ParseContainerConnectionInfo(containerDetails, containerInfo, &containerParseError))
+	{
+		if (containerParseError.empty())
+			VDI_LOG_ERROR(TAG, "Failed to parse container details for user %s",
+			              parsed.user.c_str());
+		else
+			VDI_LOG_ERROR(TAG, "Failed to parse container details for user %s: %s",
+			              parsed.user.c_str(), containerParseError.c_str());
+		return FALSE;
+	}
+
+	std::string targetUsername = containerInfo.username.empty() ? fallbackCreds.username
+	                                                            : containerInfo.username;
+	std::string targetPassword = containerInfo.password.empty() ? fallbackCreds.password
+	                                                            : containerInfo.password;
+	const bool usedFallbackCreds =
+	    containerInfo.username.empty() || containerInfo.password.empty();
+
+	if (!freerdp_settings_set_string(settings, FreeRDP_Username, targetUsername.c_str()))
+		return FALSE;
+	if (!freerdp_settings_set_string(settings, FreeRDP_Password, targetPassword.c_str()))
+		return FALSE;
+	if (!freerdp_settings_set_string(settings, FreeRDP_Domain, ""))
+		return FALSE;
+
+	if (usedFallbackCreds)
+	{
+		VDI_LOG_WARN(TAG,
+		             "Container script missing credentials; using configured fallback for user %s",
+		             parsed.user.c_str());
+	}
+	else
+	{
+		VDI_LOG_INFO(TAG, "Using script-provided credentials for user %s | temp_user: %s  | temp_passwd: %s", parsed.user.c_str(), targetUsername.c_str(), targetPassword.c_str());
+	}
+
+	const std::string& ip = containerInfo.ip;
 
 	VDI_LOG_INFO(TAG, "Proxying user %s to %s:%" PRIu16, parsed.user.c_str(), ip.c_str(),
 	             kContainerPort);
 
 	if (!freerdp_settings_set_string(settings, FreeRDP_ServerHostname, ip.c_str()))
 		return FALSE;
-	if (!freerdp_settings_set_uint32(settings, FreeRDP_ServerPort, 3389))
+	if (!freerdp_settings_set_uint32(settings, FreeRDP_ServerPort, kContainerPort))
 		return FALSE;
 
 

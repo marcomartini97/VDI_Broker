@@ -22,27 +22,37 @@
 #include <fstream>
 #include <iostream>
 #include <memory>
+#include <mutex>
 #include <netdb.h>
 #include <netinet/tcp.h>
 #include <sstream>
 #include <system_error>
 #include <thread>
+#include <unordered_map>
 #include <unordered_set>
+#include <vector>
+#include <optional>
+#include <regex>
 #include <sys/socket.h>
 #include <sys/time.h>
 #include <unistd.h>
 
 #define TAG MODULE_TAG("vdi-container-manager")
 
-namespace
-{
+namespace vdi {
 constexpr char kPodmanSocket[] = "/var/run/podman/podman.sock";
 const std::string kPodmanApiBase = "http://d/v5.3.0/libpod/containers/";
+const std::string kPodmanExecBase = "http://d/v5.3.0/libpod/exec/";
 constexpr char kPodmanBuildEndpoint[] = "http://d/v5.3.0/libpod/build";
+constexpr char kSessionLogPath[] = "/var/log/vortice/gnome-vdi-session.log";
+constexpr char kSessionJsonPattern[] =
+    R"(\{"ip":"[^"]+","username":"[^"]+","password":"[^"]+"\})";
 constexpr int kProcessCheckAttempts = 20;
 constexpr auto kReadinessPollInterval = std::chrono::seconds{1};
 constexpr auto kPortReadyTimeout = std::chrono::seconds{30};
 constexpr std::uint16_t kRdpPort = 3389;
+
+std::string BuildUrl(const std::string& containerName, const std::string& endpoint);
 
 struct TarHeader
 {
@@ -66,6 +76,12 @@ struct TarHeader
 };
 
 const std::array<char, 512> kTarZeroBlock{};
+
+struct EnsuredNetworkInfo
+{
+    vdi::VdiBrokerConfig::PodmanNetworkMode mode;
+    std::string parent;
+};
 
 bool WriteOctal(char* dest, size_t width, std::uint64_t value)
 {
@@ -302,12 +318,569 @@ size_t WriteCallback(void* contents, size_t size, size_t nmemb, void* userp)
     return total;
 }
 
+std::string TrimWhitespace(const std::string& value)
+{
+    const auto start = value.find_first_not_of(" \t\r\n");
+    if (start == std::string::npos)
+        return {};
+
+    const auto end = value.find_last_not_of(" \t\r\n");
+    return value.substr(start, end - start + 1);
+}
+
+std::string JoinCommand(const std::vector<std::string>& command)
+{
+    std::ostringstream stream;
+    bool first = true;
+    for (const auto& argument : command)
+    {
+        if (!first)
+            stream << ' ';
+        stream << argument;
+        first = false;
+    }
+    return stream.str();
+}
+
+static std::string SanitizeForLog(const std::string& input, size_t maxLength = 256)
+{
+    std::string sanitized;
+    sanitized.reserve(std::min(input.size(), maxLength));
+
+    size_t produced = 0;
+    for (unsigned char ch : input)
+    {
+        if (produced >= maxLength)
+            break;
+
+        if (ch >= 32 && ch <= 126)
+        {
+            sanitized.push_back(static_cast<char>(ch));
+            ++produced;
+        }
+        else
+        {
+            if (produced + 4 > maxLength)
+                break;
+            constexpr char hexDigits[] = "0123456789ABCDEF";
+            sanitized.append("\\x");
+            sanitized.push_back(hexDigits[(ch >> 4) & 0x0F]);
+            sanitized.push_back(hexDigits[ch & 0x0F]);
+            produced += 4;
+        }
+    }
+
+    return sanitized;
+}
+
+static std::optional<std::string> ExtractLatestSessionJson(const std::string& output)
+{
+    try
+    {
+        std::regex pattern(kSessionJsonPattern);
+        std::smatch match; 
+        std::optional<std::string> latest;
+        auto begin = output.cbegin();
+        while (std::regex_search(begin, output.cend(), match, pattern))
+        {
+            latest = match.str();
+            begin = match.suffix().first;
+        }
+        return latest;
+    }
+    catch (const std::regex_error& ex)
+    {
+        VDI_LOG_ERROR(TAG, "Session credential regex failed: %s", ex.what());
+        return std::nullopt;
+    }
+}
+
+static std::string ParsePodmanErrorResponse(const std::string& response)
+{
+    if (response.empty())
+        return "empty response body";
+
+    std::string trimmed = TrimWhitespace(response);
+    if (trimmed.empty())
+        return "empty response body";
+
+    Json::Value errorJson;
+    Json::CharReaderBuilder readerBuilder;
+    std::string errs;
+    std::istringstream stream(trimmed);
+    if (Json::parseFromStream(readerBuilder, stream, &errorJson, &errs) && errorJson.isObject())
+    {
+        std::string message;
+        std::string cause;
+        if (errorJson.isMember("message") && errorJson["message"].isString())
+            message = errorJson["message"].asString();
+        if (errorJson.isMember("cause") && errorJson["cause"].isString())
+            cause = errorJson["cause"].asString();
+
+        if (!message.empty() || !cause.empty())
+        {
+            std::string details = message;
+            if (!cause.empty())
+            {
+                if (!details.empty())
+                    details.append("; ");
+                details.append("cause: ");
+                details.append(cause);
+            }
+
+            if (!details.empty())
+                return details;
+        }
+    }
+
+    return std::string{"raw="} + SanitizeForLog(trimmed);
+}
+
+bool ExecuteCommandInContainer(const std::string& containerName,
+                               const std::vector<std::string>& command, std::string& output)
+{
+    output.clear();
+
+    if (command.empty())
+    {
+        VDI_LOG_ERROR(TAG, "Cannot execute empty command in container %s", containerName.c_str());
+        return false;
+    }
+
+    CURL* curl = curl_easy_init();
+    if (!curl)
+        return false;
+
+    Json::Value commandArray(Json::arrayValue);
+    for (const auto& argument : command)
+        commandArray.append(argument);
+
+    Json::Value execRequest(Json::objectValue);
+    execRequest["command"] = commandArray;
+    execRequest["Command"] = commandArray;
+    execRequest["Cmd"] = commandArray;
+    execRequest["AttachStdout"] = true;
+    execRequest["AttachStderr"] = true;
+    execRequest["Detach"] = false;
+    execRequest["Tty"] = false;
+
+    Json::StreamWriterBuilder writerBuilder;
+    writerBuilder["indentation"] = "";
+    const std::string commandString = JoinCommand(command);
+    const std::string body = Json::writeString(writerBuilder, execRequest);
+
+    std::string response;
+    const std::string execCreateUrl = BuildUrl(containerName, "/exec");
+
+    struct curl_slist* headers = nullptr;
+    headers = curl_slist_append(headers, "Content-Type: application/json");
+
+    curl_easy_setopt(curl, CURLOPT_UNIX_SOCKET_PATH, kPodmanSocket);
+    curl_easy_setopt(curl, CURLOPT_URL, execCreateUrl.c_str());
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body.c_str());
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, static_cast<long>(body.size()));
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
+    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+
+    const CURLcode res = curl_easy_perform(curl);
+    long httpCode = 0;
+    if (res == CURLE_OK)
+        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &httpCode);
+
+    if (headers)
+        curl_slist_free_all(headers);
+
+    curl_easy_cleanup(curl);
+
+    if (res != CURLE_OK)
+    {
+        VDI_LOG_ERROR(TAG, "Failed to create exec for '%s' in container %s: %s",
+                      commandString.c_str(), containerName.c_str(), curl_easy_strerror(res));
+        return false;
+    }
+
+    if (httpCode >= 400)
+    {
+        std::string errorDetails = ParsePodmanErrorResponse(response);
+        VDI_LOG_ERROR(TAG, "HTTP error %ld while creating exec for '%s' in container %s: %s",
+                      httpCode, commandString.c_str(), containerName.c_str(), errorDetails.c_str());
+        return false;
+    }
+
+    Json::Value createResponse;
+    Json::CharReaderBuilder readerBuilder;
+    std::string errs;
+    std::istringstream responseStream(response);
+
+    if (!Json::parseFromStream(readerBuilder, responseStream, &createResponse, &errs))
+    {
+        VDI_LOG_ERROR(TAG, "Failed to parse exec create response for '%s' in container %s: %s",
+                      commandString.c_str(), containerName.c_str(), errs.c_str());
+        return false;
+    }
+
+    const std::string execId = createResponse["Id"].asString();
+    if (execId.empty())
+    {
+        VDI_LOG_ERROR(TAG, "Podman exec create response missing Id for '%s' in container %s",
+                      commandString.c_str(), containerName.c_str());
+        return false;
+    }
+
+    CURL* startCurl = curl_easy_init();
+    if (!startCurl)
+    {
+        VDI_LOG_ERROR(TAG, "Failed to allocate CURL handle to start exec '%s' in container %s",
+                      commandString.c_str(), containerName.c_str());
+        return false;
+    }
+
+    Json::Value startRequest(Json::objectValue);
+    startRequest["Detach"] = false;
+    startRequest["Tty"] = false;
+
+    const std::string startBody = Json::writeString(writerBuilder, startRequest);
+    std::string execOutput;
+
+    struct curl_slist* startHeaders = nullptr;
+    startHeaders = curl_slist_append(startHeaders, "Content-Type: application/json");
+
+    const std::string execStartUrl = kPodmanExecBase + execId + "/start";
+    curl_easy_setopt(startCurl, CURLOPT_UNIX_SOCKET_PATH, kPodmanSocket);
+    curl_easy_setopt(startCurl, CURLOPT_URL, execStartUrl.c_str());
+    curl_easy_setopt(startCurl, CURLOPT_POSTFIELDS, startBody.c_str());
+    curl_easy_setopt(startCurl, CURLOPT_POSTFIELDSIZE, static_cast<long>(startBody.size()));
+    curl_easy_setopt(startCurl, CURLOPT_WRITEFUNCTION, WriteCallback);
+    curl_easy_setopt(startCurl, CURLOPT_WRITEDATA, &execOutput);
+    curl_easy_setopt(startCurl, CURLOPT_HTTPHEADER, startHeaders);
+
+    const CURLcode startRes = curl_easy_perform(startCurl);
+    long startHttpCode = 0;
+    if (startRes == CURLE_OK)
+        curl_easy_getinfo(startCurl, CURLINFO_RESPONSE_CODE, &startHttpCode);
+
+    if (startHeaders)
+        curl_slist_free_all(startHeaders);
+
+    curl_easy_cleanup(startCurl);
+
+    if (startRes != CURLE_OK)
+    {
+        VDI_LOG_ERROR(TAG, "Failed to run '%s' in container %s: %s", commandString.c_str(),
+                      containerName.c_str(), curl_easy_strerror(startRes));
+        return false;
+    }
+
+    if (startHttpCode >= 400)
+    {
+        std::string errorDetails = ParsePodmanErrorResponse(execOutput);
+        VDI_LOG_ERROR(TAG, "HTTP error %ld while running '%s' in container %s: %s", startHttpCode,
+                      commandString.c_str(), containerName.c_str(), errorDetails.c_str());
+        return false;
+    }
+
+    output = TrimWhitespace(execOutput);
+    return true;
+}
+
 std::string BuildUrl(const std::string& containerName, const std::string& endpoint)
 {
     std::string url = kPodmanApiBase;
     url.append(containerName);
     url.append(endpoint);
     return url;
+}
+
+const char* PodmanModeToString(vdi::VdiBrokerConfig::PodmanNetworkMode mode)
+{
+    switch (mode)
+    {
+    case vdi::VdiBrokerConfig::PodmanNetworkMode::MacVlan:
+        return "macvlan";
+    case vdi::VdiBrokerConfig::PodmanNetworkMode::BridgeUnmanaged:
+        return "bridge-unmanaged";
+    case vdi::VdiBrokerConfig::PodmanNetworkMode::Bridge:
+        return "bridge";
+    case vdi::VdiBrokerConfig::PodmanNetworkMode::None:
+    default:
+        return "disabled";
+    }
+}
+
+bool QueryPodmanNetworkExists(const std::string& networkName, bool& exists)
+{
+    exists = false;
+    CURL* curl = curl_easy_init();
+    if (!curl)
+        return false;
+
+    std::unique_ptr<char, decltype(&curl_free)> escaped(
+        curl_easy_escape(curl, networkName.c_str(), static_cast<int>(networkName.size())),
+        curl_free);
+    if (!escaped)
+    {
+        curl_easy_cleanup(curl);
+        return false;
+    }
+
+    std::string url = "http://d/v5.3.0/libpod/networks/";
+    url.append(escaped.get());
+
+    std::string response;
+    curl_easy_setopt(curl, CURLOPT_UNIX_SOCKET_PATH, kPodmanSocket);
+    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+    curl_easy_setopt(curl, CURLOPT_HTTPGET, 1L);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
+
+    const CURLcode res = curl_easy_perform(curl);
+    long httpCode = 0;
+    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &httpCode);
+
+    if (res == CURLE_OK)
+    {
+        exists = (httpCode >= 200 && httpCode < 300);
+        curl_easy_cleanup(curl);
+        return true;
+    }
+
+    if (res == CURLE_HTTP_RETURNED_ERROR)
+    {
+        if (httpCode >= 200 && httpCode < 300)
+        {
+            exists = true;
+            curl_easy_cleanup(curl);
+            return true;
+        }
+
+        if (httpCode == 404)
+        {
+            exists = false;
+            curl_easy_cleanup(curl);
+            return true;
+        }
+
+        VDI_LOG_ERROR(TAG, "Failed to inspect Podman network %s, HTTP code: %ld",
+                      networkName.c_str(), httpCode);
+        curl_easy_cleanup(curl);
+        return false;
+    }
+
+    VDI_LOG_ERROR(TAG, "Failed to query Podman network %s: %s", networkName.c_str(),
+                  curl_easy_strerror(res));
+    curl_easy_cleanup(curl);
+    return false;
+}
+
+bool CreatePodmanNetwork(const vdi::VdiBrokerConfig& config,
+                         vdi::VdiBrokerConfig::PodmanNetworkMode mode)
+{
+    const std::string networkName = config.PodmanNetworkName();
+    if (networkName.empty())
+    {
+        VDI_LOG_ERROR(TAG, "Cannot create Podman network: name is empty.");
+        return false;
+    }
+
+    if (mode == vdi::VdiBrokerConfig::PodmanNetworkMode::None)
+    {
+        VDI_LOG_INFO(TAG, "Podman network creation skipped because networking is disabled.");
+        return true;
+    }
+
+    CURL* curl = curl_easy_init();
+    if (!curl)
+        return false;
+
+    Json::Value payload(Json::objectValue);
+    Json::Value ipam_options(Json::objectValue);
+    payload["name"] = networkName;
+
+    if (mode == vdi::VdiBrokerConfig::PodmanNetworkMode::MacVlan)
+    {
+        payload["driver"] = "macvlan";
+        const std::string parent = config.PodmanNetworkParentInterface();
+        if (parent.empty())
+        {
+            VDI_LOG_ERROR(TAG, "Macvlan network selected but no parent interface provided.");
+            curl_easy_cleanup(curl);
+            return false;
+        }
+        payload["network_interface"] = parent;
+        ipam_options["driver"] = "dhcp";
+        payload["ipam_options"] = ipam_options;
+    }
+    else if (mode == vdi::VdiBrokerConfig::PodmanNetworkMode::Bridge ||
+             mode == vdi::VdiBrokerConfig::PodmanNetworkMode::BridgeUnmanaged)
+    {
+        payload["driver"] = "bridge";
+        Json::Value options(Json::objectValue);
+        bool hasOptions = false;
+        const std::string parent = config.PodmanNetworkParentInterface();
+        if (!parent.empty())
+        {
+            payload["network_interface"] = parent;
+            options["com.docker.network.bridge.name"] = parent;
+            hasOptions = true;
+        }
+        if (mode == vdi::VdiBrokerConfig::PodmanNetworkMode::BridgeUnmanaged)
+        {
+            options["mode"] = "unmanaged";
+            ipam_options["driver"] = "dhcp";
+            payload["ipam_options"] = ipam_options;
+            options["isolate"] = "false";
+            hasOptions = true;
+        }
+        if (hasOptions)
+            payload["options"] = options;
+    }
+    else
+    {
+        VDI_LOG_INFO(TAG, "Podman network mode is disabled; nothing to create.");
+        curl_easy_cleanup(curl);
+        return true;
+    }
+
+    Json::StreamWriterBuilder writer;
+    writer["indentation"] = "";
+    const std::string payloadStr = Json::writeString(writer, payload);
+
+    std::string response;
+    struct curl_slist* headers = nullptr;
+    headers = curl_slist_append(headers, "Content-Type: application/json");
+
+    curl_easy_setopt(curl, CURLOPT_UNIX_SOCKET_PATH, kPodmanSocket);
+    curl_easy_setopt(curl, CURLOPT_URL, "http://d/v5.3.0/libpod/networks/create");
+    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, payloadStr.c_str());
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
+
+    const CURLcode res = curl_easy_perform(curl);
+    bool success = false;
+    if (res == CURLE_OK || res == CURLE_HTTP_RETURNED_ERROR)
+    {
+        long httpCode = 0;
+        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &httpCode);
+        success = (httpCode >= 200 && httpCode < 300);
+        if (!success && httpCode == 409)
+        {
+            VDI_LOG_INFO(TAG, "Podman network %s already exists.", networkName.c_str());
+            success = true;
+        }
+        if (!success)
+        {
+            VDI_LOG_ERROR(
+                TAG, "Failed to create Podman network %s (%s), HTTP code: %ld, response: %s",
+                networkName.c_str(), PodmanModeToString(mode), httpCode, response.c_str());
+        }
+    }
+    else
+    {
+        VDI_LOG_ERROR(TAG, "Failed to create Podman network %s (%s): %s", networkName.c_str(),
+                      PodmanModeToString(mode), curl_easy_strerror(res));
+    }
+
+    if (success)
+    {
+        VDI_LOG_INFO(TAG, "Created Podman network %s using %s configuration.",
+                     networkName.c_str(), PodmanModeToString(mode));
+    }
+
+    curl_slist_free_all(headers);
+    curl_easy_cleanup(curl);
+    return success;
+}
+
+bool EnsurePodmanNetwork(vdi::VdiBrokerConfig& config)
+{
+    const auto mode = config.ActivePodmanNetworkMode();
+    if (mode == vdi::VdiBrokerConfig::PodmanNetworkMode::None)
+    {
+        VDI_LOG_INFO(TAG, "Podman network management disabled via configuration.");
+        return true;
+    }
+
+    const std::string networkName = config.PodmanNetworkName();
+    if (networkName.empty())
+    {
+        VDI_LOG_ERROR(TAG, "Podman network mode enabled but network name is not configured.");
+        return false;
+    }
+
+    const std::string parentInterface = config.PodmanNetworkParentInterface();
+
+    static std::mutex ensureMutex;
+    static std::unordered_map<std::string, EnsuredNetworkInfo> ensuredNetworks;
+
+    {
+        std::lock_guard<std::mutex> guard(ensureMutex);
+        const auto it = ensuredNetworks.find(networkName);
+        if (it != ensuredNetworks.end())
+        {
+            if (it->second.mode == mode && it->second.parent == parentInterface)
+            {
+                VDI_LOG_INFO(TAG, "Podman network '%s' already ensured (mode=%s, parent=%s).",
+                             networkName.c_str(), PodmanModeToString(it->second.mode),
+                             parentInterface.empty() ? "<none>" : parentInterface.c_str());
+                return true;
+            }
+
+            VDI_LOG_INFO(TAG,
+                         "Revalidating Podman network '%s' due to configuration change (mode: %s -> %s, parent: %s -> %s).",
+                         networkName.c_str(), PodmanModeToString(it->second.mode),
+                         PodmanModeToString(mode),
+                         it->second.parent.empty() ? "<none>" : it->second.parent.c_str(),
+                         parentInterface.empty() ? "<none>" : parentInterface.c_str());
+        }
+    }
+
+    const std::string interfaceName = config.PodmanNetworkInterface();
+    VDI_LOG_INFO(TAG, "Ensuring Podman network '%s' (requested=%s, interface=%s, parent=%s)",
+                 networkName.c_str(), PodmanModeToString(mode),
+                 interfaceName.empty() ? "<default>" : interfaceName.c_str(),
+                 parentInterface.empty() ? "<none>" : parentInterface.c_str());
+
+    bool exists = false;
+    if (!QueryPodmanNetworkExists(networkName, exists))
+        return false;
+
+    vdi::VdiBrokerConfig::PodmanNetworkMode finalMode = mode;
+
+    if (!exists)
+    {
+        if (!CreatePodmanNetwork(config, mode))
+        {
+            if (mode == vdi::VdiBrokerConfig::PodmanNetworkMode::MacVlan)
+            {
+                VDI_LOG_WARN(TAG,
+                             "Macvlan network creation failed; falling back to bridge network "
+                             "configuration.");
+                if (!CreatePodmanNetwork(config, vdi::VdiBrokerConfig::PodmanNetworkMode::Bridge))
+                    return false;
+                finalMode = vdi::VdiBrokerConfig::PodmanNetworkMode::Bridge;
+            }
+            else
+            {
+                return false;
+            }
+        }
+    }
+    else
+    {
+        VDI_LOG_INFO(TAG, "Podman network '%s' already present.", networkName.c_str());
+    }
+
+    {
+        std::lock_guard<std::mutex> guard(ensureMutex);
+        ensuredNetworks[networkName] = {finalMode, parentInterface};
+    }
+
+    VDI_LOG_INFO(TAG, "Podman network '%s' ready (mode=%s, parent=%s).", networkName.c_str(),
+                 PodmanModeToString(finalMode),
+                 parentInterface.empty() ? "<none>" : parentInterface.c_str());
+    return true;
 }
 
 bool BuildImageFromDockerfile(const std::string& image, const std::string& dockerfilePath)
@@ -622,7 +1195,7 @@ bool WaitForProcessInternal(const std::string& containerName, const std::string&
     return false;
 }
 
-bool WaitForTcpPort(const std::string& host, std::uint16_t port)
+[[maybe_unused]] bool WaitForTcpPort(const std::string& host, std::uint16_t port)
 {
     VDI_LOG_INFO(TAG, "Waiting for TCP port %" PRIu16 " on host %s", port, host.c_str());
 
@@ -699,6 +1272,40 @@ bool WaitForTcpPort(const std::string& host, std::uint16_t port)
     return false;
 }
 
+bool WaitForContainerPortWithSs(const std::string& containerName, std::uint16_t port)
+{
+    VDI_LOG_INFO(TAG, "Waiting for TCP port %" PRIu16 " inside container %s using ss", port,
+                 containerName.c_str());
+
+    const auto deadline = std::chrono::steady_clock::now() + kPortReadyTimeout;
+    const std::string portFilter = ":" + std::to_string(port);
+    const std::vector<std::string> command = {"ss", "-H", "-ltn", "sport", "=", portFilter};
+
+    while (std::chrono::steady_clock::now() < deadline)
+    {
+        std::string execOutput;
+        if (!ExecuteCommandInContainer(containerName, command, execOutput))
+        {
+            VDI_LOG_ERROR(TAG, "Failed to run 'ss' inside container %s while checking port %" PRIu16,
+                          containerName.c_str(), port);
+            return false;
+        }
+
+        if (!execOutput.empty() && execOutput.find("LISTEN") != std::string::npos)
+        {
+            VDI_LOG_INFO(TAG, "Port %" PRIu16 " is listening inside container %s", port,
+                         containerName.c_str());
+            return true;
+        }
+
+        std::this_thread::sleep_for(kReadinessPollInterval);
+    }
+
+    VDI_LOG_WARN(TAG, "Port %" PRIu16 " did not start listening inside container %s before timeout",
+                 port, containerName.c_str());
+    return false;
+}
+
 class ContainerPayloadBuilder
 {
 public:
@@ -721,6 +1328,7 @@ public:
         AddEnvironment();
         AddMounts();
         AddResourceLimits();
+        AddNetwork();
 
         root_["devices"] = devices_;
         root_["mounts"] = mounts_;
@@ -816,6 +1424,25 @@ private:
         }
 
         root_["resource_limits"] = limits;
+    }
+
+    void AddNetwork()
+    {
+        const auto mode = config_.ActivePodmanNetworkMode();
+        if (mode == vdi::VdiBrokerConfig::PodmanNetworkMode::None)
+            return;
+
+        const std::string networkName = config_.PodmanNetworkName();
+        if (networkName.empty())
+            return;
+
+        Json::Value networks(Json::objectValue);
+        Json::Value networkOptions(Json::objectValue);
+        const std::string interfaceName = config_.PodmanNetworkInterface();
+        if (!interfaceName.empty())
+            networkOptions["interface_name"] = interfaceName;
+        networks[networkName] = networkOptions;
+        root_["networks"] = networks;
     }
 
     void AppendDevice(const std::string& path)
@@ -975,50 +1602,83 @@ bool StartContainerInternal(const std::string& containerName)
 
 std::string GetContainerIpInternal(const std::string& containerName)
 {
-    const std::string payload = GetContainerInfo(containerName, "/json");
-    if (payload.empty())
-        return {};
+    const std::string grepCommand = std::string("grep -oE '") + kSessionJsonPattern + "' " +
+                                    kSessionLogPath + " | tail -n 1";
+    const std::vector<std::string> command = {"sh", "-c", grepCommand};
 
-    Json::Value root;
-    Json::CharReaderBuilder builder;
+    std::string execOutput;
+    if (!ExecuteCommandInContainer(containerName, command, execOutput))
+    {
+        VDI_LOG_ERROR(TAG,
+                      "Failed to read %s inside container %s while searching for session credentials",
+                      kSessionLogPath, containerName.c_str());
+        return {};
+    }
+
+    const auto latestJson = ExtractLatestSessionJson(execOutput);
+    if (!latestJson || latestJson->empty())
+    {
+        const std::string sanitized = SanitizeForLog(execOutput);
+        VDI_LOG_ERROR(TAG,
+                      "No session credentials matching pattern found in %s for container %s (output preview='%s')",
+                      kSessionLogPath, containerName.c_str(), sanitized.c_str());
+        return {};
+    }
+
+    const std::string jsonPayload = TrimWhitespace(*latestJson);
+    if (jsonPayload.empty())
+    {
+        const std::string sanitized = SanitizeForLog(*latestJson);
+        VDI_LOG_ERROR(TAG,
+                      "Matched session credential string was empty after trimming in container %s (preview='%s')",
+                      containerName.c_str(), sanitized.c_str());
+        return {};
+    }
+
+    Json::Value connectionInfo;
+    Json::CharReaderBuilder readerBuilder;
     std::string errs;
-    std::istringstream stream(payload);
+    std::istringstream jsonStream(jsonPayload);
 
-    if (!Json::parseFromStream(builder, stream, &root, &errs))
+    if (!Json::parseFromStream(readerBuilder, jsonStream, &connectionInfo, &errs))
     {
-        VDI_LOG_ERROR(TAG, "Failed to parse container JSON info: %s", errs.c_str());
+        const std::string sanitized = SanitizeForLog(jsonPayload);
+        VDI_LOG_ERROR(TAG,
+                      "Failed to parse session credentials from %s in container %s: %s (payload length=%zu, preview='%s')",
+                      kSessionLogPath, containerName.c_str(), errs.c_str(), jsonPayload.size(),
+                      sanitized.c_str());
         return {};
     }
 
-    const auto& networks = root["NetworkSettings"]["Networks"];
-    if (!networks.isObject())
-    {
-        VDI_LOG_ERROR(TAG, "No network information available for container.");
-        return {};
-    }
-
-    for (const auto& name : networks.getMemberNames())
-    {
-        const auto& network = networks[name];
-        const std::string ip = network["IPAddress"].asString();
-        if (!ip.empty())
+    auto ensureField = [&](const char* field) -> bool {
+        if (!connectionInfo.isMember(field) || !connectionInfo[field].isString() ||
+            connectionInfo[field].asString().empty())
         {
-            VDI_LOG_INFO(TAG, "Found IP: %s", ip.c_str());
-            return ip;
+            VDI_LOG_ERROR(TAG,
+                          "Session credential field '%s' missing in %s for container %s (payload length=%zu)",
+                          field, kSessionLogPath, containerName.c_str(), jsonPayload.size());
+            return false;
         }
-    }
+        return true;
+    };
 
-    return {};
+    if (!ensureField("ip") || !ensureField("username") || !ensureField("password"))
+        return {};
+
+    const std::string ipValue = connectionInfo["ip"].asString();
+    const std::string userValue = connectionInfo["username"].asString();
+    VDI_LOG_INFO(TAG, "Retrieved container connection info for %s (ip: %s, user: %s)",
+                 containerName.c_str(), ipValue.c_str(), userValue.c_str());
+    return jsonPayload;
 }
-} // namespace
 
-namespace vdi
-{
+
+
 
 std::string ManageContainer(const std::string& username, const std::string& containerPrefix)
 {
-	vdi::logging::ScopedLogUser scopedUser(username);
-	auto& configuration = Config();
+    vdi::logging::ScopedLogUser scopedUser(username);
+    auto& configuration = Config();
     const bool refreshed = configuration.Refresh();
     const bool reloaded = configuration.ConsumeReloadedFlag();
     if (reloaded || !refreshed)
@@ -1026,6 +1686,13 @@ std::string ManageContainer(const std::string& username, const std::string& cont
 
     const std::string prefix = containerPrefix.empty() ? std::string("vdi-") : containerPrefix;
     const std::string containerName = prefix + username;
+
+    if (!EnsurePodmanNetwork(configuration))
+    {
+        VDI_LOG_ERROR(TAG, "Unable to ensure Podman network for container %s",
+                      containerName.c_str());
+        return {};
+    }
 
     if (!ContainerExistsInternal(containerName))
     {
@@ -1051,20 +1718,71 @@ std::string ManageContainer(const std::string& username, const std::string& cont
     // if (!compositorReady)
     //     VDI_LOG_WARN(TAG, "GNOME compositor not ready in container %s", containerName.c_str());
 
-    const std::string ip = GetContainerIpInternal(containerName);
-    if (ip.empty())
+    const std::string connectionDetails = GetContainerIpInternal(containerName);
+    if (connectionDetails.empty())
     {
         VDI_LOG_ERROR(TAG, "Failed to retrieve IP for container %s", containerName.c_str());
         return {};
     }
 
-    if (!WaitForTcpPort(ip, kRdpPort))
+    ContainerConnectionInfo connectionInfo;
+    std::string parseError;
+    if (!ParseContainerConnectionInfo(connectionDetails, connectionInfo, &parseError))
     {
-        VDI_LOG_ERROR(TAG, "RDP port %" PRIu16 " not ready on host %s", kRdpPort, ip.c_str());
+        if (parseError.empty())
+            VDI_LOG_ERROR(TAG, "Failed to parse container connection details for %s",
+                          containerName.c_str());
+        else
+            VDI_LOG_ERROR(TAG, "Failed to parse container connection details for %s: %s",
+                          containerName.c_str(), parseError.c_str());
         return {};
     }
 
-    return ip;
+    if (!WaitForContainerPortWithSs(containerName, kRdpPort))
+    {
+        VDI_LOG_ERROR(TAG, "RDP port %" PRIu16 " not ready inside container %s (ip: %s)",
+                      kRdpPort, containerName.c_str(), connectionInfo.ip.c_str());
+        return {};
+    }
+
+    return TrimWhitespace(connectionDetails);
 }
 
-} // namespace vdi
+bool ParseContainerConnectionInfo(const std::string& json, ContainerConnectionInfo& info,
+                                  std::string* errorMessage)
+{
+    info = {};
+
+    const std::string trimmed = TrimWhitespace(json);
+    if (trimmed.empty())
+    {
+        if (errorMessage)
+            *errorMessage = "empty payload";
+        return false;
+    }
+
+    Json::Value root;
+    Json::CharReaderBuilder builder;
+    std::string errs;
+    std::istringstream stream(trimmed);
+    if (!Json::parseFromStream(builder, stream, &root, &errs))
+    {
+        if (errorMessage)
+            *errorMessage = "invalid JSON response";
+        return false;
+    }
+
+    info.ip = root.get("ip", "").asString();
+    info.username = root.get("username", "").asString();
+    info.password = root.get("password", "").asString();
+
+    if (info.ip.empty())
+    {
+        if (errorMessage)
+            *errorMessage = "missing ip field";
+        return false;
+    }
+
+    return true;
+}
+} //namespace vdi

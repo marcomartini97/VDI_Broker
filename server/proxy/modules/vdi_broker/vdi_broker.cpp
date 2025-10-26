@@ -495,17 +495,60 @@ static BOOL vdi_client_pre_connect(proxyPlugin* plugin, proxyData* pdata, void* 
 	const std::string requestedContainer = containerPrefix + parsed.user;
 	VDI_LOG_INFO(TAG, "Requesting container: %s", requestedContainer.c_str());
 
-	const std::string ip = vdi::ManageContainer(parsed.user, containerPrefix);
-	if (ip.empty())
+	const std::string containerDetails = vdi::ManageContainer(parsed.user, containerPrefix);
+	if (containerDetails.empty())
 	{
-		VDI_LOG_ERROR(TAG, "Couldn't get an IP from container");
+		VDI_LOG_ERROR(TAG, "Failed to prepare container for user %s", parsed.user.c_str());
 		return FALSE;
 	}
 
-	VDI_LOG_INFO(TAG, "Setting target address: %s", ip.c_str());
+	vdi::ContainerConnectionInfo containerInfo;
+	std::string containerParseError;
+	if (!vdi::ParseContainerConnectionInfo(containerDetails, containerInfo, &containerParseError))
+	{
+		if (containerParseError.empty())
+			VDI_LOG_ERROR(TAG, "Failed to parse container details for user %s",
+			              parsed.user.c_str());
+		else
+			VDI_LOG_ERROR(TAG, "Failed to parse container details for user %s: %s",
+			              parsed.user.c_str(), containerParseError.c_str());
+		return FALSE;
+	}
 
-	const RdpCredentials rdpCreds = load_rdp_credentials();
-	configure_target_settings(settings, ip, rdpCreds);
+	VDI_LOG_INFO(TAG, "Setting target address: %s", containerInfo.ip.c_str());
+
+	RdpCredentials rdpCreds;
+	rdpCreds.username = containerInfo.username;
+	rdpCreds.password = containerInfo.password;
+
+	bool usedFallbackCreds = false;
+	if (rdpCreds.username.empty() || rdpCreds.password.empty())
+	{
+		const RdpCredentials fallbackCreds = load_rdp_credentials();
+		if (rdpCreds.username.empty())
+		{
+			rdpCreds.username = fallbackCreds.username;
+			usedFallbackCreds = true;
+		}
+		if (rdpCreds.password.empty())
+		{
+			rdpCreds.password = fallbackCreds.password;
+			usedFallbackCreds = true;
+		}
+	}
+
+	if (usedFallbackCreds)
+	{
+		VDI_LOG_WARN(TAG,
+		             "Container script missing credentials; using configured fallback for user %s",
+		             parsed.user.c_str());
+	}
+	else
+	{
+		VDI_LOG_INFO(TAG, "Using script-provided credentials for user %s", parsed.user.c_str());
+	}
+
+	configure_target_settings(settings, containerInfo.ip, rdpCreds);
 
 	return TRUE;
 }

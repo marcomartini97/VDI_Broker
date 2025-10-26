@@ -45,11 +45,16 @@ On each connection the server:
 2. Authenticates the user against the configured PAM service (network level
    authentication is disabled; standard username/password logon is used).
 3. Displays a temporary blue screen so the user receives immediate feedback.
-4. Starts or resumes the matching container using the existing Podman manager
-   and registers it with the TCP proxy.
+4. Starts or resumes the matching container. During this phase the Podman
+   manager now creates a short-lived `exec` instance that runs
+   `/usr/bin/setup_grd.sh` inside the container. The script prints a JSON object
+   such as `{"ip":"10.0.0.5","username":"grd-user","password":"secret"}` that
+   describes how to reach the per-user GNOME Remote Desktop service.
 5. Issues an RDP server redirection PDU pointing the client at the proxy on
-   `127.0.0.1:3390` with the broker-managed credentials; the proxy forwards the
-   session to the per-user container.
+   `127.0.0.1:3390`. When the JSON payload omits credentials the redirector falls
+   back to the static RDP username/password configured in `vdi_broker.yaml`.
+   Otherwise it forwards the script-provided credentials so the proxy can login
+   directly to the desktop session.
 
 Logs are written through the shared `vdi_logging` helpers under
 `/var/log/vdi-broker`.

@@ -22,6 +22,14 @@ public:
         bool readOnly;
     };
 
+    enum class PodmanNetworkMode
+    {
+        None,
+        Bridge,
+        BridgeUnmanaged,
+        MacVlan
+    };
+
     static VdiBrokerConfig& Instance();
 
     void SetConfigPath(const std::string& path);
@@ -55,6 +63,10 @@ public:
     std::unordered_map<std::string, std::int64_t>
     ResourceLimitsForUser(const std::string& username) const;
     std::size_t ResourceLimitUserCount() const;
+    PodmanNetworkMode ActivePodmanNetworkMode() const;
+    std::string PodmanNetworkName() const;
+    std::string PodmanNetworkInterface() const;
+    std::string PodmanNetworkParentInterface() const;
 
 private:
     VdiBrokerConfig();
@@ -96,6 +108,10 @@ private:
         userResourceLimits_;
     std::string redirectorBackgroundImage_;
     std::uint32_t redirectorBackgroundColorBgrx_;
+    PodmanNetworkMode podmanNetworkMode_;
+    std::string podmanNetworkName_;
+    std::string podmanNetworkInterface_;
+    std::string podmanNetworkParentInterface_;
     std::filesystem::file_time_type lastWrite_;
     bool hasLastWrite_;
     bool loaded_;

@@ -541,8 +541,8 @@ BOOL RedirectorServer::PeerPostConnect(freerdp_peer* peer)
 	{
 		statusDisplay.ShowMessage("Provisioning session for " + parsed.user + "...");
 	}
-	const std::string ip = vdi::ManageContainer(parsed.user, containerPrefix);
-	if (ip.empty())
+	const std::string containerDetails = vdi::ManageContainer(parsed.user, containerPrefix);
+	if (containerDetails.empty())
 	{
 		if (statusDisplay.Ready())
 			statusDisplay.ShowMessage("Provisioning session failed");
@@ -550,7 +550,52 @@ BOOL RedirectorServer::PeerPostConnect(freerdp_peer* peer)
 		return FALSE;
 	}
 
-	const RdpCredentials containerCreds = load_rdp_credentials();
+	vdi::ContainerConnectionInfo containerInfo;
+	std::string containerParseError;
+	if (!vdi::ParseContainerConnectionInfo(containerDetails, containerInfo, &containerParseError))
+	{
+		if (statusDisplay.Ready())
+			statusDisplay.ShowMessage("Provisioning session failed");
+		if (containerParseError.empty())
+			VDI_LOG_ERROR(TAG, "Failed to parse container details for user %s",
+			              parsed.user.c_str());
+		else
+			VDI_LOG_ERROR(TAG, "Failed to parse container details for user %s: %s",
+			              parsed.user.c_str(), containerParseError.c_str());
+		return FALSE;
+	}
+
+	const std::string& ip = containerInfo.ip;
+
+	RdpCredentials containerCreds;
+	containerCreds.username = containerInfo.username;
+	containerCreds.password = containerInfo.password;
+
+	bool usedFallbackCreds = false;
+	if (containerCreds.username.empty() || containerCreds.password.empty())
+	{
+		const RdpCredentials fallbackCreds = load_rdp_credentials();
+		if (containerCreds.username.empty())
+		{
+			containerCreds.username = fallbackCreds.username;
+			usedFallbackCreds = true;
+		}
+		if (containerCreds.password.empty())
+		{
+			containerCreds.password = fallbackCreds.password;
+			usedFallbackCreds = true;
+		}
+	}
+
+	if (usedFallbackCreds)
+	{
+		VDI_LOG_WARN(TAG,
+		             "Container script missing credentials; using configured fallback for user %s",
+		             parsed.user.c_str());
+	}
+	else {
+		VDI_LOG_INFO(TAG, "Container script credentials: %s, %s\n", containerCreds.username.c_str(), containerCreds.password.c_str());
+	}
 
 	bool useVortice = false;
 	std::string proxyHost;
