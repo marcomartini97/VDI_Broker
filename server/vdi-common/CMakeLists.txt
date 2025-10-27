@@ -14,7 +14,13 @@ pkg_check_modules(PAM REQUIRED pam pam_misc)
 
 add_library(vdi-common STATIC
 	vdi_broker_config.cpp
+	vdi_broker_config_parser.cpp
+	vdi_broker_config_parser_blocks.cpp
+	vdi_container_build.cpp
 	vdi_container_manager.cpp
+	vdi_container_podman_network.cpp
+	vdi_container_podman_runtime.cpp
+	vdi_container_utils.cpp
 	vdi_logging_utils.cpp
 	vdi_status_display.cpp
 	vdi_vortice_protocol.cpp

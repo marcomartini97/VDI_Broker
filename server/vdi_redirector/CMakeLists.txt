@@ -32,6 +32,7 @@ endif()
 set(SRCS
 	vdi_redirector.cpp
 	vdi_redirector_server.cpp
+	vdi_redirector_server_helpers.cpp
 	vdi_redirector_utils.cpp
 	vdi_vortice_client.cpp
 )
