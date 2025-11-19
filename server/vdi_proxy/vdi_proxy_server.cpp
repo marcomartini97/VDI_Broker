@@ -184,12 +184,38 @@ BOOL vdi_proxy_client_pre_connect(proxyPlugin* plugin, proxyData* pdata, void* c
 		return FALSE;
 	}
 
-	std::string targetUsername = containerInfo.username.empty() ? fallbackCreds.username
-	                                                            : containerInfo.username;
-	std::string targetPassword = containerInfo.password.empty() ? fallbackCreds.password
-	                                                            : containerInfo.password;
-	const bool usedFallbackCreds =
-	    containerInfo.username.empty() || containerInfo.password.empty();
+	std::string targetUsername = containerInfo.username;
+	std::string targetPassword = containerInfo.password;
+
+	const bool overrideAuth = configuration.RdpAuthOverrideEnabled();
+	bool usedConfiguredOverride = false;
+	if (overrideAuth)
+	{
+		const std::string overrideUser = configuration.RdpUsername();
+		const std::string overridePass = configuration.RdpPassword();
+		if (!overrideUser.empty() && !overridePass.empty())
+		{
+			targetUsername = overrideUser;
+			targetPassword = overridePass;
+			usedConfiguredOverride = true;
+		}
+		else
+		{
+			VDI_LOG_WARN(TAG,
+			             "RDP auth override enabled but username or password missing; ignoring");
+		}
+	}
+
+	bool usedFallbackCreds = false;
+	if (!usedConfiguredOverride &&
+	    (targetUsername.empty() || targetPassword.empty()))
+	{
+		if (targetUsername.empty())
+			targetUsername = fallbackCreds.username;
+		if (targetPassword.empty())
+			targetPassword = fallbackCreds.password;
+		usedFallbackCreds = true;
+	}
 
 	if (!freerdp_settings_set_string(settings, FreeRDP_Username, targetUsername.c_str()))
 		return FALSE;
@@ -198,7 +224,12 @@ BOOL vdi_proxy_client_pre_connect(proxyPlugin* plugin, proxyData* pdata, void* c
 	if (!freerdp_settings_set_string(settings, FreeRDP_Domain, ""))
 		return FALSE;
 
-	if (usedFallbackCreds)
+	if (usedConfiguredOverride)
+	{
+		VDI_LOG_INFO(TAG, "Using configured RDP credential override for user %s",
+		             parsed.user.c_str());
+	}
+	else if (usedFallbackCreds)
 	{
 		VDI_LOG_WARN(TAG,
 		             "Container script missing credentials; using configured fallback for user %s",

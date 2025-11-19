@@ -27,7 +27,9 @@
 #include <winpr/winsock.h>
 
 #include <arpa/inet.h>
+#include <chrono>
 #include <cstring>
+#include <exception>
 #include <inttypes.h>
 #include <memory>
 #include <optional>
@@ -39,6 +41,12 @@
 
 namespace redirector
 {
+
+namespace
+{
+constexpr int kConfigPollSleepIterations = 50;
+const std::chrono::milliseconds kConfigPollSleepStep(100);
+}
 
 
 RedirectorServer::RedirectorServer() = default;
@@ -86,6 +94,11 @@ bool RedirectorServer::Initialize(RedirectorOptions options)
 		{
 			VDI_LOG_WARN(TAG, "Unable to connect to Vortice broker immediately; retrying on demand");
 		}
+	}
+	if (!StartConfigPolling())
+	{
+		VDI_LOG_ERROR(TAG, "Failed to start configuration polling thread");
+		return false;
 	}
 	return true;
 }
@@ -148,6 +161,7 @@ void RedirectorServer::Stop()
 {
 	if (stopEvent_)
 		SetEvent(stopEvent_);
+	StopConfigPolling();
 	if (vorticeClient_)
 		vorticeClient_->Stop();
 }
@@ -423,8 +437,29 @@ BOOL RedirectorServer::PeerPostConnect(freerdp_peer* peer)
 	containerCreds.username = containerInfo.username;
 	containerCreds.password = containerInfo.password;
 
+	const bool overrideAuth =
+	    configuration.RdpAuthOverrideEnabled();
+	bool usedConfiguredOverride = false;
+	if (overrideAuth)
+	{
+		const std::string overrideUser = configuration.RdpUsername();
+		const std::string overridePass = configuration.RdpPassword();
+		if (!overrideUser.empty() && !overridePass.empty())
+		{
+			containerCreds.username = overrideUser;
+			containerCreds.password = overridePass;
+			usedConfiguredOverride = true;
+		}
+		else
+		{
+			VDI_LOG_WARN(TAG,
+			             "RDP auth override enabled but username or password missing; ignoring");
+		}
+	}
+
 	bool usedFallbackCreds = false;
-	if (containerCreds.username.empty() || containerCreds.password.empty())
+	if (!usedConfiguredOverride &&
+	    (containerCreds.username.empty() || containerCreds.password.empty()))
 	{
 		const RdpCredentials fallbackCreds = load_rdp_credentials();
 		if (containerCreds.username.empty())
@@ -439,7 +474,13 @@ BOOL RedirectorServer::PeerPostConnect(freerdp_peer* peer)
 		}
 	}
 
-	if (usedFallbackCreds)
+	if (usedConfiguredOverride)
+	{
+		VDI_LOG_INFO(TAG,
+		             "Using configured RDP credential override for user %s",
+		             parsed.user.c_str());
+	}
+	else if (usedFallbackCreds)
 	{
 		VDI_LOG_WARN(TAG,
 		             "Container script missing credentials; using configured fallback for user %s",
@@ -586,6 +627,49 @@ RedirectorServer::PeerHolder::~PeerHolder()
 	if (contextInitialized)
 		freerdp_peer_context_free(peer);
 	freerdp_peer_free(peer);
+}
+
+bool RedirectorServer::StartConfigPolling()
+{
+	stopConfigPolling_.store(false, std::memory_order_relaxed);
+	try
+	{
+		configPollingThread_ = std::thread(&RedirectorServer::ConfigPollingLoop, this);
+	}
+	catch (const std::exception& ex)
+	{
+		stopConfigPolling_.store(true, std::memory_order_relaxed);
+		VDI_LOG_ERROR(TAG, "Failed to launch config polling thread: %s", ex.what());
+		return false;
+	}
+	return true;
+}
+
+void RedirectorServer::StopConfigPolling()
+{
+	stopConfigPolling_.store(true, std::memory_order_relaxed);
+	if (configPollingThread_.joinable())
+		configPollingThread_.join();
+}
+
+void RedirectorServer::ConfigPollingLoop()
+{
+	vdi::logging::ScopedLogUser scopedUser("system");
+	auto shouldStop = [this]() {
+		return stopConfigPolling_.load(std::memory_order_relaxed);
+	};
+
+	while (!shouldStop())
+	{
+		auto& configuration = vdi::Config();
+		const bool refreshed = configuration.Refresh();
+		const bool reloaded = configuration.ConsumeReloadedFlag();
+		if (reloaded || !refreshed)
+			vdi_log_refresh_outcome(refreshed, reloaded);
+
+		for (int i = 0; i < kConfigPollSleepIterations && !shouldStop(); ++i)
+			std::this_thread::sleep_for(kConfigPollSleepStep);
+	}
 }
 
 } // namespace redirector

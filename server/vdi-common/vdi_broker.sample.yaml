@@ -53,6 +53,8 @@ dockerfile_path: /etc/vdi/VORTICE-vdi/Containerfile
 # inside the Podman container. Defaults fallback to "rdp" when omitted.
 rdp_username: rdp
 rdp_password: rdp
+# When true, always use the credentials above instead of container-provided ones.
+rdp_auth_override: false
 
 # Optional redirector splash screen customization.
 # Provide a path to a PNG/JPEG/BMP to show while provisioning, or leave empty to disable.

@@ -311,6 +311,15 @@ void ConfigYamlParser::HandleTopLevelEntry(const std::string& key, const std::st
         return;
     }
 
+    if (normalized == "rdp_auth_override" || normalized == "rdp_authentication_override")
+    {
+        if (IsTruthy(value))
+            config_.rdpAuthOverride_ = true;
+        else if (IsFalsy(value))
+            config_.rdpAuthOverride_ = false;
+        return;
+    }
+
     if (normalized == "redirector_background_image")
     {
         config_.redirectorBackgroundImage_ = VdiBrokerConfig::StripQuotes(value);

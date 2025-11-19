@@ -8,8 +8,10 @@
 #include <freerdp/peer.h>
 #include <winpr/wtypes.h>
 
-#include <string>
+#include <atomic>
 #include <memory>
+#include <string>
+#include <thread>
 
 namespace redirector
 {
@@ -38,6 +40,10 @@ public:
 	static BOOL PeerPostConnect(freerdp_peer* peer);
 
 private:
+	bool StartConfigPolling();
+	void StopConfigPolling();
+	void ConfigPollingLoop();
+
 	struct PeerHolder
 	{
 		freerdp_peer* peer = nullptr;
@@ -55,6 +61,8 @@ private:
 	freerdp_listener* listener_ = nullptr;
 	HANDLE stopEvent_ = nullptr;
 	std::unique_ptr<VorticeClient> vorticeClient_;
+	std::atomic_bool stopConfigPolling_{ true };
+	std::thread configPollingThread_;
 };
 
 } // namespace redirector

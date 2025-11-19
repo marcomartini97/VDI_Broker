@@ -50,6 +50,7 @@ void vdi_log_configuration_state(bool refreshed)
 	const std::string pamService = configuration.PamServiceName();
 	const std::string rdpUsername = configuration.RdpUsername();
 	const std::string rdpPassword = configuration.RdpPassword();
+	const bool rdpOverride = configuration.RdpAuthOverrideEnabled();
 	const std::size_t userImageOverrides = configuration.UserImageCount();
 	const std::size_t customMounts = configuration.CustomMountCount();
 	const bool nvidiaEnabled = configuration.NvidiaGpuEnabled();
@@ -115,6 +116,7 @@ void vdi_log_configuration_state(bool refreshed)
 	VDI_LOG_INFO(TAG, "  redirector_bg : %s (color %s)", bgImageStr, colorBuffer);
 	VDI_LOG_INFO(TAG, "  rdp_username  : %s", rdpUsername.c_str());
 	VDI_LOG_INFO(TAG, "  rdp_password  : %s", rdpPasswordStr);
+	VDI_LOG_INFO(TAG, "  rdp_override  : %s", rdpOverride ? "enabled" : "disabled");
 }
 
 void vdi_log_refresh_outcome(bool refreshed, bool reloaded)

@@ -50,6 +50,7 @@ public:
     std::string DockerfilePath() const;
     std::string RdpUsername() const;
     std::string RdpPassword() const;
+    bool RdpAuthOverrideEnabled() const;
     std::string RedirectorBackgroundImage() const;
     std::uint32_t RedirectorBackgroundColor() const;
     std::string PodmanImageForUser(const std::string& username) const;
@@ -97,6 +98,7 @@ private:
     std::string dockerfilePath_;
     std::string rdpUsername_;
     std::string rdpPassword_;
+    bool rdpAuthOverride_;
     std::unordered_map<std::string, std::string> userImages_;
     bool nvidiaGpuEnabled_;
     std::uint32_t nvidiaGpuSlot_;

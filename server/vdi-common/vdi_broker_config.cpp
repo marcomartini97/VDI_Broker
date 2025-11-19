@@ -30,10 +30,10 @@ VdiBrokerConfig& VdiBrokerConfig::Instance()
 VdiBrokerConfig::VdiBrokerConfig()
     : configPath_(), podmanImage_(), homePath_(), shadowPath_(), groupPath_(),
       passwdPath_(), pamPath_(), pamServiceName_(kDefaultPamService), dockerfilePath_(),
-      rdpUsername_(), rdpPassword_(), userImages_(), nvidiaGpuEnabled_(false),
-      nvidiaGpuSlot_(0), customMounts_(), driRenderDevices_(), driCardDevices_(),
-      globalResourceLimits_(), userResourceLimits_(), redirectorBackgroundImage_(),
-      redirectorBackgroundColorBgrx_(0),
+      rdpUsername_(), rdpPassword_(), rdpAuthOverride_(false), userImages_(),
+      nvidiaGpuEnabled_(false), nvidiaGpuSlot_(0), customMounts_(), driRenderDevices_(),
+      driCardDevices_(), globalResourceLimits_(), userResourceLimits_(),
+      redirectorBackgroundImage_(), redirectorBackgroundColorBgrx_(0),
       hasLastWrite_(false), loaded_(false), reloaded_(false)
 {
     const char* env = std::getenv(kEnvConfigPath);
@@ -187,6 +187,12 @@ std::string VdiBrokerConfig::RdpPassword() const
     return rdpPassword_;
 }
 
+bool VdiBrokerConfig::RdpAuthOverrideEnabled() const
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    return rdpAuthOverride_;
+}
+
 std::string VdiBrokerConfig::RedirectorBackgroundImage() const
 {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -265,6 +271,7 @@ void VdiBrokerConfig::ApplyDefaultsUnlocked()
     dockerfilePath_.clear();
     rdpUsername_ = "rdp";
     rdpPassword_ = "rdp";
+    rdpAuthOverride_ = false;
     userImages_.clear();
     nvidiaGpuEnabled_ = false;
     nvidiaGpuSlot_ = 0;
